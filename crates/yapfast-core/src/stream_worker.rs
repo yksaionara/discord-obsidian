@@ -1761,7 +1761,8 @@ mod tests {
     fn aims_for_discords_bitrates() {
         assert_eq!(kbps(720, 30, None), 3500);
         assert_eq!(kbps(1080, 60, None), 9000);
-        assert_eq!(kbps(1080, 240, None), 27000, "more for more frames");
+        assert_eq!(kbps(1080, 240, None), 36000, "more for more frames");
+        assert_eq!(kbps(1440, 360, None), 40000, "up to 40 Mbit/s");
         assert_eq!(kbps(1080, 60, Some(4_000_000)), 4000, "what the path carries");
         assert_eq!(kbps(720, 30, Some(9_000_000)), 3500, "never past the cap");
         assert_eq!(kbps(1080, 60, Some(100_000)), 500, "nor below a screen's floor");

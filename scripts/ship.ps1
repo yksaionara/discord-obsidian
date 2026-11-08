@@ -51,7 +51,7 @@ $body = if ($Notes) { $Notes } else { "Release v$Version." }
 if ($Trailer) { git commit -m "Ship v$Version" -m $body -m $Trailer } else { git commit -m "Ship v$Version" -m $body }
 if ($LASTEXITCODE -ne 0) { throw "nothing to commit, or the commit failed" }
 git tag "v$Version"
-git push $Remote HEAD:main --tags
+git push $Remote HEAD:main "v$Version"
 if ($LASTEXITCODE -ne 0) { throw "the push failed" }
 
 # The release the apps update from.

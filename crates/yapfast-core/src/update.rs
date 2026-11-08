@@ -237,4 +237,16 @@ mod tests {
         assert_eq!(found.version, "999.0.0");
         assert!(!folder.join("0.0.1.exe").exists(), "the old one goes");
     }
+
+    /// Needs the network: `cargo test -p yapfast-core update -- --ignored`.
+    #[test]
+    #[ignore = "reaches GitHub"]
+    fn downloads_the_latest_release() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        set_version("0.0.1");
+        let root = tempfile::tempdir().unwrap();
+        let pending = check(root.path()).unwrap().expect("a newer release");
+        assert!(pending.installer.metadata().unwrap().len() > 1_000_000);
+        eprintln!("downloaded {} to {}", pending.version, pending.installer.display());
+    }
 }

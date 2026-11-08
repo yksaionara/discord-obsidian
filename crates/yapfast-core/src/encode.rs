@@ -643,4 +643,27 @@ mod tests {
         let engine = check_h264(Effort::Light, (320, 180), true);
         eprintln!("encoded with {engine}");
     }
+
+    /// Times NVENC at a game's size and rate: `YAPFAST_NVENC_PRESET=p4
+    /// cargo test -p yapfast-core encode_speed -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs the GPU"]
+    fn encode_speed() {
+        let (width, height) = (1568, 1080);
+        let mut encoder =
+            Encoder::new(Codec::Av1, width, height, 360, 36_000, Effort::Light, true).unwrap();
+        let mut picture = I420Buffer::new(width, height);
+        let started = std::time::Instant::now();
+        let frames = 600u64;
+        for frame in 0..frames {
+            let (y, _, _) = picture.data_mut();
+            for (index, luma) in y.iter_mut().enumerate().step_by(3) {
+                *luma = ((index as u64 + frame * 13) % 220) as u8 + 16;
+            }
+            let pts = frame * CLOCK / 360;
+            let _ = encoder.encode_i420(&picture, pts, frame == 0).unwrap();
+        }
+        let each = started.elapsed() / frames as u32;
+        eprintln!("{}: {:?} a frame, {:.0} fps", encoder.engine(), each, 1.0 / each.as_secs_f64());
+    }
 }

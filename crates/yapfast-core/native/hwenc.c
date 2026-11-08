@@ -1,3 +1,4 @@
+#include <stdlib.h>
 /* Hardware encoding for Go Live, through FFmpeg's encoders in
  * vendor/ffmpeg-src: NVIDIA's NVENC, then AMD's AMF on Windows and VA-API
  * (AMD and Intel) on Linux.
@@ -149,9 +150,12 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     }
     h->poll = 1;
   } else {
-    /* Faster presets past 60 fps, so each frame encodes within its share
-       of the second: p1 keeps 1080p at 360 fps on one NVENC engine. */
-    av_opt_set(options, "preset", fps > 144 ? "p1" : fps > 60 ? "p2" : "p4", 0);
+    /* p4, Discord's own quality, up to 240 fps; p3 above, so a frame still
+       encodes within its 2.8 ms at 360. On an RTX 5070 Ti at 1568x1080, AV1
+       takes 1.9 ms a frame at p4 and 1.8 at p3 (p1, 1.4, blurred text).
+       YAPFAST_NVENC_PRESET overrides it, for measuring. */
+    const char *preset = getenv("YAPFAST_NVENC_PRESET");
+    av_opt_set(options, "preset", preset ? preset : fps > 240 ? "p3" : "p4", 0);
     av_opt_set(options, "tune", "ll", 0);
     av_opt_set(options, "rc", "vbr", 0);
     av_opt_set_int(options, "zerolatency", 1, 0);
