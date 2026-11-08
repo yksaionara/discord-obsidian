@@ -174,7 +174,8 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
 
 /// Windows keeps the taskbar over a borderless fullscreen window that still
 /// has a resizable frame, and draws its border around it; winit leaves the
-/// frame on a window without decorations. So once winit has gone full
+/// frame, and a maximized window's place clear of the taskbar, on a window
+/// without decorations. So once winit has gone full
 /// screen, the window loses its frame and its border, and gets them back
 /// on leaving.
 #[cfg(windows)]
@@ -190,8 +191,8 @@ mod full_screen {
             GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOP, SWP_FRAMECHANGED, SWP_NOACTIVATE,
             SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
             SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, WS_BORDER, WS_CAPTION,
-            WS_DLGFRAME, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX,
-            WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+            WS_DLGFRAME, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_WINDOWEDGE, WS_MAXIMIZE,
+            WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
         },
     };
 
@@ -232,8 +233,11 @@ mod full_screen {
             let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
             let extended = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             SAVED.set(Some((style, extended)));
+            // WS_MAXIMIZE too: winit keeps a maximized window without
+            // decorations off the taskbar, so a window maximized before going
+            // full screen drew 48 px short, with the taskbar showing through.
             let frame = (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
-                | WS_BORDER | WS_DLGFRAME) as isize;
+                | WS_BORDER | WS_DLGFRAME | WS_MAXIMIZE) as isize;
             let edges = (WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME) as isize;
             SetWindowLongPtrW(hwnd, GWL_STYLE, (style & !frame) | WS_POPUP as isize);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, extended & !edges);

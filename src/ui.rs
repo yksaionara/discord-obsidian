@@ -179,6 +179,7 @@ pub fn run(
         Err(error) => return failed(error, "could not create the Yapfast window"),
     };
     title_bar::show(&window, system_title_bar);
+    window.set_app_version(env!("CARGO_PKG_VERSION").into());
     if let Some(placement) = &placement {
         placement::place(&window, placement);
     }
@@ -203,6 +204,10 @@ pub fn run(
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow_mut().watch_shortcuts(&window);
+    if !preview {
+        adapter.borrow().show_whats_new(&window);
+    }
     adapter.borrow().show_protocol(&window);
     if !preview {
         adapter.borrow_mut().pending_link = open_link;
@@ -283,6 +288,40 @@ const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 
 /// Checks for an update on a thread of its own, now and again, and shows the
 /// rail's Update button once one is downloaded; the button installs it.
 #[cfg(windows)]
+/// What this version changed, as its release notes say; see scripts/ship.ps1.
+const WHATS_NEW: &str = include_str!("../packaging/whats-new.txt");
+
+/// How often a downloaded update looks for a moment to install.
+const UPDATE_IDLE_CHECK: Duration = Duration::from_secs(30);
+
+thread_local! {
+    /// Looks for a moment to install a downloaded update.
+    static UPDATE_WAIT: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
+}
+
+/// Installs a downloaded update as soon as nobody's using the app: not in
+/// a call or sharing, and the window not in front, so a restart interrupts
+/// nothing. Hidden in the tray, it starts again there.
+fn install_when_idle(window: &YapfastWindow, root: PathBuf) {
+    let weak = window.as_weak();
+    let timer = slint::Timer::default();
+    timer.start(slint::TimerMode::Repeated, UPDATE_IDLE_CHECK, move || {
+        let Some(window) = weak.upgrade() else { return };
+        if window.get_voice_active() || window.get_sharing() || FOCUSED.get() {
+            return;
+        }
+        let Some(pending) = yapfast_core::update::pending(&root) else { return };
+        let background = !window.window().is_visible();
+        match yapfast_core::update::apply(&pending, background) {
+            Ok(()) => {
+                let _ = slint::quit_event_loop();
+            }
+            Err(error) => tracing::warn!(error = format!("{error:#}"), "could not install the update"),
+        }
+    });
+    UPDATE_WAIT.with(|wait| *wait.borrow_mut() = Some(timer));
+}
+
 fn watch_updates(window: &YapfastWindow, root: PathBuf) {
     let weak = window.as_weak();
     let installing = root.clone();
@@ -306,9 +345,11 @@ fn watch_updates(window: &YapfastWindow, root: PathBuf) {
                     Ok(Some(pending)) => {
                         let weak = weak.clone();
                         let version = pending.version.clone();
+                        let root = root.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak.upgrade() {
                                 window.set_update_version(version.into());
+                                install_when_idle(&window, root);
                             }
                         });
                     }
@@ -585,6 +626,56 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         }
                     }
                     return EventResult::PreventDefault;
+                }
+                // While recording a mute or deafen shortcut, the next key
+                // with its modifiers becomes it, and Escape stops.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && let Some(window) = weak.upgrade()
+                    && window.get_shortcut_recording() != 0
+                {
+                    if !key.repeat {
+                        let which = window.get_shortcut_recording();
+                        let (ctrl, shift, alt) = keys.modifiers();
+                        if key.logical_key == Key::Named(NamedKey::Escape) {
+                            window.set_shortcut_recording(0);
+                        } else if let Some(recorded) =
+                            crate::hotkeys::Shortcut::recorded(key, ctrl, shift, alt)
+                        {
+                            window.set_shortcut_recording(0);
+                            let (adapter, weak) = (adapter.clone(), weak.clone());
+                            slint::Timer::single_shot(Duration::ZERO, move || {
+                                if let (Some(adapter), Some(window)) =
+                                    (adapter.upgrade(), weak.upgrade())
+                                {
+                                    adapter.borrow_mut().set_shortcut(&window, which, Some(recorded));
+                                }
+                            });
+                        }
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // Without a hook, the shortcuts work while the window has the
+                // focus.
+                #[cfg(not(windows))]
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && let Some(state) = adapter.upgrade()
+                {
+                    let (ctrl, shift, alt) = keys.modifiers();
+                    let toggle = state
+                        .borrow()
+                        .shortcuts
+                        .as_ref()
+                        .and_then(|watcher| watcher.focused(key, ctrl, shift, alt));
+                    if let Some(toggle) = toggle
+                        && let Some(window) = weak.upgrade()
+                    {
+                        match toggle {
+                            crate::hotkeys::Toggle::Mute => window.invoke_toggle_mute(),
+                            crate::hotkeys::Toggle::Deafen => window.invoke_toggle_deafen(),
+                        }
+                        return EventResult::PreventDefault;
+                    }
                 }
                 // Ctrl+K opens the quick switcher, or closes it, wherever the
                 // focus is, as in Discord; not over the settings or a link
@@ -1171,6 +1262,11 @@ struct Layout {
     /// in ms; Discord's 20 unless changed.
     input_mode: InputMode,
     push_to_talk_key: Option<crate::push_to_talk::Keybind>,
+    /// The version whose "What's new" was dismissed.
+    seen_version: Option<String>,
+    /// Shortcuts that toggle mute and deafen in any app; none unless set.
+    mute_shortcut: Option<crate::hotkeys::Shortcut>,
+    deafen_shortcut: Option<crate::hotkeys::Shortcut>,
     push_to_talk_release_delay: Option<u32>,
     /// How loud every call sends the microphone and plays, as sliders'
     /// percentages from 0% to 200%; 100% unless changed.
@@ -1452,6 +1548,12 @@ impl Layout {
                 .into(),
         );
         window.set_talk_delay(self.release_delay() as i32);
+        let name = |shortcut: &Option<crate::hotkeys::Shortcut>| {
+            shortcut.as_ref().map(crate::hotkeys::Shortcut::name).unwrap_or_default()
+        };
+        window.set_mute_key(name(&self.mute_shortcut).into());
+        window.set_deafen_key(name(&self.deafen_shortcut).into());
+        window.set_shortcut_note(crate::hotkeys::Watcher::note().into());
         yapfast_core::push_to_talk::set_release_delay(self.release_delay());
         window.set_microphone_volume(self.microphone_volume.unwrap_or(100).into());
         window.set_speaker_volume(self.speaker_volume.unwrap_or(100).into());
@@ -1898,6 +2000,8 @@ struct Adapter {
     /// Watches the push-to-talk key while push to talk is on and it's set,
     /// with or without the window.
     talk_key: Option<crate::push_to_talk::Watcher>,
+    /// Watches the mute and deafen shortcuts while either is set.
+    shortcuts: Option<crate::hotkeys::Watcher>,
     /// Previews of the pictures waiting in the composer, by file; `None` while
     /// one is read, or when it can't be.
     thumbnails: HashMap<PathBuf, Option<pictures::Thumbnail>>,
@@ -2117,6 +2221,7 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 gate_meter: None,
                 talk_key: None,
+                shortcuts: None,
                 thumbnails: HashMap::new(),
                 pasted: None,
                 drag_over: false,
@@ -2164,6 +2269,54 @@ impl Adapter {
         window.set_talk_note(note.unwrap_or_default().into());
     }
 
+    /// Starts, changes or stops watching the mute and deafen shortcuts as
+    /// settings say; nothing runs while neither is set.
+    fn watch_shortcuts(&mut self, window: &YapfastWindow) {
+        let wanted = [self.layout.mute_shortcut.clone(), self.layout.deafen_shortcut.clone()];
+        if self.shortcuts.as_ref().map(crate::hotkeys::Watcher::shortcuts)
+            == Some(&wanted)
+            || (self.shortcuts.is_none() && wanted.iter().all(Option::is_none))
+        {
+            return;
+        }
+        self.shortcuts = None;
+        let weak = window.as_weak();
+        let [mute, deafen] = wanted;
+        self.shortcuts = crate::hotkeys::Watcher::start(mute, deafen, move |toggle| {
+            let _ = weak.upgrade_in_event_loop(move |window| match toggle {
+                crate::hotkeys::Toggle::Mute => window.invoke_toggle_mute(),
+                crate::hotkeys::Toggle::Deafen => window.invoke_toggle_deafen(),
+            });
+        });
+    }
+
+    /// Shows what changed in this version until it's dismissed.
+    fn show_whats_new(&self, window: &YapfastWindow) {
+        if self.layout.seen_version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
+            window.set_whats_new(WHATS_NEW.trim().into());
+        }
+    }
+
+    /// Makes a recorded shortcut, or none, toggle mute (1) or deafen (2).
+    fn set_shortcut(
+        &mut self,
+        window: &YapfastWindow,
+        which: i32,
+        shortcut: Option<crate::hotkeys::Shortcut>,
+    ) {
+        let name = shortcut.as_ref().map(crate::hotkeys::Shortcut::name).unwrap_or_default();
+        tracing::info!(which, shortcut = name, "mute or deafen shortcut set");
+        if which == 1 {
+            window.set_mute_key(name.into());
+            self.layout.mute_shortcut = shortcut;
+        } else {
+            window.set_deafen_key(name.into());
+            self.layout.deafen_shortcut = shortcut;
+        }
+        self.layout.write(&self.root);
+        self.watch_shortcuts(window);
+    }
+
     /// Makes a recorded key the push-to-talk key.
     fn set_talk_key(&mut self, window: &YapfastWindow, key: crate::push_to_talk::Keybind) {
         tracing::info!(key = key.name, "push-to-talk key recorded");
@@ -2186,6 +2339,7 @@ impl Adapter {
         self.models.attach(window);
         self.layout.apply(window);
         self.watch_talk_key(window);
+        self.watch_shortcuts(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds

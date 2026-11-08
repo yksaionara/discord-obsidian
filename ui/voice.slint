@@ -1369,6 +1369,45 @@ export component ShareMenu inherits Rectangle {
         }
         if !root.switching: HorizontalLayout {
             padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
+            Text { text: "PRESETS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+        }
+        // Resolution, frame rate and quality in one click: resolutions
+        // count as the modes below do.
+        if !root.switching: HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            for preset in [
+                { name: "Games", detail: "1080p 240", resolution: 2, fps: 240, high: false },
+                { name: "Max", detail: "1440p 360", resolution: 3, fps: 360, high: false },
+                { name: "Text", detail: "1440p 60 HQ", resolution: 3, fps: 60, high: true },
+                { name: "Light", detail: "720p 30", resolution: 1, fps: 30, high: false },
+            ]: preset-chip := Rectangle {
+                property <bool> checked: preset.resolution == root.pick-resolution && preset.fps == root.pick-fps
+                    && preset.high == root.pick-high-quality;
+                height: 40px; horizontal-stretch: 1; border-radius: 6px;
+                background: self.checked ? Theme.accent : preset-touch.has-hover ? Theme.hover : Theme.sunken;
+                accessible-role: button; accessible-label: preset.name + " preset, " + preset.detail; accessible-checked: self.checked;
+                VerticalLayout {
+                    alignment: center;
+                    Text {
+                        text: preset.name; font-size: 12px; font-weight: 700; horizontal-alignment: center;
+                        color: preset-chip.checked ? Theme.on-accent : Theme.text;
+                    }
+                    Text {
+                        text: preset.detail; font-size: 10px; horizontal-alignment: center;
+                        color: preset-chip.checked ? Theme.on-accent : Theme.muted;
+                    }
+                }
+                preset-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => {
+                        root.pick-resolution = preset.resolution; root.pick-fps = preset.fps;
+                        root.pick-high-quality = preset.high;
+                    }
+                }
+            }
+        }
+        if !root.switching: HorizontalLayout {
+            padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
             Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
         }
         // Modes, one click each, in a row.
@@ -1397,6 +1436,11 @@ export component ShareMenu inherits Rectangle {
         // Any whole number up to 360, remembered for next time, or one of
         // the common rates in a click.
         if !root.switching: VerticalLayout {
+            // A preset's rate shows in the field, typed over or not.
+            property <int> fps: root.pick-fps;
+            changed fps => {
+                if !fps-field.text.is-float() || round(fps-field.text.to-float()) != self.fps { fps-field.text = self.fps; }
+            }
             spacing: 4px;
             HorizontalLayout {
                 padding-left: 4px; padding-right: 4px; spacing: 8px;
@@ -1475,13 +1519,13 @@ export component VolumeMenu inherits Rectangle {
         padding: 12px; spacing: 12px;
         Text { text: root.volume-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
         VolumeSlider {
-            label: "User volume";
+            label: "User volume"; maximum: 500;
             value <=> root.voice-volume;
             changed(volume) => { root.volume-changed(root.volume-person, false, volume, false); }
             committed(volume) => { root.volume-changed(root.volume-person, false, volume, true); }
         }
         if root.volume-live: VolumeSlider {
-            label: "Stream volume";
+            label: "Stream volume"; maximum: 500;
             value <=> root.stream-volume;
             changed(volume) => { root.volume-changed(root.volume-person, true, volume, false); }
             committed(volume) => { root.volume-changed(root.volume-person, true, volume, true); }

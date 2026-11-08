@@ -124,6 +124,14 @@ export component YapfastWindow inherits Window {
     /// empty for none.
     in property <string> update-version;
     callback apply-update;
+    /// This build's version, shown at the foot of the server rail.
+    in property <string> app-version;
+    /// Copies an error report, from the version label.
+    callback copy-report;
+    /// What changed in this version, shown once after it installs; empty
+    /// once it's been seen.
+    in property <string> whats-new;
+    callback dismiss-whats-new;
     in property <string> dms-badge;
     // The dialog for starting a DM: who it found, and whether one is starting.
     // Adding a Discord friend by username: whether the request went, and what to say.
@@ -1151,6 +1159,12 @@ export component YapfastWindow inherits Window {
     in-out property <int> talk-delay: 20;
     in-out property <string> talk-note;
     callback record-talk-key(bool);
+    /// Mute and deafen shortcuts: see VoiceSettings.
+    in-out property <string> mute-key;
+    in-out property <string> deafen-key;
+    in-out property <int> shortcut-recording;
+    in-out property <string> shortcut-note;
+    callback clear-shortcut(int);
     /// Calls' microphone and speakers volume: see VoiceSettings.
     in-out property <int> microphone-volume: 100;
     in-out property <int> speaker-volume: 100;
@@ -1248,7 +1262,8 @@ export component YapfastWindow inherits Window {
     callback retry-sync;
     callback navigate-dms;
     /// The rail's "Read all": mark every server's channels read.
-    callback mark-all-servers-read;
+    /// With Shift held, DMs too.
+    callback mark-all-servers-read(bool);
     callback navigate-server(string);
     /// A folder on the rail was clicked: open or close it.
     callback toggle-folder(string);
@@ -2279,8 +2294,10 @@ export component YapfastWindow inherits Window {
                         matrix-build: root.matrix-build;
                         navigate-dms => { root.navigate-dms(); }
                         servers-unread: root.servers-unread;
-                        mark-all-read => { root.mark-all-servers-read(); }
+                        mark-all-read(dms) => { root.mark-all-servers-read(dms); }
                         update-version: root.update-version;
+                        app-version: root.app-version;
+                        copy-report => { root.copy-report(); }
                         apply-update => { root.apply-update(); }
                         navigate-server(id) => { root.navigate-server(id); }
                         toggle-folder(id) => { root.toggle-folder(id); }
@@ -3828,6 +3845,9 @@ export component YapfastWindow inherits Window {
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
+            mute-key: root.mute-key; deafen-key: root.deafen-key;
+            shortcut-recording <=> root.shortcut-recording; shortcut-note: root.shortcut-note;
+            clear-shortcut(which) => { root.clear-shortcut(which); }
             microphone-volume <=> root.microphone-volume; speaker-volume <=> root.speaker-volume;
             soundboard-volume <=> root.soundboard-volume; entrance-servers: root.entrance-servers;
             entrance-server <=> root.entrance-server; entrance-sound: root.entrance-sound;
@@ -4381,6 +4401,24 @@ export component YapfastWindow inherits Window {
         close => { root.close-leaving-link(); }
     }
     // The zoom level, for a moment after it changes.
+    // What's new, in the corner after an update, until it's dismissed.
+    if root.whats-new != "" && root.workspace && !root.stage-full: Rectangle {
+        width: min(360px, root.width - 32px); height: whats-new-content.preferred-height;
+        x: root.width - self.width - 16px; y: root.height - self.height - 16px;
+        border-radius: 8px; background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        accessible-role: groupbox; accessible-label: "What's new in version " + root.app-version;
+        TouchArea {}
+        whats-new-content := VerticalLayout {
+            padding: 16px; spacing: 10px;
+            Text { text: "What's new in v" + root.app-version; color: Theme.text; font-size: 16px; font-weight: 700; }
+            Text { text: root.whats-new; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: end;
+                ActionButton { text: "Got it"; primary: true; clicked => { root.dismiss-whats-new(); } }
+            }
+        }
+    }
     if root.zoom-note != "": Rectangle {
         x: (root.width - self.width) / 2; y: root.title-height + 12px;
         width: zoom-text.preferred-width + 28px; height: 36px;

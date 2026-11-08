@@ -409,7 +409,7 @@ The window follows Discord's arrangement:
   While any server or folder on the rail is marked unread, a "Read all" pill
   sits above the servers: it marks every server's unread channels read at
   once, leaving DMs as they are, and Discord gets them as bulk
-  acknowledgements.
+  acknowledgements; Shift+click marks every unread DM read too.
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
@@ -616,10 +616,39 @@ On Windows the app updates from the GitHub releases of `yksaionara/dc`
 every six hours after, a thread asks GitHub for the latest release; one newer
 than the app has its `Discord-Setup.exe` downloaded into the data folder's
 `update` folder, streamed to the file and checked against the SHA-256 GitHub
-lists. The next start runs it silently before opening a window, or the
-rail's Update pill does now: the installer closes the app, installs over it
-with the first install's choices, and starts it again. `scripts/ship.ps1`
-publishes a release.
+lists. It installs by itself as soon as nobody is using the app: every 30 s
+it looks, and goes ahead once there's no call, nothing shared, and the window
+isn't in front; hidden in the tray, the app starts again there. The next
+start runs it too, before opening a window, and the rail's Update pill does
+at once: the installer closes the app, installs over it with the first
+install's choices, and starts it again. `scripts/ship.ps1` publishes a
+release; its notes become `packaging/whats-new.txt`, which the app carries
+and shows in a "What's new" card in the corner after it updates, until "Got
+it" saves the version as seen (`seen_version` in `layout.json`).
+
+## Error reports
+
+Clicking the version at the rail's foot copies an error report
+(`src/report.rs`): the version, the system, and the last 24 KiB of
+`yapfast.log`, with values after words like "token" or "password" and long
+token-like runs replaced by `[hidden]`. Nothing is sent anywhere; whoever has
+the problem pastes it to whoever can look.
+
+## Mute and deafen shortcuts
+
+Voice settings record a shortcut each for toggling mute and deafen: a key
+with any of Ctrl, Shift and Alt (`src/hotkeys.rs`). On Windows a low-level
+keyboard hook hears them in every app, games included, and passes the key on;
+it runs only while one is set, so nothing more runs at startup otherwise.
+Elsewhere they work while the window is in front.
+
+## Volumes and share presets
+
+A person's voice and stream volume, from a right click on them in a call, go
+up to 500%: Discord's curve to 200%, then louder in step to five times.
+The Go Live menu's presets set resolution, frame rate and quality in one
+click: Games (1080p 240), Max (1440p 360), Text (1440p 60, higher quality)
+and Light (720p 30).
 
 ## Zooming a stream
 
@@ -636,3 +665,7 @@ winit leaves the resizable frame on a window without decorations, so the
 taskbar stayed over it and DWM drew its border around it; once winit has
 gone full screen, `src/ui/title_bar.rs` takes the frame and border off and
 sizes the window to the monitor, and puts them back on leaving.
+It also clears the window's maximized style: winit keeps a maximized
+window without decorations clear of the taskbar, so a window maximized
+before going full screen drew short of the screen's foot. The server rail's
+foot shows the app's version.

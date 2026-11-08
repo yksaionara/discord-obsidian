@@ -1,0 +1,7 @@
+- Mute and deafen shortcuts that work in games: Settings > Voice.
+- Share presets: Games, Max, Text and Light in one click.
+- Turn anyone up to 500% (right-click them in a call).
+- Shift+click Read all to mark DMs read too.
+- Click the version at the bottom of the server list to copy an error report.
+- Full screen on a stream now covers the taskbar.
+- Updates now install by themselves when you're not in a call.

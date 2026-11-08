@@ -1,8 +1,8 @@
 # Ships a new version to everyone who installed Discord-Setup.exe: bumps the
 # version, builds, makes the installer, commits, pushes, and publishes a
 # GitHub release. Each install finds the release within 6 hours (or at its
-# next start), downloads it, and installs it on its next start or from the
-# rail's Update button.
+# next start), downloads it, and installs it once nobody is using it, at its
+# next start, or from the rail's Update button.
 #
 # Usage, from the repository:  powershell -File scripts\ship.ps1 [-Version 0.5.0] [-Notes "what changed"]
 # Without -Version, the patch number goes up by one.
@@ -27,6 +27,9 @@ Write-Host "Shipping $current -> $Version"
 $regex = [regex]'(?m)^version = "\d+\.\d+\.\d+"'
 $cargo = $regex.Replace($cargo, "version = `"$Version`"", 1)
 [System.IO.File]::WriteAllText((Resolve-Path Cargo.toml), $cargo)
+# The notes are the app's "What's new" card; without them, the card says
+# what packaging\whats-new.txt already does.
+if ($Notes) { [System.IO.File]::WriteAllText((Join-Path (Get-Location) "packaging\whats-new.txt"), $Notes) }
 
 # Build. A running copy locks the exe, but Windows lets it be renamed.
 $skia = Get-ChildItem .local\windows\skia\prepared\*.tar.gz | Select-Object -First 1

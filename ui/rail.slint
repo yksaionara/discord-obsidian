@@ -847,10 +847,16 @@ export component ServerRail inherits Rectangle {
     callback navigate-dms;
     /// A server or folder is unread: "Read all" shows above the servers.
     in property <bool> servers-unread;
-    callback mark-all-read;
+    /// With Shift held, DMs as well.
+    callback mark-all-read(bool);
     /// A downloaded update: the Update button installs it and restarts.
     in property <string> update-version;
     callback apply-update;
+    /// This build's version, at the rail's foot; clicking it copies an
+    /// error report.
+    in property <string> app-version;
+    callback copy-report;
+    property <bool> report-copied;
     callback navigate-server(string);
     callback toggle-folder(string);
     /// An unread DM was clicked: open it.
@@ -900,8 +906,8 @@ export component ServerRail inherits Rectangle {
             Rectangle {
                 width: 56px; height: 24px; border-radius: 12px;
                 background: read-all.has-hover ? Theme.accent : Theme.raised;
-                accessible-role: button; accessible-label: "Mark all servers read";
-                accessible-action-default => { root.mark-all-read(); }
+                accessible-role: button; accessible-label: "Mark all servers read; Shift+click for DMs too";
+                accessible-action-default => { root.mark-all-read(false); }
                 HorizontalLayout {
                     alignment: center; spacing: 3px;
                     Image {
@@ -915,8 +921,13 @@ export component ServerRail inherits Rectangle {
                     }
                 }
                 read-all := TouchArea {
+                    // Shift as the click went down: DMs too.
+                    property <bool> shift;
                     mouse-cursor: MouseCursor.pointer;
-                    clicked => { root.mark-all-read(); }
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down { self.shift = event.modifiers.shift; }
+                    }
+                    clicked => { root.mark-all-read(self.shift); }
                 }
             }
         }
@@ -980,6 +991,34 @@ export component ServerRail inherits Rectangle {
             icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }
+        }
+        if root.app-version != "": Rectangle {
+            height: 14px;
+            accessible-role: button; accessible-label: "Version " + root.app-version + ". Copy an error report";
+            accessible-action-default => { report-touch.clicked(); }
+            Text {
+                text: root.report-copied ? "Copied" : "v" + root.app-version; font-size: 10px; font-weight: 600;
+                color: root.report-copied ? Theme.live : report-touch.has-hover ? Theme.secondary : Theme.faint;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+            report-touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.copy-report(); root.report-copied = true; }
+                changed has-hover => {
+                    if self.has-hover {
+                        Tip.text = "Copy an error report";
+                        Tip.side = 1;
+                        Tip.x = self.absolute-position.x + self.width;
+                        Tip.y = self.absolute-position.y + self.height / 2;
+                    } else if Tip.text == "Copy an error report" {
+                        Tip.text = "";
+                    }
+                }
+            }
+            Timer {
+                interval: 2s; running: root.report-copied;
+                triggered => { root.report-copied = false; }
+            }
         }
     }
 }

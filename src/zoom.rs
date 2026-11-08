@@ -68,6 +68,11 @@ impl Keys {
         self.alt && !self.control && !self.shift
     }
 
+    /// Ctrl, Shift and Alt, as held.
+    pub fn modifiers(&self) -> (bool, bool, bool) {
+        (self.control, self.shift, self.alt)
+    }
+
     /// Shift is held, as far as the window knows: losing the focus lets go
     /// of it, since it may be let go elsewhere.
     pub fn shift(&self) -> bool {

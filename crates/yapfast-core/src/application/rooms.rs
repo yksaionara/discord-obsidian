@@ -641,9 +641,10 @@ impl Application {
             .collect()
     }
 
-    /// Marks every server's unread channels read at once; DMs stay as they
-    /// are. Discord gets them in bulk acknowledgements.
-    pub(super) fn mark_all_servers_read(&mut self) -> Vec<Effect> {
+    /// Marks every server's unread channels read at once, and with `dms`
+    /// every unread DM too; otherwise DMs stay as they are. Discord gets them
+    /// in bulk acknowledgements.
+    pub(super) fn mark_all_read(&mut self, dms: bool) -> Vec<Effect> {
         let sync = self.state.sync_discord_reads;
         let channels: std::collections::HashSet<&str> = self
             .state
@@ -654,7 +655,9 @@ impl Application {
         self.state
             .rooms
             .iter()
-            .filter(|room| !room.direct && channels.contains(room.id.as_str()) && unread(room))
+            .filter(|room| {
+                (if room.direct { dms } else { channels.contains(room.id.as_str()) }) && unread(room)
+            })
             .map(|room| Effect::Backend(Command::MarkRead { room: room.id.clone(), sync }))
             .collect()
     }

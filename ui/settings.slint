@@ -328,6 +328,38 @@ export component SettingsFrame inherits Rectangle {
 
 // Settings on a card over the dimmed window, as Discord shows them, which
 // opens as popups do; see Popup. A click outside closes them.
+// A shortcut, recorded like the push-to-talk key, that can be cleared.
+component ShortcutRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> key;
+    in property <bool> recording;
+    callback record(bool);
+    callback clear;
+    spacing: 8px; alignment: start;
+    Text { text: root.label; width: 110px; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
+    Rectangle {
+        width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
+        border-width: root.recording ? 2px : 0px; border-color: Theme.accent;
+        accessible-role: text; accessible-label: root.label + " shortcut";
+        accessible-value: root.key != "" ? root.key : "No shortcut set";
+        Text {
+            x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px; vertical-alignment: center;
+            text: root.recording ? "Press a shortcut..." : root.key != "" ? root.key : "No shortcut set";
+            color: root.key != "" && !root.recording ? Theme.text : Theme.muted;
+            font-weight: root.key != "" && !root.recording ? 600 : 400;
+        }
+    }
+    ActionButton {
+        text: root.recording ? "Stop recording" : root.key == "" ? "Record" : "Edit";
+        danger: root.recording;
+        clicked => { root.record(!root.recording); }
+    }
+    if root.key != "" && !root.recording: ActionButton {
+        text: "Clear"; ghost: true;
+        clicked => { root.clear(); }
+    }
+}
+
 export component SettingsCard inherits Rectangle {
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
@@ -514,6 +546,13 @@ export component VoiceSettings inherits VerticalLayout {
     in-out property <int> talk-delay: 20;
     /// Where the key works: in every app, or only in Yapfast and why.
     in property <string> talk-note;
+    /// The mute and deafen shortcuts' names, empty while unset; which one
+    /// the next key pressed becomes: 0 neither, 1 mute, 2 deafen; and where
+    /// they work.
+    in property <string> mute-key;
+    in property <string> deafen-key;
+    in-out property <int> shortcut-recording;
+    in property <string> shortcut-note;
     /// Discord is linked, so its calls' noise suppression shows.
     in property <bool> discord;
     /// How loud every call sends the microphone and plays, as sliders'
@@ -547,6 +586,8 @@ export component VoiceSettings inherits VerticalLayout {
     callback preferences-changed;
     /// Starts or stops recording the push-to-talk key.
     callback record-talk-key(bool);
+    /// Forgets the mute (1) or deafen (2) shortcut.
+    callback clear-shortcut(int);
     spacing: 16px;
     SettingsTitle { text: "Voice & video"; }
     // Each row's two columns take half the width each, whatever is in them:
@@ -760,6 +801,24 @@ export component VoiceSettings inherits VerticalLayout {
             committed => { root.preferences-changed(); }
         }
         Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "MUTE AND DEAFEN SHORTCUTS"; }
+        ShortcutRow {
+            label: "Toggle mute"; key: root.mute-key; recording: root.shortcut-recording == 1;
+            record(on) => { root.shortcut-recording = on ? 1 : 0; }
+            clear => { root.clear-shortcut(1); }
+        }
+        ShortcutRow {
+            label: "Toggle deafen"; key: root.deafen-key; recording: root.shortcut-recording == 2;
+            record(on) => { root.shortcut-recording = on ? 2 : 0; }
+            clear => { root.clear-shortcut(2); }
+        }
+        Label {
+            text: root.shortcut-recording != 0 ? "Press the shortcut, with Ctrl, Shift or Alt if you like. Escape stops without changing it."
+                : root.shortcut-note;
+        }
     }
     if root.discord && root.input-mode == 0: VerticalLayout {
         spacing: 8px;

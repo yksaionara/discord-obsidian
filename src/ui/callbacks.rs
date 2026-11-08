@@ -388,7 +388,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_logout, Action::Logout);
     bind!(on_refresh_trust, Action::RefreshTrust);
     bind!(on_retry_sync, Action::RetrySync);
-    bind!(on_mark_all_servers_read, Action::MarkAllServersRead);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_mark_all_servers_read(move |dms| {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().action(&window, Action::MarkAllRead { dms });
+            }
+        });
+    }
     bind!(
         on_navigate_dms,
         Action::Navigate(Navigation::DirectMessages)
@@ -1536,6 +1544,31 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window.on_call_volumes_changed(move || {
         if let Some(window) = weak.upgrade() {
             play_call_volumes(&window);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_copy_report(move || {
+        if let Some(window) = weak.upgrade() {
+            let report = crate::report::build(&state.borrow().root);
+            window.invoke_copy_text(report.into());
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_dismiss_whats_new(move || {
+        if let Some(window) = weak.upgrade() {
+            window.set_whats_new("".into());
+            let mut adapter = state.borrow_mut();
+            adapter.layout.seen_version = Some(env!("CARGO_PKG_VERSION").into());
+            adapter.layout.write(&adapter.root);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_clear_shortcut(move |which| {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().set_shortcut(&window, which, None);
         }
     });
     let weak = window.as_weak();

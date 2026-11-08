@@ -17,20 +17,30 @@ use std::{
 
 use tokio::sync::watch;
 
-/// Twice as loud, as Discord allows.
-pub const MAX: f32 = 2.0;
+/// Five times as loud, past Discord's twice: a slider at [`MAX_SLIDER`].
+pub const MAX: f32 = 5.0;
+
+/// The loudest a person's slider goes, as a percentage.
+pub const MAX_SLIDER: f32 = 500.0;
+
+/// Where Discord's sliders end, at about twice as loud.
+const DISCORD_TOP: f32 = 200.0;
 
 /// The gain of a slider at `value`, from 0 to 200, as Discord's volume
 /// sliders map it: below 100 on a power curve, `(value / 100)^2.8`, so 50 is
 /// about -17 dB; above it 6 dB more for each 100, so 200 is about twice as
 /// loud. A linear slider made everything loud: 40 on Discord's is 0.077, not
-/// 0.4.
+/// 0.4. Past 200, which Discord stops at, the gain grows in step with the
+/// value, so 500 is five times as loud.
 pub fn from_slider(value: f32) -> f32 {
     let share = value.max(0.0) / 100.0;
     if share < 1.0 {
         share.powf(2.8)
-    } else {
+    } else if value <= DISCORD_TOP {
         10f32.powf((share - 1.0) * 6.0 / 20.0)
+    } else {
+        let top = from_slider(DISCORD_TOP);
+        top + (value.min(MAX_SLIDER) - DISCORD_TOP) / (MAX_SLIDER - DISCORD_TOP) * (MAX - top)
     }
 }
 
@@ -40,8 +50,11 @@ pub fn to_slider(gain: f32) -> f32 {
         0.0
     } else if gain < 1.0 {
         gain.powf(1.0 / 2.8) * 100.0
-    } else {
+    } else if gain <= from_slider(DISCORD_TOP) {
         (20.0 * gain.log10() / 6.0 + 1.0) * 100.0
+    } else {
+        let top = from_slider(DISCORD_TOP);
+        DISCORD_TOP + (gain.min(MAX) - top) / (MAX - top) * (MAX_SLIDER - DISCORD_TOP)
     }
 }
 
@@ -197,8 +210,8 @@ mod tests {
         assert_eq!(get(Kind::Voice, "volume-test-1"), 0.5);
         assert_eq!(
             get(Kind::Stream, "volume-test-1"),
-            MAX,
-            "at most twice as loud"
+            3.0,
+            "louder than Discord allows"
         );
         assert_eq!(
             get(Kind::Voice, "volume-test-2"),
@@ -267,7 +280,9 @@ mod tests {
         assert!(close(from_slider(50.0), 0.143), "about -17 dB");
         assert!(close(from_slider(40.0), 0.077));
         assert!(close(from_slider(200.0), 1.995), "6 dB louder");
-        for value in [1.0, 18.0, 40.0, 99.0, 100.0, 150.0, 200.0] {
+        assert!(close(from_slider(500.0), MAX), "five times as loud");
+        assert!(from_slider(300.0) > from_slider(200.0));
+        for value in [1.0, 18.0, 40.0, 99.0, 100.0, 150.0, 200.0, 250.0, 400.0, 500.0] {
             assert!(close(to_slider(from_slider(value)), value), "{value}");
         }
         // A stream's default shows at about 54, as on Discord.

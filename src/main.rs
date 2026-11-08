@@ -41,6 +41,10 @@ mod protocol;
 #[cfg(feature = "desktop")]
 mod push_to_talk;
 #[cfg(feature = "desktop")]
+mod hotkeys;
+#[cfg(feature = "desktop")]
+mod report;
+#[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
 mod twemoji;
