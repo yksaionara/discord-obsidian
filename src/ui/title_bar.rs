@@ -133,6 +133,8 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     // winit, which on Wayland never says, so Slint's own may be stale.
     window.on_minimize_window(move || winit(&weak, |winit| winit.set_minimized(true)));
     let weak = window.as_weak();
+    window.on_full_screen_changed(move |on| full_screen_changed(&weak, on));
+    let weak = window.as_weak();
     window.on_maximize_window(move || {
         if let Some(window) = weak.upgrade() {
             let native = window.window();
@@ -168,6 +170,146 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             show(&window, Some(system));
         }
     });
+}
+
+/// Windows keeps the taskbar over a borderless fullscreen window that still
+/// has a resizable frame, and draws its border around it; winit leaves the
+/// frame on a window without decorations. So once winit has gone full
+/// screen, the window loses its frame and its border, and gets them back
+/// on leaving.
+#[cfg(windows)]
+mod full_screen {
+    use std::cell::Cell;
+    use windows_sys::Win32::{
+        Foundation::{HWND, RECT},
+        Graphics::{
+            Dwm::{DWMWA_BORDER_COLOR, DwmSetWindowAttribute},
+            Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow},
+        },
+        UI::WindowsAndMessaging::{
+            GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOP, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+            SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+            SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, WS_BORDER, WS_CAPTION,
+            WS_DLGFRAME, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX,
+            WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+        },
+    };
+
+    /// DWM's colours for "no border" and "the usual border".
+    const COLOR_NONE: u32 = 0xFFFF_FFFE;
+    const COLOR_DEFAULT: u32 = 0xFFFF_FFFF;
+
+    thread_local! {
+        /// The styles the window had before losing its frame.
+        static SAVED: Cell<Option<(isize, isize)>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn hwnd(window: &slint::winit_030::winit::window::Window) -> Option<HWND> {
+        use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match window.window_handle().ok()?.as_raw() {
+            RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as HWND),
+            _ => None,
+        }
+    }
+
+    fn border(hwnd: HWND, color: u32) {
+        // SAFETY: a u32 the size given, for a window this process owns.
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_BORDER_COLOR as u32,
+                (&raw const color).cast(),
+                size_of::<u32>() as u32,
+            );
+        }
+    }
+
+    /// Takes the frame and border off, and covers the whole monitor.
+    pub(super) fn enter(hwnd: HWND) {
+        // SAFETY: Win32 calls on this process's own window, with structures
+        // sized as they ask.
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            let extended = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SAVED.set(Some((style, extended)));
+            let frame = (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+                | WS_BORDER | WS_DLGFRAME) as isize;
+            let edges = (WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME) as isize;
+            SetWindowLongPtrW(hwnd, GWL_STYLE, (style & !frame) | WS_POPUP as isize);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, extended & !edges);
+            border(hwnd, COLOR_NONE);
+            let mut info = MONITORINFO {
+                cbSize: size_of::<MONITORINFO>() as u32,
+                ..std::mem::zeroed()
+            };
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if GetMonitorInfoW(monitor, &mut info) != 0 {
+                let RECT { left, top, right, bottom } = info.rcMonitor;
+                SetWindowPos(
+                    hwnd,
+                    HWND_TOP,
+                    left,
+                    top,
+                    right - left,
+                    bottom - top,
+                    SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOOWNERZORDER,
+                );
+            }
+            SetForegroundWindow(hwnd);
+        }
+    }
+
+    /// Puts the frame and border back, before winit leaves full screen and
+    /// returns the window to its place.
+    pub(super) fn leave(hwnd: HWND) {
+        let Some((style, extended)) = SAVED.take() else {
+            return;
+        };
+        // SAFETY: as in `enter`.
+        unsafe {
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, extended);
+            border(hwnd, COLOR_DEFAULT);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
+/// The window went full screen, as the stage asks, or left it.
+pub(super) fn full_screen_changed(weak: &slint::Weak<YapfastWindow>, on: bool) {
+    #[cfg(windows)]
+    {
+        if on {
+            // After winit has applied full screen, which happens as Slint
+            // next syncs the window's properties.
+            let weak = weak.clone();
+            slint::Timer::single_shot(Duration::from_millis(80), move || {
+                winit(&weak, |winit| {
+                    if winit.fullscreen().is_some()
+                        && let Some(hwnd) = full_screen::hwnd(winit)
+                    {
+                        full_screen::enter(hwnd);
+                    }
+                });
+            });
+        } else {
+            winit(weak, |winit| {
+                if let Some(hwnd) = full_screen::hwnd(winit) {
+                    full_screen::leave(hwnd);
+                }
+            });
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (weak, on);
 }
 
 /// Acts on the window's winit window, once it has one.

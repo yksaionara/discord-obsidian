@@ -628,3 +628,11 @@ up to 8x; dragging moves the zoomed picture, and the zoom chip at its top
 left, or the middle button, puts it back. A small tile leaves the wheel to
 the call's grid. While watching, the window takes new stream pictures every
 2 ms instead of every 33, so a stream above 30 fps shows at its rate.
+
+## Full screen on Windows
+
+A stage tile's full screen is winit's borderless full screen. On Windows
+winit leaves the resizable frame on a window without decorations, so the
+taskbar stayed over it and DWM drew its border around it; once winit has
+gone full screen, `src/ui/title_bar.rs` takes the frame and border off and
+sizes the window to the monitor, and puts them back on leaving.
