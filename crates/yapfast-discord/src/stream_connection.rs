@@ -45,8 +45,12 @@ const PACE: usize = 4;
 
 /// The most bit/s a stream of `height` lines may take, as Discord's client
 /// decides it: 3.5 Mbit/s up to 720p, 9 Mbit/s above. Op 12 announces it.
-pub fn max_bitrate(height: u32) -> u32 {
-    if height > 720 { 9_000_000 } else { 3_500_000 }
+pub fn max_bitrate(height: u32, fps: u32) -> u32 {
+    let base: u64 = if height > 720 { 9_000_000 } else { 3_500_000 };
+    // Past 60 fps the cap grows with the rate, to three times at 180 fps
+    // and above, so each frame doesn't get thinner; the server's bandwidth
+    // estimate still lowers it.
+    (base * u64::from(fps.clamp(60, 180)) / 60) as u32
 }
 
 /// Op 5's speaking flags for a stream's sound: shared sound, not a
@@ -373,7 +377,7 @@ pub(crate) fn video_attributes(
             "active": true,
             "quality": 100,
             "rtx_ssrc": rtx,
-            "max_bitrate": max_bitrate(height),
+            "max_bitrate": max_bitrate(height, fps),
             "max_framerate": fps,
             "max_resolution": {"type": "fixed", "width": width, "height": height},
         }],

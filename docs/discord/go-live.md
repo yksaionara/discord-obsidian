@@ -98,14 +98,24 @@ the original sequence number before the payload (RFC 4588), and the repaired
 stream id (extension 12) in place of the stream id. An RTCP sender report goes
 out every second.
 
-Before sharing, the share button's menu picks a resolution and a frame rate, as
-Discord's client asks for them: 720p, 1080p or the screen's own size (up to
-4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
+Before sharing, the share button's menu picks a resolution and a frame rate:
+one of the modes 480p, 720p, 1080p, 1440p or the screen's own size (up to 4K),
+and any frame rate typed in, from 1 to 360 fps, or picked from 30, 60, 144,
+240 and 360. On Windows a screen is captured through DXGI Desktop Duplication
+(`crates/yapfast-core/src/duplication.rs`), which gives every frame the
+screen presents, up to its refresh rate; WGC, which WebRTC's capturer uses,
+gives about 60. Frames go out at the chosen rate at most, and only when the
+screen changed, with the last one again every 100 ms while nothing does. The
+pointer, which duplication leaves out, is drawn onto each frame. Windows,
+cameras, and screens duplication can't open go through WebRTC's capturer.
+The window's own preview of the stream updates at most 30 times a second.
+NVENC encodes with preset p4 up to 60 fps, p2 up to 144 and p1 above. Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. Larger screens, and those of another shape, are scaled down to fit. Yapfast
 sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
-and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
+and 9 Mbit/s above, growing past 60 fps with the rate to three times that at
+180 fps and above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Like Discord's client it also follows the server's bandwidth
 estimate (REMB): when that drops below the cap, the encoder aims for the
 estimate instead, though never below 500 kbit/s, and it changes only when the

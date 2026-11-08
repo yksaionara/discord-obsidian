@@ -200,10 +200,39 @@ async fn discover(udp: &UdpSocket, ssrc: u32) -> Result<(IpAddr, u16)> {
     discover_waiting(udp, ssrc, DISCOVERY_WAIT).await
 }
 
+/// The file whose bytes go out before the preamble, when it sits beside the
+/// executable: Discord Drover's name for it, so a packet made for Drover works.
+const PREAMBLE_FILE: &str = "drover-packet.bin";
+
+/// Opens the voice connection with packets that aren't Discord's, as Discord
+/// Drover's direct mode does. Some networks (the UAE's, for one) block voice
+/// by recognising the first packet of a UDP connection as Discord's address
+/// discovery; a connection that starts with something else gets through. The
+/// voice server ignores what it can't read. `drover-packet.bin` beside the
+/// executable goes first, read on each connection, for networks the two
+/// one-byte packets alone don't fool. `YAPFAST_NO_VOICE_PREAMBLE` turns it off.
+async fn send_preamble(udp: &UdpSocket) {
+    if std::env::var_os("YAPFAST_NO_VOICE_PREAMBLE").is_some() {
+        return;
+    }
+    let custom = std::env::current_exe()
+        .ok()
+        .and_then(|exe| std::fs::read(exe.with_file_name(PREAMBLE_FILE)).ok())
+        .filter(|packet| !packet.is_empty());
+    if let Some(packet) = custom {
+        let _ = udp.send(&packet).await;
+    }
+    for byte in [0u8, 1] {
+        let _ = udp.send(&[byte]).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+}
+
 /// Asks up to [`DISCOVERY_ASKS`] times, `wait` apart, and takes the first
 /// answer it can read. Anything else that arrives is passed over, so a
 /// stray packet can't end the connection either.
 async fn discover_waiting(udp: &UdpSocket, ssrc: u32, wait: Duration) -> Result<(IpAddr, u16)> {
+    send_preamble(udp).await;
     let mut request = [0u8; 74];
     request[..2].copy_from_slice(&1u16.to_be_bytes());
     request[2..4].copy_from_slice(&70u16.to_be_bytes());
@@ -626,6 +655,9 @@ mod tests {
             let mut packet = [0u8; 74];
             loop {
                 let (length, from) = server.recv_from(&mut packet).await.unwrap();
+                if length == 1 {
+                    continue; // the preamble
+                }
                 assert_eq!(length, 74);
                 assert_eq!(packet[..8], [0, 1, 0, 70, 0, 0, 0, 7]);
                 *lock(&counted) += 1;
@@ -665,6 +697,24 @@ mod tests {
             );
             assert_eq!(*lock(&asks), lost + 1);
         }
+    }
+
+    #[tokio::test]
+    async fn address_discovery_starts_with_the_preamble() {
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let udp = client(server.local_addr().unwrap()).await;
+        tokio::spawn(async move {
+            let _ = discover_waiting(&udp, 7, Duration::from_millis(100)).await;
+        });
+        let mut packet = [0u8; 1500];
+        let mut first = Vec::new();
+        for _ in 0..3 {
+            let (length, _) = server.recv_from(&mut packet).await.unwrap();
+            first.push(packet[..length].to_vec());
+        }
+        assert_eq!(first[0], [0]);
+        assert_eq!(first[1], [1]);
+        assert_eq!(first[2].len(), 74);
     }
 
     #[tokio::test]

@@ -157,6 +157,14 @@ voice server didn't answer address discovery". At the default log level, an
 answer to a later ask logs at info ("address discovery answered on attempt 3
 of 5"), and giving up logs a warning with the number of asks.
 
+The connection's first packets aren't the ask: as Discord Drover's direct
+mode does, it sends two one-byte packets, `00` then `01`, and waits 50 ms.
+Networks that block voice by recognising a UDP connection's first packet as
+Discord's (the UAE's, for one) let the call through; the voice server ignores
+them. A `drover-packet.bin` beside the executable, read on each connection,
+goes out before those two, for networks they don't fool.
+`YAPFAST_NO_VOICE_PREAMBLE` set to anything turns the preamble off.
+
 ## Camera video
 
 Turning the camera on in a call does what Discord's clients do: the main

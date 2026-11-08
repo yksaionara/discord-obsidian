@@ -641,6 +641,24 @@ impl Application {
             .collect()
     }
 
+    /// Marks every server's unread channels read at once; DMs stay as they
+    /// are. Discord gets them in bulk acknowledgements.
+    pub(super) fn mark_all_servers_read(&mut self) -> Vec<Effect> {
+        let sync = self.state.sync_discord_reads;
+        let channels: std::collections::HashSet<&str> = self
+            .state
+            .servers
+            .iter()
+            .flat_map(|server| server.channels.iter().map(String::as_str))
+            .collect();
+        self.state
+            .rooms
+            .iter()
+            .filter(|room| !room.direct && channels.contains(room.id.as_str()) && unread(room))
+            .map(|room| Effect::Backend(Command::MarkRead { room: room.id.clone(), sync }))
+            .collect()
+    }
+
     /// Pins a listed DM to the top of the DM list, or unpins it.
     pub(super) fn pin(&mut self, room: String, pinned: bool) -> Vec<Effect> {
         let choice = if pinned {

@@ -111,6 +111,18 @@ pub fn run(
                 crate::instance::Start::Handed => return Ok(Exit::Closed),
             }
         };
+        // An update downloaded last time installs now, before any window:
+        // its installer closes this process and starts the new version.
+        yapfast_core::update::set_version(env!("CARGO_PKG_VERSION"));
+        #[cfg(windows)]
+        if !preview
+            && let Some(pending) = yapfast_core::update::pending(&root)
+        {
+            match yapfast_core::update::apply(&pending, background) {
+                Ok(()) => return Ok(Exit::Closed),
+                Err(error) => tracing::warn!(error = format!("{error:#}"), "starting without the update"),
+            }
+        }
         let plan = graphics::plan(renderer, layout.gpu_rendering, gpu_failure);
         if plan.forget_gpu {
             layout.gpu_rendering = false;
@@ -184,6 +196,10 @@ pub fn run(
     prepare(&window);
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
+    #[cfg(windows)]
+    if !preview {
+        watch_updates(&window, adapter.borrow().root.clone());
+    }
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
@@ -255,6 +271,53 @@ pub fn run(
         Ok(()) if restart => Ok(Exit::Restart),
         Ok(()) => Ok(Exit::Closed),
     }
+}
+
+/// How long after starting the first update check waits, and how often it
+/// checks again while the app runs.
+#[cfg(windows)]
+const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(20);
+#[cfg(windows)]
+const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Checks for an update on a thread of its own, now and again, and shows the
+/// rail's Update button once one is downloaded; the button installs it.
+#[cfg(windows)]
+fn watch_updates(window: &YapfastWindow, root: PathBuf) {
+    let weak = window.as_weak();
+    let installing = root.clone();
+    window.on_apply_update(move || {
+        let Some(pending) = yapfast_core::update::pending(&installing) else {
+            return;
+        };
+        match yapfast_core::update::apply(&pending, false) {
+            Ok(()) => {
+                let _ = slint::quit_event_loop();
+            }
+            Err(error) => tracing::warn!(error = format!("{error:#}"), "could not install the update"),
+        }
+    });
+    let _ = std::thread::Builder::new()
+        .name("update-check".into())
+        .spawn(move || {
+            std::thread::sleep(UPDATE_FIRST_CHECK);
+            loop {
+                match yapfast_core::update::check(&root) {
+                    Ok(Some(pending)) => {
+                        let weak = weak.clone();
+                        let version = pending.version.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(window) = weak.upgrade() {
+                                window.set_update_version(version.into());
+                            }
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(error) => tracing::info!(error = format!("{error:#}"), "no update check"),
+                }
+                std::thread::sleep(UPDATE_EVERY);
+            }
+        });
 }
 
 /// Only the private test compositor can request a different initial size.

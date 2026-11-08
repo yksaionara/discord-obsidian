@@ -631,6 +631,10 @@ impl Adapter {
             .collect();
         self.rail_call = call_room(state).map(str::to_owned);
         let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+        // The rail's "Read all" shows while a server or folder is marked.
+        window.set_servers_unread(rail.iter().any(|row| {
+            !row.dm && !row.divider && !row.nested && (row.unread || !row.badge.is_empty())
+        }));
         update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         let mut listed_text = false;
         let mut listed_voice = false;
@@ -1898,7 +1902,7 @@ impl Adapter {
                 match &role.members {
                     None => "Loading...",
                     Some(members) if members.is_empty() => {
-                        "Yapfast hasn't seen anyone with this role yet."
+                        "Nobody has been seen with this role yet."
                     }
                     Some(_) => "",
                 }
@@ -2008,7 +2012,7 @@ impl Adapter {
             "Find Invite"
         };
         let status = if join.form.is_some() {
-            "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+            "You joined. This server asks new members to fill in a form before they can talk, which this app can't show yet. Finish it in Discord's web app."
         } else if join.captcha.is_some() {
             "Discord asks for a captcha first. Solve it in your browser."
         } else if join.joining {
@@ -2243,7 +2247,7 @@ impl Adapter {
                     lines.push(format!("Afterward, Discord sends you to {host}."));
                 }
                 Some(url) => lines.push(format!(
-                    "Afterward, Discord hands its answer to {url}, which Yapfast won't open."
+                    "Afterward, Discord hands its answer to {url}, which this app won't open."
                 )),
                 None => {}
             }
@@ -2282,7 +2286,7 @@ impl Adapter {
             "Authorizing..."
         } else if dialog.done && dialog.next.is_some() {
             "Authorized. Discord sends you on to this address, which isn't a web page, \
-             so Yapfast doesn't open it. Copy it if the app asks for it."
+             so this app doesn't open it. Copy it if the app asks for it."
         } else if dialog.done {
             "Authorized."
         } else if !locked
@@ -2899,7 +2903,7 @@ impl Adapter {
             } else if !query.is_empty() {
                 "No conversations match."
             } else {
-                "There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations."
+                "There's nowhere to forward to yet. Matrix messages forward only into encrypted conversations."
             }
             .into(),
         );
@@ -3284,7 +3288,7 @@ impl Adapter {
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
                 "You can't send messages in this Discord channel."
             } else if discord_room && !state.discord_online {
-                "Discord is disconnected. Yapfast is reconnecting."
+                "Discord is disconnected. Reconnecting..."
             } else if discord_only {
                 ""
             } else if discord_room {
@@ -3577,9 +3581,11 @@ impl Adapter {
         );
         window.set_sharing(voice.sharing.is_some());
         window.set_share_resolution(match voice.quality.resolution {
-            voice::Resolution::P720 => 0,
-            voice::Resolution::P1080 => 1,
-            voice::Resolution::Source => 2,
+            voice::Resolution::P480 => 0,
+            voice::Resolution::P720 => 1,
+            voice::Resolution::P1080 => 2,
+            voice::Resolution::P1440 => 3,
+            voice::Resolution::Source => 4,
         });
         window.set_share_fps(voice.quality.fps as i32);
         window.set_share_high_quality(voice.quality.high_quality);
@@ -4629,8 +4635,8 @@ fn permission_names(bits: u64) -> String {
     let more = (bits & !named).count_ones();
     let more = match (more, names.is_empty()) {
         (0, _) => None,
-        (1, true) => Some("1 permission Yapfast can't name".to_owned()),
-        (count, true) => Some(format!("{count} permissions Yapfast can't name")),
+        (1, true) => Some("1 permission this app can't name".to_owned()),
+        (count, true) => Some(format!("{count} permissions this app can't name")),
         (1, false) => Some("1 more permission".to_owned()),
         (count, false) => Some(format!("{count} more permissions")),
     };

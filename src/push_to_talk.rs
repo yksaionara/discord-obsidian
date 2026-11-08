@@ -157,7 +157,7 @@ impl Reach {
     /// What settings say under the key.
     pub fn note(&self) -> String {
         match self {
-            Reach::Asking => "Asking your desktop to let Yapfast use the key in every app...".into(),
+            Reach::Asking => "Asking your desktop to let Discord use the key in every app...".into(),
             Reach::Everywhere(None) => "Hold the key in any app to talk.".into(),
             Reach::Everywhere(Some(shortcut)) if shortcut.is_empty() => {
                 "Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings.".into()
@@ -166,7 +166,7 @@ impl Reach {
                 "Your desktop gave push to talk the shortcut {shortcut}. Hold it in any app to talk; change it in your system's global shortcuts settings."
             ),
             Reach::Focused(why) => format!(
-                "{why}, so push to talk works only while Yapfast's window is in front."
+                "{why}, so push to talk works only while the Discord window is in front."
             ),
         }
     }
@@ -255,7 +255,7 @@ impl Watcher {
         {
             let _ = runtime;
             report(Reach::Focused(
-                "Yapfast can't watch keys in other apps on this system yet",
+                "Discord can't watch keys in other apps on this system yet",
             ));
         }
         Self {
@@ -340,7 +340,7 @@ mod linux {
                                 "no global push-to-talk key through the portal"
                             );
                             report(Reach::Focused(
-                                "Your desktop doesn't offer Yapfast a global shortcut",
+                                "Your desktop doesn't offer Discord a global shortcut",
                             ));
                         }
                     }),
@@ -356,7 +356,7 @@ mod linux {
                         error = format!("{error:#}"),
                         "no global push-to-talk key on X11"
                     );
-                    report(Reach::Focused("Yapfast couldn't watch keys in other apps"));
+                    report(Reach::Focused("Discord couldn't watch keys in other apps"));
                     None
                 }
             }
@@ -582,7 +582,7 @@ mod linux {
                             Err(error) => {
                                 tracing::warn!(%error, "lost the X server's keys");
                                 yapfast_core::push_to_talk::hold(false);
-                                report(Reach::Focused("Yapfast lost the X server's keys"));
+                                report(Reach::Focused("Discord lost the X server's keys"));
                                 break;
                             }
                         }
@@ -856,7 +856,7 @@ mod windows {
                 }
                 None => {
                     report(Reach::Focused(
-                        "Windows didn't let Yapfast watch keys in other apps",
+                        "Windows didn't let Discord watch keys in other apps",
                     ));
                     None
                 }

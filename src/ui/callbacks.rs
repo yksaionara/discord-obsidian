@@ -388,6 +388,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_logout, Action::Logout);
     bind!(on_refresh_trust, Action::RefreshTrust);
     bind!(on_retry_sync, Action::RetrySync);
+    bind!(on_mark_all_servers_read, Action::MarkAllServersRead);
     bind!(
         on_navigate_dms,
         Action::Navigate(Navigation::DirectMessages)
@@ -2402,13 +2403,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             #[cfg(not(feature = "discord"))]
             let _ = source;
             let resolution = match resolution {
-                0 => voice::Resolution::P720,
-                2 => voice::Resolution::Source,
+                0 => voice::Resolution::P480,
+                1 => voice::Resolution::P720,
+                3 => voice::Resolution::P1440,
+                4 => voice::Resolution::Source,
                 _ => voice::Resolution::P1080,
             };
             let quality = voice::StreamQuality {
                 resolution,
-                fps: fps.clamp(1, 60) as u32,
+                fps: (fps.max(1) as u32).min(voice::MAX_FPS),
                 high_quality,
             };
             state
@@ -2911,7 +2914,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             window.set_meter_note(SharedString::from(if !meter::AVAILABLE {
                 "The level meter isn't available on this system yet."
             } else if meter.failed() {
-                "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                "Discord can't read this microphone. Check that it's connected, or choose another."
             } else {
                 ""
             }));
@@ -2936,7 +2939,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     if !yapfast_core::discord_audio::AVAILABLE {
                         "Discord voice and its level aren't available on this system yet."
                     } else if meter.failed() {
-                        "Yapfast can't read this microphone. Check that it's connected, or choose another."
+                        "Discord can't read this microphone. Check that it's connected, or choose another."
                     } else {
                         ""
                     },

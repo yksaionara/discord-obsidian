@@ -845,6 +845,12 @@ export component ServerRail inherits Rectangle {
     /// Without Matrix every server is Discord's, so names don't say so.
     in property <bool> matrix-build: true;
     callback navigate-dms;
+    /// A server or folder is unread: "Read all" shows above the servers.
+    in property <bool> servers-unread;
+    callback mark-all-read;
+    /// A downloaded update: the Update button installs it and restarts.
+    in property <string> update-version;
+    callback apply-update;
     callback navigate-server(string);
     callback toggle-folder(string);
     /// An unread DM was clicked: open it.
@@ -869,6 +875,50 @@ export component ServerRail inherits Rectangle {
         if ClientStyle.enabled: Rectangle {
             height: 1px;
             Rectangle { width: 32px; height: 1px; background: Theme.outline; }
+        }
+        // Installs a downloaded update; the app restarts into it.
+        if root.update-version != "": HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 56px; height: 24px; border-radius: 12px;
+                background: update-touch.has-hover ? Theme.live.brighter(0.15) : Theme.live;
+                accessible-role: button; accessible-label: "Update to " + root.update-version + " and restart";
+                accessible-action-default => { root.apply-update(); }
+                Text {
+                    text: "Update"; font-size: 10px; font-weight: 700; color: #ffffff;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+                update-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.apply-update(); }
+                }
+            }
+        }
+        // Marks every server read at once.
+        if root.servers-unread: HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 56px; height: 24px; border-radius: 12px;
+                background: read-all.has-hover ? Theme.accent : Theme.raised;
+                accessible-role: button; accessible-label: "Mark all servers read";
+                accessible-action-default => { root.mark-all-read(); }
+                HorizontalLayout {
+                    alignment: center; spacing: 3px;
+                    Image {
+                        y: (parent.height - self.height) / 2; width: 12px; height: 12px;
+                        source: @image-url("icons/check.svg");
+                        colorize: read-all.has-hover ? Theme.on-accent : Theme.secondary;
+                    }
+                    Text {
+                        text: "Read all"; font-size: 10px; font-weight: 700; vertical-alignment: center;
+                        color: read-all.has-hover ? Theme.on-accent : Theme.secondary;
+                    }
+                }
+                read-all := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.mark-all-read(); }
+                }
+            }
         }
         // A list view makes only the servers in sight, which
         // matters on accounts in many servers. Unread DMs scroll with them.

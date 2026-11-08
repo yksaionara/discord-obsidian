@@ -80,7 +80,7 @@ export { GifTile, GifFavorites } from "gifs.slint";
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
     /// tab's title counts them, so the taskbar shows it.
-    in property <string> window-title: "Yapfast";
+    in property <string> window-title: "Discord";
     title: root.window-title;
     preferred-width: 1120px; preferred-height: 760px;
     min-width: 800px; min-height: 560px;
@@ -118,6 +118,12 @@ export component YapfastWindow inherits Window {
     in property <bool> restore-available;
     in property <bool> dms-selected;
     in property <bool> dms-unread;
+    /// A server or folder on the rail is unread, so "Read all" shows.
+    in property <bool> servers-unread;
+    /// A downloaded update's version, shown on the rail's Update button;
+    /// empty for none.
+    in property <string> update-version;
+    callback apply-update;
     in property <string> dms-badge;
     // The dialog for starting a DM: who it found, and whether one is starting.
     // Adding a Discord friend by username: whether the request went, and what to say.
@@ -832,10 +838,11 @@ export component YapfastWindow inherits Window {
     in property <bool> can-share;
     in property <bool> sharing;
     in property <bool> share-live;
-    /// The quality chosen last time: 0 for 720p, 1 for 1080p, 2 for the
-    /// screen's own size; frames a second; and whether the encoder works
+    /// The quality chosen last time: 0 for 480p, 1 for 720p, 2 for 1080p,
+    /// 3 for 1440p, 4 for the screen's own size; frames a second, as typed;
+    /// and whether the encoder works
     /// harder for a sharper picture.
-    in property <int> share-resolution: 1;
+    in property <int> share-resolution: 2;
     in property <int> share-fps: 30;
     in property <bool> share-high-quality;
     in property <string> share-status;
@@ -1234,6 +1241,8 @@ export component YapfastWindow inherits Window {
     callback refresh-trust;
     callback retry-sync;
     callback navigate-dms;
+    /// The rail's "Read all": mark every server's channels read.
+    callback mark-all-servers-read;
     callback navigate-server(string);
     /// A folder on the rail was clicked: open or close it.
     callback toggle-folder(string);
@@ -1677,7 +1686,9 @@ export component YapfastWindow inherits Window {
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
     Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
-    Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
+    // While watching, often enough for a 360 fps stream: a tick without a
+    // new picture only looks. Otherwise 30 a second.
+    Timer { interval: root.watching ? 2ms : 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     input-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
@@ -1743,7 +1754,7 @@ export component YapfastWindow inherits Window {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
         // Wider for the screens' pictures.
-        width: root.share-screens.length > 0 ? 336px : 240px;
+        width: root.share-screens.length > 0 ? 336px : 280px;
         close-policy: PopupClosePolicy.close-on-click-outside;
         ShareMenu {
             screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
@@ -2261,6 +2272,10 @@ export component YapfastWindow inherits Window {
                         dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
                         matrix-build: root.matrix-build;
                         navigate-dms => { root.navigate-dms(); }
+                        servers-unread: root.servers-unread;
+                        mark-all-read => { root.mark-all-servers-read(); }
+                        update-version: root.update-version;
+                        apply-update => { root.apply-update(); }
                         navigate-server(id) => { root.navigate-server(id); }
                         toggle-folder(id) => { root.toggle-folder(id); }
                         open-dm(id) => { root.open-conversation(id); }
@@ -4486,7 +4501,7 @@ export component YapfastWindow inherits Window {
     // tooltips, while Yapfast draws them.
     if root.title-height > 0 && !ClientStyle.enabled: TitleBar {
         x: 0px; y: 0px; width: root.width;
-        place: root.workspace ? root.sidebar-title : "Yapfast";
+        place: root.workspace ? root.sidebar-title : "Discord";
         focused: root.window-focused; maximized: root.window-maximized;
         move-window => { root.move-window(); }
         minimize-window => { root.minimize-window(); }
@@ -4511,7 +4526,7 @@ export component YapfastWindow inherits Window {
     }
     if root.title-height > 0 && ClientStyle.enabled: WindowBar {
         x: 0px; y: 0px; width: root.width;
-        place: root.workspace ? (root.dms-selected ? "Direct Messages" : root.sidebar-title) : "Yapfast";
+        place: root.workspace ? (root.dms-selected ? "Direct Messages" : root.sidebar-title) : "Discord";
         workspace: root.workspace;
         can-go-back: root.workspace && !root.settings-open && root.can-go-back;
         can-go-forward: root.workspace && !root.settings-open && root.can-go-forward;

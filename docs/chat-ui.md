@@ -404,6 +404,12 @@ The window follows Discord's arrangement:
   speaker on green at its icon's top right, so the call stays in sight from
   anywhere; a closed folder shows it for its servers. The rail is built again
   for a voice event only when the call starts, ends or moves.
+  When an update has downloaded, an Update pill sits at the top of the
+  rail: it installs the update and restarts (see Updates below).
+  While any server or folder on the rail is marked unread, a "Read all" pill
+  sits above the servers: it marks every server's unread channels read at
+  once, leaving DMs as they are, and Discord gets them as bulk
+  acknowledgements.
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
@@ -602,3 +608,23 @@ Yapfast puts Segoe UI Emoji, Segoe UI, Segoe UI Symbol, Cambria Math and Segoe
 UI Historic at the front of both lists (`emoji::WINDOWS_FALLBACK`). Wine draws
 no emoji from a bitmap font standing in for Segoe UI Emoji, so color emoji in
 message text need a check on real Windows.
+
+## Updates
+
+On Windows the app updates from the GitHub releases of `yksaionara/dc`
+(`crates/yapfast-core/src/update.rs`). Twenty seconds after starting, and
+every six hours after, a thread asks GitHub for the latest release; one newer
+than the app has its `Discord-Setup.exe` downloaded into the data folder's
+`update` folder, streamed to the file and checked against the SHA-256 GitHub
+lists. The next start runs it silently before opening a window, or the
+rail's Update pill does now: the installer closes the app, installs over it
+with the first install's choices, and starts it again. `scripts/ship.ps1`
+publishes a release.
+
+## Zooming a stream
+
+A watched stream shown large zooms with the mouse wheel toward the pointer,
+up to 8x; dragging moves the zoomed picture, and the zoom chip at its top
+left, or the middle button, puts it back. A small tile leaves the wheel to
+the call's grid. While watching, the window takes new stream pictures every
+2 ms instead of every 33, so a stream above 30 fps shows at its rate.

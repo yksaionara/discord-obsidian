@@ -27,6 +27,8 @@ pub mod clock;
 mod declick;
 #[cfg(feature = "discord")]
 pub mod decode;
+#[cfg(windows)]
+mod duplication;
 #[cfg(feature = "discord")]
 mod dereverb;
 pub mod discord;
@@ -83,6 +85,7 @@ pub mod stream_worker;
 pub mod video;
 #[cfg(feature = "discord")]
 pub mod video_player;
+pub mod update;
 pub mod voice;
 #[cfg(feature = "matrix")]
 pub mod voice_demo;

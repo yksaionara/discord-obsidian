@@ -231,7 +231,7 @@ mod linux {
                 }
                 .into()
             };
-            let mut menu = vec![item("Open Yapfast", Choice::Open)];
+            let mut menu = vec![item("Open Discord", Choice::Open)];
             if self.shown.call {
                 menu.push(item("Disconnect", Choice::Disconnect));
             }
@@ -333,7 +333,7 @@ mod windows {
                 let window = CreateWindowExW(
                     0,
                     w!("YapfastTray"),
-                    w!("Yapfast"),
+                    w!("Discord"),
                     WS_OVERLAPPED,
                     0,
                     0,
@@ -360,7 +360,7 @@ mod windows {
                     hIcon: icons[0],
                     ..std::mem::zeroed()
                 };
-                for (place, unit) in data.szTip.iter_mut().zip("Yapfast".encode_utf16()) {
+                for (place, unit) in data.szTip.iter_mut().zip("Discord".encode_utf16()) {
                     *place = unit;
                 }
                 let added = notify(NIM_ADD, &data);
@@ -488,7 +488,7 @@ mod windows {
         // this thread.
         let picked = unsafe {
             let menu = CreatePopupMenu();
-            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
+            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Discord"));
             if call {
                 AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
             }

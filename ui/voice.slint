@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
-import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
+import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem, TextField } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
 export struct PersonRow {
@@ -522,7 +522,7 @@ export component JoinVoice inherits VerticalLayout {
     }
     Text { text: root.room-name; color: Theme.text; font-size: 26px; font-weight: 900; horizontal-alignment: center; overflow: elide; }
     Text { text: root.voice-description; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
-    if !root.preview && !root.call-encrypted: Text { text: "This channel is unencrypted. Yapfast only joins encrypted voice channels."; color: Theme.accent; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
+    if !root.preview && !root.call-encrypted: Text { text: "This channel is unencrypted. Discord only joins encrypted voice channels."; color: Theme.accent; font-size: 15px; horizontal-alignment: center; wrap: word-wrap; }
     HorizontalLayout {
         alignment: center; padding-top: 6px;
         ActionButton { min-height: 42px; text: root.voice-active ? "Switch voice channel" : "Join voice"; primary: true; enabled: root.can-join; clicked => { root.join-voice(); } }
@@ -621,6 +621,28 @@ component StageTile inherits Rectangle {
     callback right-clicked(length, length);
     callback stop;
     callback full-screen(bool);
+    /// A stream shows here: large, the wheel zooms it toward the pointer,
+    /// up to 8x, and a drag moves it.
+    in property <bool> zoomable;
+    out property <float> zoom: 1;
+    out property <length> pan-x: 0px;
+    out property <length> pan-y: 0px;
+    property <length> grab-x;
+    property <length> grab-y;
+    function reset-zoom() { root.zoom = 1; root.pan-x = 0px; root.pan-y = 0px; }
+    changed focused => { root.reset-zoom(); }
+    changed zoomable => { root.reset-zoom(); }
+    changed width => { root.reset-zoom(); }
+    // Keeps the zoomed picture covering the tile.
+    pure function clamp-pan(pan: length, size: length, zoom: float) -> length {
+        return max(size - size * zoom, min(0px, pan));
+    }
+    // Zooms to `zoom`, keeping the point at x, y where it is.
+    function zoom-at(x: length, y: length, zoom: float) {
+        root.pan-x = root.clamp-pan(x - (x - root.pan-x) / root.zoom * zoom, root.width, zoom);
+        root.pan-y = root.clamp-pan(y - (y - root.pan-y) / root.zoom * zoom, root.height, zoom);
+        root.zoom = zoom;
+    }
     border-radius: root.full ? 0px : 12px; clip: true;
     accessible-role: button; accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -628,12 +650,49 @@ component StageTile inherits Rectangle {
     property <bool> stop-shown: root.stop-label != "" && (touch.has-hover || root.focused);
     @children
     touch := TouchArea {
-        mouse-cursor: root.focused ? MouseCursor.default : MouseCursor.pointer;
+        mouse-cursor: root.zoom > 1 ? (self.pressed ? MouseCursor.grabbing : MouseCursor.grab)
+            : root.focused ? MouseCursor.default : MouseCursor.pointer;
         clicked => { root.clicked(); }
         double-clicked => { if root.focused { root.full-screen(!root.full); } }
         pointer-event(event) => {
             if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                 root.right-clicked(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                root.grab-x = root.pan-x; root.grab-y = root.pan-y;
+            }
+            // The middle button puts the picture back as it was.
+            if event.button == PointerEventButton.middle && event.kind == PointerEventKind.down && root.zoom > 1 {
+                root.reset-zoom();
+            }
+        }
+        moved => {
+            if root.zoom > 1 {
+                root.pan-x = root.clamp-pan(root.grab-x + self.mouse-x - self.pressed-x, root.width, root.zoom);
+                root.pan-y = root.clamp-pan(root.grab-y + self.mouse-y - self.pressed-y, root.height, root.zoom);
+            }
+        }
+        scroll-event(event) => {
+            // A small tile leaves the wheel to the grid, which scrolls.
+            if !root.zoomable || !root.focused || event.delta-y == 0 || (root.zoom <= 1 && event.delta-y < 0) {
+                return reject;
+            }
+            root.zoom-at(self.mouse-x, self.mouse-y,
+                max(1, min(8, event.delta-y > 0 ? root.zoom * 1.2 : root.zoom / 1.2)));
+            return accept;
+        }
+        if root.zoom > 1: Rectangle {
+            x: 10px; y: 10px; width: zoom-text.preferred-width + 20px; height: 28px;
+            border-radius: 14px; background: zoom-touch.has-hover ? #000000d9 : #000000a6;
+            accessible-role: button; accessible-label: "Reset zoom";
+            zoom-text := Text {
+                text: (round(root.zoom * 10) / 10) + "x  ·  Reset";
+                color: #ffffff; font-size: 13px; font-weight: 700;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
+            zoom-touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => { root.reset-zoom(); }
             }
         }
         // Inside the touch area, so the pointer on a button still hovers the tile.
@@ -682,7 +741,14 @@ component TileChip inherits Rectangle {
 component StreamPicture inherits Rectangle {
     in property <image> frame;
     in property <string> status;
-    Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
+    /// How far it's zoomed in, and where the zoomed picture's corner is.
+    in property <float> zoom: 1;
+    in property <length> pan-x;
+    in property <length> pan-y;
+    Image {
+        x: root.pan-x; y: root.pan-y; width: parent.width * root.zoom; height: parent.height * root.zoom;
+        source: root.frame; image-fit: contain;
+    }
     // The stage is black in every theme, so its note is a fixed grey.
     if root.frame.width == 0: Text {
         x: 16px; width: parent.width - 32px; height: parent.height;
@@ -856,7 +922,11 @@ export component ParticipantGrid inherits Flickable {
         right-clicked(x, y) => { root.open-volume(self.person, x, y); }
         stop => { root.stop-watching(); }
         full-screen(on) => { root.full-screen(on); }
-        if stream.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
+        zoomable: self.watched;
+        if stream.watched: StreamPicture {
+            frame: root.watch-frame; status: root.watch-status;
+            zoom: stream.zoom; pan-x: stream.pan-x; pan-y: stream.pan-y;
+        }
         if !stream.watched: VerticalLayout {
             alignment: center; spacing: 10px;
             Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
@@ -887,6 +957,7 @@ export component ParticipantGrid inherits Flickable {
         // once it's watched; until then a click watches it.
         property <bool> streams-here: person.live && !person.local && !person.video;
         property <bool> watched: self.streams-here && person.id == root.watch-user;
+        zoomable: self.watched;
         background: self.filmed || self.watched ? #000000 : Theme.raised;
         label: person.name + ", " + person.status + (person.video ? ", camera on" : "");
         viewers: self.watched ? root.watch-viewers : [];
@@ -903,7 +974,10 @@ export component ParticipantGrid inherits Flickable {
         stop => { root.stop-watching(); }
         full-screen(on) => { root.full-screen(on); }
         if tile.filmed: Image { width: tile.width; height: tile.height; source: tile.frame; image-fit: contain; }
-        if tile.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
+        if tile.watched: StreamPicture {
+            frame: root.watch-frame; status: root.watch-status;
+            zoom: tile.zoom; pan-x: tile.pan-x; pan-y: tile.pan-y;
+        }
         if !tile.filmed && !tile.watched: Avatar {
             size: min(80px, parent.height * 0.45); initial: person.initial; tint: person.tint; picture: person.picture;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 - 8px;
@@ -1297,23 +1371,71 @@ export component ShareMenu inherits Rectangle {
             padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
             Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
         }
-        if !root.switching: VerticalLayout {
-            spacing: 2px;
-            for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
-                text: choice; checked: index == root.pick-resolution;
-                clicked => { root.pick-resolution = index; }
+        // Modes, one click each, in a row.
+        if !root.switching: HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            for choice[index] in ["480p", "720p", "1080p", "1440p", "Source"]: Rectangle {
+                property <bool> checked: index == root.pick-resolution;
+                height: 30px; horizontal-stretch: 1; border-radius: 6px;
+                background: self.checked ? Theme.accent : mode-touch.has-hover ? Theme.hover : Theme.sunken;
+                accessible-role: button; accessible-label: choice + " resolution"; accessible-checked: self.checked;
+                Text {
+                    text: choice; font-size: 12px; font-weight: 600;
+                    color: parent.checked ? Theme.on-accent : Theme.text;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+                mode-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { root.pick-resolution = index; }
+                }
             }
         }
         if !root.switching: HorizontalLayout {
             padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
             Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
         }
+        // Any whole number up to 360, remembered for next time, or one of
+        // the common rates in a click.
         if !root.switching: VerticalLayout {
-            spacing: 2px;
-            for fps in [15, 30, 60]: MenuItem {
-                text: fps + " fps"; checked: fps == root.pick-fps;
-                clicked => { root.pick-fps = fps; }
+            spacing: 4px;
+            HorizontalLayout {
+                padding-left: 4px; padding-right: 4px; spacing: 8px;
+                fps-field := TextField {
+                    min-height: 32px; text-size: 14px; pad: 10px;
+                    text: root.pick-fps; label: "Frames a second"; placeholder: "30";
+                    edited(text) => {
+                        if text.is-float() && text.to-float() >= 1 {
+                            root.pick-fps = min(360, round(text.to-float()));
+                        }
+                    }
+                    accepted => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
+                }
+                Text {
+                    text: "fps"; color: Theme.muted; font-size: 14px; vertical-alignment: center;
+                }
             }
+            HorizontalLayout {
+                padding-left: 4px; padding-right: 4px; spacing: 4px;
+                for rate in [30, 60, 144, 240, 360]: Rectangle {
+                    property <bool> checked: rate == root.pick-fps;
+                    height: 26px; horizontal-stretch: 1; border-radius: 6px;
+                    background: self.checked ? Theme.accent : rate-touch.has-hover ? Theme.hover : Theme.sunken;
+                    accessible-role: button; accessible-label: rate + " fps"; accessible-checked: self.checked;
+                    Text {
+                        text: rate; font-size: 12px; font-weight: 600;
+                        color: parent.checked ? Theme.on-accent : Theme.text;
+                        horizontal-alignment: center; vertical-alignment: center;
+                    }
+                    rate-touch := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.pick-fps = rate; fps-field.text = rate; }
+                    }
+                }
+            }
+        }
+        if !root.switching && root.pick-fps >= 360: HorizontalLayout {
+            padding-left: 8px;
+            Text { text: "360 fps is the most"; color: Theme.muted; font-size: 11px; }
         }
         if !root.switching: HorizontalLayout {
             padding-left: 8px; padding-top: 8px; padding-bottom: 4px;

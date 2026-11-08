@@ -53,6 +53,8 @@ pub const ARGUMENT: &str = "--stream-worker";
 /// experiment); larger screens are scaled down to it.
 pub const SHARE_WIDTH: u32 = 1920;
 pub const SHARE_HEIGHT: u32 = 1080;
+/// How often the window's own preview of a shared screen updates, at most.
+const PREVIEW_INTERVAL: Duration = Duration::from_millis(1000 / 30);
 /// The largest preview of the shared screen the UI shows.
 pub const PREVIEW_WIDTH: u32 = 1280;
 pub const PREVIEW_HEIGHT: u32 = 720;
@@ -373,7 +375,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             effort,
             hardware,
         } => {
-            let fps = fps.clamp(1, 60);
+            let fps = fps.clamp(1, crate::voice::MAX_FPS);
             let sink = Sink {
                 writer: Writer::open(&frames)?,
                 controls: received,
@@ -388,6 +390,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 preview_due: None,
                 thumbnail: None,
                 lost: None,
+                previewed: None,
             };
             report(Report::Ready);
             match source {
@@ -475,6 +478,8 @@ struct Sink {
     /// When the stream connection ended, while Discord may still name a
     /// server it moved the stream to.
     lost: Option<Instant>,
+    /// When the window's preview last got a frame.
+    previewed: Option<Instant>,
 }
 
 struct Video {
@@ -528,8 +533,8 @@ fn log_encoder(encoder: &Encoder) {
 /// The kbit/s to aim for, as Discord's client does: its cap for frames of
 /// `height` lines, or what its server estimates the path carries when
 /// that's less, but at least the 500 kbit/s it gives a screen.
-fn kbps(height: u32, estimate: Option<u64>) -> u32 {
-    let cap = stream_connection::max_bitrate(height) / 1000;
+fn kbps(height: u32, fps: u32, estimate: Option<u64>) -> u32 {
+    let cap = stream_connection::max_bitrate(height, fps) / 1000;
     estimate.map_or(cap, |estimate| {
         (estimate / 1000).clamp(500, u64::from(cap)) as u32
     })
@@ -540,16 +545,34 @@ impl Sink {
     /// down to fit, and Discord gets it once the stream has a server.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-        let mut smaller =
-            (preview != (width, height)).then(|| picture.scale(preview.0 as i32, preview.1 as i32));
-        let shown = match smaller.as_mut() {
-            Some(smaller) => smaller,
-            None => &mut *picture,
-        };
-        self.writer
-            .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
-        if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(shown) {
+        // The preview in the window updates at most every PREVIEW_INTERVAL:
+        // scaling and converting every frame of a 240 fps stream would cost
+        // more than encoding it. Discord's preview picture comes from the
+        // same frames.
+        let now = Instant::now();
+        let preview_now = self
+            .previewed
+            .is_none_or(|at| now.duration_since(at) >= PREVIEW_INTERVAL);
+        let thumbnail_due = self.preview_due.is_some_and(|due| due <= now);
+        if preview_now || thumbnail_due {
+            self.previewed = Some(now);
+            let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            let mut smaller = (preview != (width, height))
+                .then(|| picture.scale(preview.0 as i32, preview.1 as i32));
+            let shown = match smaller.as_mut() {
+                Some(smaller) => smaller,
+                None => &mut *picture,
+            };
+            self.writer
+                .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
+            self.preview_picture(shown, thumbnail_due);
+        }
+        self.send_frame(picture)
+    }
+
+    /// Makes Discord's preview picture from `shown` when one is due.
+    fn preview_picture(&mut self, shown: &mut I420Buffer, due: bool) {
+        if due && !is_black(shown) {
             match thumbnail(shown) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
@@ -558,6 +581,11 @@ impl Sink {
             }
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
         }
+    }
+
+    /// Encodes `picture` and sends it, once the stream has a server.
+    fn send_frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
+        let (width, height) = (picture.width(), picture.height());
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
@@ -611,7 +639,7 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, video.sender.bandwidth_estimate());
+        let wanted = kbps(height, self.fps, video.sender.bandwidth_estimate());
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
@@ -685,7 +713,7 @@ impl Sink {
             width,
             height,
             self.fps,
-            kbps(height, None),
+            kbps(height, self.fps, None),
             self.effort,
             self.hardware,
         )
@@ -924,8 +952,10 @@ fn test_pattern(
 /// inside it.
 fn bounds(resolution: Resolution) -> (u32, u32) {
     match resolution {
+        Resolution::P480 => (854, 480),
         Resolution::P720 => (1280, 720),
         Resolution::P1080 => (SHARE_WIDTH, SHARE_HEIGHT),
+        Resolution::P1440 => (2560, 1440),
         Resolution::Source => (3840, 2160),
     }
 }
@@ -1005,6 +1035,29 @@ fn capture_screen(
 ) -> Result<()> {
     let fps = sink.fps;
     let sink = Arc::new(Mutex::new(sink));
+    // A screen on Windows goes through desktop duplication, which gives
+    // every frame the screen shows; windows, cameras, and screens it can't
+    // duplicate go through WebRTC's capturer.
+    #[cfg(windows)]
+    let source = {
+        let mut source = source;
+        loop {
+            let id = match source {
+                Source::Display(id) => Some(id),
+                Source::Screen => None,
+                _ => break source,
+            };
+            match capture_duplicated(id, &sink, max_width, max_height, stop, report) {
+                Ok(None) => return Ok(()),
+                Ok(Some(next)) => source = next,
+                Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
+                    tracing::warn!(error = format!("{error:#}"), "sharing through WebRTC's capturer");
+                    break source;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    };
     let mut capture = Capture::start(source, &sink, max_width, max_height)?;
     // A screen, window or camera to share in its place, until it gives a
     // picture.
@@ -1068,6 +1121,96 @@ fn capture_screen(
         }
     }
     Ok(())
+}
+
+/// When nothing on the screen changes, the last frame goes again this
+/// often, so a viewer joining or asking for a keyframe gets one.
+#[cfg(windows)]
+const IDLE_REPEAT: Duration = Duration::from_millis(100);
+
+/// Shares the screen `id` through desktop duplication until stopped, or
+/// until another source is asked for, which it returns. Fails with
+/// [`crate::duplication::Unavailable`] before sending anything when the
+/// screen can't be duplicated.
+#[cfg(windows)]
+fn capture_duplicated(
+    id: Option<u64>,
+    sink: &Arc<Mutex<Sink>>,
+    max_width: u32,
+    max_height: u32,
+    stop: &AtomicBool,
+    report: &mut dyn FnMut(Report),
+) -> Result<Option<Source>> {
+    use crate::duplication::{Duplication, Next};
+    let lock = || sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut duplication = Duplication::open(id)?;
+    let fps = lock().fps.max(1);
+    let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
+    // A frame up to a quarter early still goes, so jitter in when the screen
+    // presents doesn't halve the rate.
+    let early = interval / 4;
+    let mut last_sent: Option<Instant> = None;
+    let mut pending = false;
+    let mut picture = I420Buffer::new(2, 2);
+    let mut reported = None;
+    while !stop.load(Ordering::Relaxed) {
+        let now = Instant::now();
+        let wait = match (pending, last_sent) {
+            (true, Some(sent)) => (sent + interval).saturating_duration_since(now + early),
+            (true, None) => Duration::ZERO,
+            (false, Some(sent)) => (sent + IDLE_REPEAT).saturating_duration_since(now),
+            (false, None) => IDLE_REPEAT,
+        };
+        match duplication.next(wait.as_millis().min(100) as u32)? {
+            Next::Frame => pending = true,
+            Next::Timeout => {}
+            Next::Lost => {
+                // A mode change, or the secure desktop: open it again
+                // once it's back.
+                std::thread::sleep(Duration::from_millis(50));
+                if let Err(error) = duplication.reopen() {
+                    tracing::debug!(error = format!("{error:#}"), "the screen isn't back yet");
+                }
+                pending = true;
+                continue;
+            }
+        }
+        let now = Instant::now();
+        let due = last_sent.map_or(now, |sent| sent + interval);
+        let idle = last_sent.is_some_and(|sent| now >= sent + IDLE_REPEAT);
+        if duplication.has_picture() && ((pending && now + early >= due) || idle) {
+            duplication.picture_into(&mut picture);
+            let (width, height) = (picture.width(), picture.height());
+            let size = fit(width, height, max_width, max_height);
+            let mut scaled = (size != (width, height))
+                .then(|| picture.scale(size.0 as i32, size.1 as i32));
+            let frame = scaled.as_mut().unwrap_or(&mut picture);
+            lock().frame(frame)?;
+            if reported != Some(size) {
+                reported = Some(size);
+                report(Report::Sharing {
+                    width: size.0,
+                    height: size.1,
+                });
+            }
+            // Keeps to the rate's schedule, unless it fell a frame behind.
+            last_sent = Some(if now.saturating_duration_since(due) < interval {
+                due.max(now - early)
+            } else {
+                now
+            });
+            pending = false;
+        }
+        let switch = lock().check(report)?;
+        if let Some(next) = switch {
+            let mut sink = lock();
+            if sink.streaming {
+                sink.preview_due = Some(Instant::now());
+            }
+            return Ok(Some(next));
+        }
+    }
+    Ok(None)
 }
 
 /// A capturer sending a screen's, window's or camera's frames to the sink.
@@ -1616,11 +1759,12 @@ mod tests {
 
     #[test]
     fn aims_for_discords_bitrates() {
-        assert_eq!(kbps(720, None), 3500);
-        assert_eq!(kbps(1080, None), 9000);
-        assert_eq!(kbps(1080, Some(4_000_000)), 4000, "what the path carries");
-        assert_eq!(kbps(720, Some(9_000_000)), 3500, "never past the cap");
-        assert_eq!(kbps(1080, Some(100_000)), 500, "nor below a screen's floor");
+        assert_eq!(kbps(720, 30, None), 3500);
+        assert_eq!(kbps(1080, 60, None), 9000);
+        assert_eq!(kbps(1080, 240, None), 27000, "more for more frames");
+        assert_eq!(kbps(1080, 60, Some(4_000_000)), 4000, "what the path carries");
+        assert_eq!(kbps(720, 30, Some(9_000_000)), 3500, "never past the cap");
+        assert_eq!(kbps(1080, 60, Some(100_000)), 500, "nor below a screen's floor");
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -1643,6 +1787,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            previewed: None,
         };
         let (offers, encoder) = sink.offers(320, 180).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
@@ -1676,6 +1821,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            previewed: None,
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
@@ -1713,6 +1859,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            previewed: None,
         };
         let mut report = |_| {};
         assert_eq!(sink.check(&mut report).unwrap(), None);
@@ -1740,6 +1887,7 @@ mod tests {
             preview_due: Some(Instant::now()),
             thumbnail: None,
             lost: None,
+            previewed: None,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();

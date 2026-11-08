@@ -92,18 +92,23 @@ pub struct Watching {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Resolution {
+    P480,
     P720,
     #[default]
     P1080,
+    P1440,
     /// The screen's own size, up to 4K.
     Source,
 }
+
+/// The highest frame rate a screen is shared at.
+pub const MAX_FPS: u32 = 360;
 
 /// How a screen is shared: chosen before going live, and remembered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamQuality {
     pub resolution: Resolution,
-    /// Frames a second: 15, 30 or 60.
+    /// Frames a second, typed in the share menu: 1 to [`MAX_FPS`].
     pub fps: u32,
     /// A sharper picture from more of the encoder's work, at about twice
     /// the CPU.
@@ -724,8 +729,8 @@ mod tests {
             speaker: Some("name:Null Output".into()),
             camera: Some("usb-0000:00:14.0-1".into()),
             quality: StreamQuality {
-                resolution: Resolution::Source,
-                fps: 60,
+                resolution: Resolution::P1440,
+                fps: 144,
                 high_quality: true,
             },
             ..Default::default()
