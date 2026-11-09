@@ -1,4 +1,4 @@
-import { ClientStyle } from "yapfast/style.slint";
+import { ClientStyle } from "obsidian/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip } from "controls.slint";
@@ -1322,7 +1322,7 @@ export component ProfileModal inherits Rectangle {
     }
 }
 
-// A role mentioned in a message, as a card: who Yapfast knows has it.
+// A role mentioned in a message, as a card: who Discord Obsidian knows has it.
 export component RoleCard inherits Rectangle {
     in property <string> role-name;
     in property <color> role-color;

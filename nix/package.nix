@@ -1,4 +1,4 @@
-# Yapfast's Discord-only build, as the releases ship it, for the flake at the
+# Discord Obsidian's Discord-only build, as the releases ship it, for the flake at the
 # repository's root. `pkgs` carries rust-overlay, for the pinned toolchain.
 { pkgs }:
 let
@@ -6,7 +6,7 @@ let
   native = import ./native.nix { inherit pkgs; };
   toolchain = pkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
   rustPlatform = pkgs.makeRustPlatform { cargo = toolchain; rustc = toolchain; };
-  id = "io.github.yapfast.Yapfast";
+  id = "io.github.obsidian.DiscordObsidian";
   deepFilterHash = "sha256-JxvK5/PX29o23Pq9cNpTSyuAB7j9HszzDGHC2fOw74Y=";
   # deep_filter embeds a model from its repository's models/ folder, outside
   # the crate, which vendoring leaves out; this is the commit Cargo.lock pins.
@@ -22,7 +22,7 @@ let
     };
 in
 rustPlatform.buildRustPackage {
-  pname = "yapfast";
+  pname = "obsidian";
   inherit ((lib.importTOML ../Cargo.toml).package) version;
   # Only what the build reads, so a change to the docs or tests rebuilds nothing.
   src = lib.fileset.toSource {
@@ -77,15 +77,15 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and
     # NixOS keeps the GPU driver's in /run/opengl-driver.
-    wrapProgram "$out/bin/yapfast" \
+    wrapProgram "$out/bin/obsidian" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
       --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
   '';
   meta = {
     description = "Native Discord client that stays light on memory";
-    homepage = "https://github.com/yapfast/yapfast";
+    homepage = "https://github.com/obsidian/obsidian";
     license = lib.licenses.gpl3Plus;
-    mainProgram = "yapfast";
+    mainProgram = "obsidian";
     platforms = [ "x86_64-linux" ];
   };
 }

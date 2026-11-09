@@ -1,6 +1,6 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
-import { ClientStyle } from "yapfast/style.slint";
+import { ClientStyle } from "obsidian/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
 export component ActionButton inherits Rectangle {
@@ -249,7 +249,7 @@ export global PictureStore {
     pure callback delays(string, int) -> [int];
 }
 
-// Whether animations play: only while Yapfast's window has the focus, as in
+// Whether animations play: only while Discord Obsidian's window has the focus, as in
 // Discord, so GIFs on another screen hold still where they are.
 export global Motion {
     in property <bool> playing: true;
@@ -270,7 +270,7 @@ export component Picture inherits Image {
 }
 
 // Animated emoji's frames, drawn in place of a still while they play; see
-// `yapfast_emoji` in the Slint core. `revision` moves with the shared
+// `obsidian_emoji` in the Slint core. `revision` moves with the shared
 // clock, so a tick draws the cells that read it again.
 export global EmojiAnimations {
     in property <int> revision;
@@ -409,7 +409,7 @@ export component Avatar inherits Rectangle {
 export component Nameplate inherits Rectangle {
     /// The address of the plate's picture, and its palette's colour.
     in property <string> picture-url;
-    /// The palette's colour; a transparent one means a palette Yapfast
+    /// The palette's colour; a transparent one means a palette Discord Obsidian
     /// doesn't know, and the picture shows without the tint.
     in property <color> palette;
     /// The account card's plate, which is stronger and isn't faded.

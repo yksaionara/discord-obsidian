@@ -29,10 +29,10 @@ def link(target, source):
 
 
 def main():
-    source = Path(os.environ['YAPFAST_SKIA_WINDOWS_SOURCE'])
-    clang = Path(os.environ['YAPFAST_SKIA_CLANG'])
-    lld = Path(os.environ['YAPFAST_SKIA_LLD'])
-    headers = Path(os.environ['YAPFAST_SKIA_CLANG_HEADERS'])
+    source = Path(os.environ['OBSIDIAN_SKIA_WINDOWS_SOURCE'])
+    clang = Path(os.environ['OBSIDIAN_SKIA_CLANG'])
+    lld = Path(os.environ['OBSIDIAN_SKIA_LLD'])
+    headers = Path(os.environ['OBSIDIAN_SKIA_CLANG_HEADERS'])
     xwin = Path(os.environ.get('XWIN_CACHE_DIR', Path.home() / '.cache/cargo-xwin')) / 'xwin'
     compiler = subprocess.check_output([clang, '--version'], text=True).splitlines()[0]
     if '21.1.7' not in compiler:
@@ -121,9 +121,9 @@ def main():
                             tar.addfile(info, f)
                     else:
                         tar.addfile(info)
-    env.update(YAPFAST_SKIA_TARGET='windows', YAPFAST_SKIA_SOURCE=str(raw),
-               YAPFAST_SKIA_OUTPUT=str(WORK / 'prepared'), YAPFAST_SKIA_STATIC_SHA256=digest(raw),
-               YAPFAST_SKIA_NM=shutil.which('llvm-nm'), YAPFAST_SKIA_OBJCOPY=shutil.which('llvm-objcopy'))
+    env.update(OBSIDIAN_SKIA_TARGET='windows', OBSIDIAN_SKIA_SOURCE=str(raw),
+               OBSIDIAN_SKIA_OUTPUT=str(WORK / 'prepared'), OBSIDIAN_SKIA_STATIC_SHA256=digest(raw),
+               OBSIDIAN_SKIA_NM=shutil.which('llvm-nm'), OBSIDIAN_SKIA_OBJCOPY=shutil.which('llvm-objcopy'))
     subprocess.run([sys.executable, str(ROOT / 'nix/prepare-skia-native.py')],
                    env=env, stdout=sys.stderr, check=True)
     sdk_files = [(str(p.relative_to(xwin)), p.stat().st_size, p.stat().st_mtime_ns)

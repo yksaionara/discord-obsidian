@@ -35,10 +35,10 @@ if ($Notes) { [System.IO.File]::WriteAllText((Join-Path (Get-Location) "packagin
 $skia = Get-ChildItem .local\windows\skia\prepared\*.tar.gz | Select-Object -First 1
 if (-not $skia) { throw "no prepared Skia archive in .local\windows\skia\prepared" }
 $env:SKIA_BINARIES_URL = "file://" + ($skia.FullName -replace '\\', '/')
-$exe = "target\release\yapfast.exe"
+$exe = "target\release\obsidian.exe"
 if (Test-Path $exe) {
-    Remove-Item "target\release\yapfast.old.exe" -ErrorAction SilentlyContinue
-    try { Move-Item $exe "target\release\yapfast.old.exe" } catch { }
+    Remove-Item "target\release\obsidian.old.exe" -ErrorAction SilentlyContinue
+    try { Move-Item $exe "target\release\obsidian.old.exe" } catch { }
 }
 cargo build --release
 if ($LASTEXITCODE -ne 0) { throw "the build failed" }
@@ -58,7 +58,7 @@ git push $Remote HEAD:main "v$Version"
 if ($LASTEXITCODE -ne 0) { throw "the push failed" }
 
 # The release the apps update from.
-$title = "Discord v$Version"
+$title = "Discord Obsidian v$Version"
 if (-not $Notes) { $Notes = "Update v$Version." }
 gh release create "v$Version" $installer --repo $Repository --title $title --notes $Notes
 if ($LASTEXITCODE -ne 0) { throw "the release didn't publish" }

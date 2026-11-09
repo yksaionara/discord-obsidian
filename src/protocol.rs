@@ -1,6 +1,6 @@
-//! Opening Discord's own protocol links in Yapfast: a current-user
+//! Opening Discord's own protocol links in Discord Obsidian: a current-user
 //! protocol registration on Windows, and the person's default
-//! applications on Linux. Yapfast's own `yapfast:` scheme is registered by
+//! applications on Linux. Discord Obsidian's own `obsidian:` scheme is registered by
 //! its installer or desktop entry; this claims `discord:` only when
 //! Settings says to, and gives the previous handler back when turned off.
 
@@ -9,17 +9,17 @@ use std::path::Path;
 /// Whether this platform can claim Discord's protocol links.
 pub const SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
 
-/// Whether Discord protocol links open in this Yapfast.
+/// Whether Discord protocol links open in this Discord Obsidian.
 pub fn discord_enabled(root: &Path) -> bool {
     platform::enabled(root)
 }
 
-/// Claims Discord protocol links for this Yapfast, or gives them back.
+/// Claims Discord protocol links for this Discord Obsidian, or gives them back.
 pub fn set_discord_enabled(root: &Path, enabled: bool) -> std::io::Result<()> {
     platform::set(root, enabled)
 }
 
-/// Points a claimed registration at this Yapfast after its folder moved
+/// Points a claimed registration at this Discord Obsidian after its folder moved
 /// or an update replaced it. A handler someone else chose since is left.
 pub fn refresh(root: &Path) {
     if let Err(error) = platform::refresh(root) {
@@ -27,13 +27,13 @@ pub fn refresh(root: &Path) {
     }
 }
 
-/// This Yapfast as a command: itself, its data folder when it isn't the
+/// This Discord Obsidian as a command: itself, its data folder when it isn't the
 /// usual one, then the link the desktop hands it.
 #[cfg(windows)]
 fn command(root: &Path) -> std::io::Result<Vec<String>> {
     use crate::autostart::path_text;
     let mut command = vec![path_text(std::env::current_exe()?)?];
-    let usual = yapfast_core::default_directory().ok();
+    let usual = obsidian_core::default_directory().ok();
     if usual.as_deref() != Some(root) {
         command.extend([
             "--data-dir".to_owned(),
@@ -82,11 +82,11 @@ mod windows {
     };
 
     const PROTOCOL: &str = r"Software\Classes\discord";
-    const YAPFAST_PROTOCOL: &str = r"Software\Classes\yapfast";
-    const YAPFAST_COMMAND: &str = r"Software\Classes\yapfast\shell\open\command";
-    const YAPFAST_ICON: &str = r"Software\Classes\yapfast\DefaultIcon";
+    const OBSIDIAN_PROTOCOL: &str = r"Software\Classes\obsidian";
+    const OBSIDIAN_COMMAND: &str = r"Software\Classes\obsidian\shell\open\command";
+    const OBSIDIAN_ICON: &str = r"Software\Classes\obsidian\DefaultIcon";
     const COMMAND: &str = r"Software\Classes\discord\shell\open\command";
-    const BACKUP: &str = r"Software\Yapfast\DiscordProtocol";
+    const BACKUP: &str = r"Software\Discord Obsidian\DiscordProtocol";
     const PREVIOUS_COMMAND: &str = "PreviousCommand";
     const HAD_COMMAND: &str = "HadCommand";
     const HAD_URL_PROTOCOL: &str = "HadUrlProtocol";
@@ -124,7 +124,7 @@ mod windows {
                         },
                     )?;
                 }
-                register_yapfast(root, &ours)?;
+                register_obsidian(root, &ours)?;
                 if query_string(PROTOCOL, Some("URL Protocol")).is_none() {
                     set_string(PROTOCOL, Some("URL Protocol"), "")?;
                 }
@@ -152,38 +152,63 @@ mod windows {
         }
     }
 
+    /// Where the backup was under the app's old name.
+    const OLD_BACKUP: &str = r"Software\Yapfast\DiscordProtocol";
+
+    /// Moves the backup from under the app's old name, once.
+    fn move_old_backup() -> io::Result<()> {
+        let Some(had) = query_string(OLD_BACKUP, Some(HAD_COMMAND)) else {
+            return Ok(());
+        };
+        if query_string(BACKUP, Some(HAD_COMMAND)).is_none() {
+            set_string(BACKUP, Some(HAD_COMMAND), &had)?;
+            if let Some(protocol) = query_string(OLD_BACKUP, Some(HAD_URL_PROTOCOL)) {
+                set_string(BACKUP, Some(HAD_URL_PROTOCOL), &protocol)?;
+            }
+            let (previous, kind) = query_value(OLD_BACKUP, Some(PREVIOUS_COMMAND)).unwrap_or_default();
+            set_value(BACKUP, Some(PREVIOUS_COMMAND), &previous, kind.max(REG_SZ))?;
+        }
+        // SAFETY: deletes keys by name; one with keys left in it stays.
+        unsafe {
+            RegDeleteKeyW(HKEY_CURRENT_USER, wide(OLD_BACKUP).as_ptr());
+            RegDeleteKeyW(HKEY_CURRENT_USER, wide(r"Software\Yapfast").as_ptr());
+        }
+        Ok(())
+    }
+
     pub fn refresh(root: &Path) -> io::Result<()> {
+        move_old_backup()?;
         if query_string(BACKUP, Some(HAD_COMMAND)).is_some()
             && query_string(COMMAND, None).as_deref().is_some_and(is_ours)
         {
             let ours = command_line(&super::command(root)?);
-            register_yapfast(root, &ours)?;
+            register_obsidian(root, &ours)?;
             set_string(COMMAND, None, &ours)?;
         }
         Ok(())
     }
 
-    /// Registers Yapfast's own scheme for this copy, as the installer
-    /// does, so a portable copy can be handed `yapfast:` links too.
-    fn register_yapfast(root: &Path, ours: &str) -> io::Result<()> {
-        set_string(YAPFAST_PROTOCOL, None, "URL:Yapfast Protocol")?;
-        set_string(YAPFAST_PROTOCOL, Some("URL Protocol"), "")?;
+    /// Registers Discord Obsidian's own scheme for this copy, as the installer
+    /// does, so a portable copy can be handed `obsidian:` links too.
+    fn register_obsidian(root: &Path, ours: &str) -> io::Result<()> {
+        set_string(OBSIDIAN_PROTOCOL, None, "URL:Discord Obsidian Protocol")?;
+        set_string(OBSIDIAN_PROTOCOL, Some("URL Protocol"), "")?;
         let program = super::command(root)?
             .into_iter()
             .next()
-            .ok_or_else(|| io::Error::other("Yapfast's own path is unavailable"))?;
+            .ok_or_else(|| io::Error::other("Discord Obsidian's own path is unavailable"))?;
         set_string(
-            YAPFAST_ICON,
+            OBSIDIAN_ICON,
             None,
             &format!("{},0", crate::autostart::windows_argument(&program)),
         )?;
-        set_string(YAPFAST_COMMAND, None, ours)
+        set_string(OBSIDIAN_COMMAND, None, ours)
     }
 
     /// The registered command line, with the link last, after
     /// `--open-link`. Windows puts the link in as it comes, quotes
     /// included, so whatever it splits into follows the marker, where
-    /// Yapfast reads no option. The program comes first, quoted as Windows
+    /// Discord Obsidian reads no option. The program comes first, quoted as Windows
     /// names one.
     fn command_line(command: &[String]) -> String {
         let mut line: Vec<String> = command
@@ -198,11 +223,13 @@ mod windows {
         line.join(" ")
     }
 
-    /// Whether a registered command runs a Yapfast, wherever it lives,
+    /// Whether a registered command runs a Discord Obsidian, wherever it lives,
     /// with or without `--open-link`, as earlier builds registered it.
     fn is_ours(command: &str) -> bool {
         let command = command.to_ascii_lowercase();
-        command.contains("yapfast.exe") && command.contains("%1")
+        // The old name's, too, so an update takes its links over.
+        (command.contains("obsidian.exe") || command.contains("yapfast.exe"))
+            && command.contains("%1")
     }
 
     fn set_string(key: &str, name: Option<&str>, value: &str) -> io::Result<()> {
@@ -315,12 +342,12 @@ mod windows {
 
         #[test]
         fn recognises_its_own_registered_command() {
-            assert!(is_ours(r#""C:\Apps\Yapfast\yapfast.exe" --open-link "%1""#));
-            assert!(is_ours(r#""C:\Apps\Yapfast\yapfast.exe" "%1""#));
+            assert!(is_ours(r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" --open-link "%1""#));
+            assert!(is_ours(r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" "%1""#));
             assert!(!is_ours(r#""C:\Apps\Discord\Discord.exe" "%1""#));
             assert_eq!(
-                command_line(&[r"C:\Apps\Yapfast\yapfast.exe".into()]),
-                r#""C:\Apps\Yapfast\yapfast.exe" --open-link "%1""#
+                command_line(&[r"C:\Apps\Discord Obsidian\Discord Obsidian.exe".into()]),
+                r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" --open-link "%1""#
             );
         }
 
@@ -342,9 +369,9 @@ mod windows {
 #[cfg(target_os = "linux")]
 mod linux {
     //! The person's own `mimeapps.list` is the setting: it's on while its
-    //! default applications name Yapfast first for `discord:`. Yapfast's
-    //! desktop entry declares only `yapfast:`, so without a Discord app
-    //! installed the desktop doesn't fall back to Yapfast for Discord's
+    //! default applications name Discord Obsidian first for `discord:`. Discord Obsidian's
+    //! desktop entry declares only `obsidian:`, so without a Discord app
+    //! installed the desktop doesn't fall back to Discord Obsidian for Discord's
     //! links; gio and xdg-open follow a default all the same.
 
     use std::{
@@ -354,12 +381,12 @@ mod linux {
 
     use crate::desktop_entry;
 
-    /// What the switch claims: Discord's links, and Yapfast's own, which
+    /// What the switch claims: Discord's links, and Discord Obsidian's own, which
     /// another app may have been chosen for.
-    const SCHEMES: [&str; 2] = ["x-scheme-handler/discord", "x-scheme-handler/yapfast"];
+    const SCHEMES: [&str; 2] = ["x-scheme-handler/discord", "x-scheme-handler/obsidian"];
     const DEFAULTS: &str = "[Default Applications]";
     /// In the data folder: each scheme's line in `mimeapps.list` before
-    /// Yapfast claimed it, as it was, or nothing when there was none.
+    /// Discord Obsidian claimed it, as it was, or nothing when there was none.
     const PREVIOUS: &str = "discord-protocol-previous";
 
     fn desktop() -> String {
@@ -375,7 +402,7 @@ mod linux {
         if enabled {
             desktop_entry::install();
             if !desktop_exists() {
-                return Err(io::Error::other("Yapfast's desktop entry isn't installed"));
+                return Err(io::Error::other("Discord Obsidian's desktop entry isn't installed"));
             }
         }
         apply(&list, &root.join(PREVIOUS), enabled)
@@ -383,17 +410,17 @@ mod linux {
 
     pub fn refresh(_: &Path) -> io::Result<()> {
         // A package or the AppImage entry itself names the current
-        // Yapfast; the default names only that entry.
+        // Discord Obsidian; the default names only that entry.
         Ok(())
     }
 
     fn enabled_in(list: &Path) -> bool {
         std::fs::read_to_string(list)
-            .is_ok_and(|text| default_line(&text, SCHEMES[0]).is_some_and(names_yapfast))
+            .is_ok_and(|text| default_line(&text, SCHEMES[0]).is_some_and(names_obsidian))
     }
 
     /// Claims the schemes in `list`, keeping their lines in `previous`, or
-    /// puts those lines back where Yapfast still has them.
+    /// puts those lines back where Discord Obsidian still has them.
     fn apply(list: &Path, previous: &Path, enabled: bool) -> io::Result<()> {
         let current = match std::fs::read_to_string(list) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
@@ -401,11 +428,11 @@ mod linux {
         };
         let mut text = current.clone();
         if enabled {
-            // Kept from the first claim on: a line naming Yapfast is no
+            // Kept from the first claim on: a line naming Discord Obsidian is no
             // one else's to give back.
             if !previous.exists() {
                 let lines = SCHEMES.map(|scheme| {
-                    default_line(&current, scheme).filter(|line| !names_yapfast(line))
+                    default_line(&current, scheme).filter(|line| !names_obsidian(line))
                 });
                 let kept: String = lines
                     .into_iter()
@@ -420,7 +447,7 @@ mod linux {
         } else {
             let kept = std::fs::read_to_string(previous).unwrap_or_default();
             for scheme in SCHEMES {
-                if default_line(&text, scheme).is_some_and(names_yapfast) {
+                if default_line(&text, scheme).is_some_and(names_obsidian) {
                     let line = kept.lines().find(|line| key(line) == Some(scheme));
                     text = with_line(&text, scheme, line);
                 }
@@ -438,8 +465,8 @@ mod linux {
         Ok(())
     }
 
-    /// Whether a default line names Yapfast first.
-    fn names_yapfast(line: &str) -> bool {
+    /// Whether a default line names Discord Obsidian first.
+    fn names_obsidian(line: &str) -> bool {
         line.split_once('=')
             .and_then(|(_, value)| value.split(';').next())
             .is_some_and(|first| first.trim() == desktop())
@@ -607,7 +634,7 @@ mod linux {
                 claimed.contains("[Added Associations]\nx-scheme-handler/discord=other.desktop;")
             );
             assert!(claimed.contains(&format!(
-                "x-scheme-handler/yapfast={};\n\n[Removed",
+                "x-scheme-handler/obsidian={};\n\n[Removed",
                 desktop()
             )));
             // A second claim keeps what the first kept.
@@ -625,7 +652,7 @@ mod linux {
             assert_eq!(
                 read(&folders.list),
                 format!(
-                    "[Default Applications]\nx-scheme-handler/discord={0};\nx-scheme-handler/yapfast={0};\n",
+                    "[Default Applications]\nx-scheme-handler/discord={0};\nx-scheme-handler/obsidian={0};\n",
                     desktop()
                 )
             );

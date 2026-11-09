@@ -145,7 +145,7 @@ def open_https(url):
             request_path += '?' + parsed.query
         try:
             connection.request('GET', request_path,
-                               headers={'User-Agent': 'Yapfast Skia preparation'})
+                               headers={'User-Agent': 'Discord Obsidian Skia preparation'})
             response = connection.getresponse()
         except (OSError, http.client.HTTPException):
             connection.close()
@@ -827,12 +827,12 @@ def run_native_prepare(raw, raw_hash, llvm):
     helper = ROOT / 'nix/prepare-skia-native.py'
     environment = dict(os.environ)
     environment.update({
-        'YAPFAST_SKIA_TARGET': 'windows',
-        'YAPFAST_SKIA_SOURCE': str(raw),
-        'YAPFAST_SKIA_OUTPUT': str(output),
-        'YAPFAST_SKIA_STATIC_SHA256': raw_hash,
-        'YAPFAST_SKIA_NM': str(llvm['nm']),
-        'YAPFAST_SKIA_OBJCOPY': str(llvm['objcopy']),
+        'OBSIDIAN_SKIA_TARGET': 'windows',
+        'OBSIDIAN_SKIA_SOURCE': str(raw),
+        'OBSIDIAN_SKIA_OUTPUT': str(output),
+        'OBSIDIAN_SKIA_STATIC_SHA256': raw_hash,
+        'OBSIDIAN_SKIA_NM': str(llvm['nm']),
+        'OBSIDIAN_SKIA_OBJCOPY': str(llvm['objcopy']),
         'PATH': str(llvm['bin']) + os.pathsep + os.environ.get('PATH', ''),
     })
     say('Renaming the JPEG table and checking the native archive with nix/prepare-skia-native.py')
@@ -840,7 +840,7 @@ def run_native_prepare(raw, raw_hash, llvm):
     if result.returncode:
         fail(f'nix/prepare-skia-native.py failed with exit code {result.returncode}; inspect the helper diagnostics above')
     prepared = output / PACKAGE
-    helper_stamp = output / 'yapfast-skia-native.json'
+    helper_stamp = output / 'obsidian-skia-native.json'
     if not prepared.is_file() or not helper_stamp.is_file():
         fail('the native Skia helper returned without producing its archive and stamp')
     return prepared, helper_stamp
@@ -900,7 +900,7 @@ def run_application_build(cargo):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build Yapfast\'s pinned static-CRT Windows Skia archive on native Windows.')
+    parser = argparse.ArgumentParser(description='Build Discord Obsidian\'s pinned static-CRT Windows Skia archive on native Windows.')
     parser.add_argument('--jobs', type=int, default=os.cpu_count() or 1,
                         help='maximum Ninja jobs (default: host CPU count)')
     modes = parser.add_mutually_exclusive_group()
@@ -930,7 +930,7 @@ def main():
     inputs = build_inputs(source, args.jobs, tools, gn_args, ninja_wrapper)
     raw = WORK / PACKAGE
     prepared = WORK / 'prepared' / PACKAGE
-    helper_stamp = WORK / 'prepared/yapfast-skia-native.json'
+    helper_stamp = WORK / 'prepared/obsidian-skia-native.json'
     stamp_path = WORK / 'build.json'
     if existing_build_is_current(stamp_path, inputs, raw, prepared, helper_stamp):
         say('The prepared Skia archive matches every stamped input; nothing to rebuild')

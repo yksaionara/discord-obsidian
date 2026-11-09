@@ -26,7 +26,7 @@ glyphs such as check, x and chevrons.
   Solar's monitor with an arrow cut out of its screen, and screen-share-off
   that monitor with the slash; search is the
   Linear magnifier with a 2-unit stroke.
-- Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
+- Drawn for Discord Obsidian in Solar's manner: gif, hash, mic and mic-off, the
   signal-high, signal-medium and signal-low bars, soundboard (the speaker of
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
@@ -44,8 +44,8 @@ discord.svg is Discord's logo from Simple Icons 16.34.0
 (https://simpleicons.org/, CC0 1.0), filled white. It marks Discord servers
 and DMs, and Discord's brand guidelines apply to it rather than the ISC licence.
 
-logo.svg is the app's own mark, the Shout balloon from the Yapfast logo
-sketches: a comic shout balloon with typing dots cut out of it.
+logo.svg is the app's own mark, Discord Obsidian's orange logo: Discord's
+mark in white on an orange circle.
 
 scroll-up, scroll-down, scroll-left and scroll-right are the scrollbar arrows of
 Slint 1.18.1's Fluent style (https://slint.dev/), unmodified, under Slint's

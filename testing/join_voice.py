@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure joining a voice channel as it fills, with one process per person.
 
-Alice runs the given Yapfast build and joins muted first. Every other person is a
+Alice runs the given Discord Obsidian build and joins muted first. Every other person is a
 separate headless participant process (matrix_voice::tests::stress_participant) using
 the same voice stack: it publishes a tone in turn with the others, with digital
 silence and Opus DTX otherwise, and decodes every stream it receives.
@@ -35,9 +35,9 @@ import voice_harness
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument('--exe', type=Path, default=ROOT / 'target/measure/yapfast')
+parser.add_argument('--exe', type=Path, default=ROOT / 'target/measure/obsidian')
 parser.add_argument('--participant-executable', type=Path, required=True,
-                    help='yapfast-core test binary, preferably built with --release')
+                    help='obsidian-core test binary, preferably built with --release')
 parser.add_argument('--people', type=int, default=20, help='people in the full call, including Alice')
 parser.add_argument('--gap', type=float, default=12, help='seconds between joins')
 parser.add_argument('--rejoins', type=int, default=3, help='leave and rejoin cycles at full size')
@@ -46,24 +46,24 @@ parser.add_argument('--timeout', type=float, default=120, help='longest wait for
 parser.add_argument('--output', type=Path, required=True)
 args = parser.parse_args()
 args.output.mkdir(parents=True, exist_ok=True)
-livekit, synapse = Container('yapfast-test-livekit-1'), Container('yapfast-test-synapse-1')
+livekit, synapse = Container('obsidian-test-livekit-1'), Container('obsidian-test-synapse-1')
 
 
 def capture(name):
     return voice_harness.capture(args.output, name)
 
 
-def cpu_snapshot(yapfast, people):
-    return {'yapfast': process_cpu_seconds(yapfast.pid), 'synapse': synapse.read()['cpu_seconds'],
+def cpu_snapshot(obsidian, people):
+    return {'obsidian': process_cpu_seconds(obsidian.pid), 'synapse': synapse.read()['cpu_seconds'],
             'livekit': livekit.read()['cpu_seconds'],
             'people': {person.account.name: process_cpu_seconds(person.process.pid) for person in people}}
 
 
-def join(newcomer, earlier, yapfast, everyone):
+def join(newcomer, earlier, obsidian, everyone):
     """Join one participant and time its key exchange with everyone already in."""
     earlier_identities = {person.status()['identity'] for person in earlier}
     earlier_members = {person.status()['member_id'] for person in earlier}
-    before = cpu_snapshot(yapfast, everyone)
+    before = cpu_snapshot(obsidian, everyone)
     started = time.monotonic()
     newcomer.send('join')
     joined = wait_for(lambda: newcomer.status().get('phase') == 'joined', args.timeout)
@@ -71,7 +71,7 @@ def join(newcomer, earlier, yapfast, everyone):
         raise RuntimeError(f'{newcomer.account.name} did not join')
     status = newcomer.status()
     identity, member = status['identity'], status['member_id']
-    # Alice's muted Yapfast client is not observable here, so she is left out.
+    # Alice's muted Discord Obsidian client is not observable here, so she is left out.
     conditions = {
         'newcomer_has_all_keys_s': lambda: earlier_identities <= set(newcomer.status().get('keyed', [])),
         'all_have_newcomer_key_s': lambda: all(identity in person.status().get('keyed', []) for person in earlier),
@@ -85,7 +85,7 @@ def join(newcomer, earlier, yapfast, everyone):
                 reached[name] = round(time.monotonic() - started, 2)
         time.sleep(.1)
     settled = time.monotonic() - started
-    after = cpu_snapshot(yapfast, everyone)
+    after = cpu_snapshot(obsidian, everyone)
     others = [person.account.name for person in earlier]
     result = {
         'participant': newcomer.account.name, 'people_after_join': len(earlier) + 2,
@@ -94,7 +94,7 @@ def join(newcomer, earlier, yapfast, everyone):
         'window_s': round(settled, 2),
         'cpu_s_newcomer': round(after['people'][newcomer.account.name] - before['people'][newcomer.account.name], 2),
         'cpu_s_others_total': round(sum(after['people'][name] - before['people'][name] for name in others), 2),
-        'cpu_s_talk': round(after['yapfast'] - before['yapfast'], 2),
+        'cpu_s_talk': round(after['obsidian'] - before['obsidian'], 2),
         'cpu_s_synapse': round(after['synapse'] - before['synapse'], 2),
         'cpu_s_livekit': round(after['livekit'] - before['livekit'], 2),
     }
@@ -102,13 +102,13 @@ def join(newcomer, earlier, yapfast, everyone):
     return result
 
 
-def steady(yapfast, people):
-    before = cpu_snapshot(yapfast, people)
+def steady(obsidian, people):
+    before = cpu_snapshot(obsidian, people)
     started = time.monotonic()
-    yapfast_sample = json.loads(subprocess.check_output(
-        ['python3', str(ROOT / 'scripts/measure-process'), str(yapfast.pid), '--seconds', str(args.seconds)], text=True))
+    obsidian_sample = json.loads(subprocess.check_output(
+        ['python3', str(ROOT / 'scripts/measure-process'), str(obsidian.pid), '--seconds', str(args.seconds)], text=True))
     elapsed = time.monotonic() - started
-    after = cpu_snapshot(yapfast, people)
+    after = cpu_snapshot(obsidian, people)
     clients = []
     for person in people:
         memory = process_memory_mib(person.process.pid)
@@ -123,7 +123,7 @@ def steady(yapfast, people):
         return {'mean': round(statistics.mean(values), 2), 'min': min(values), 'max': max(values)}
 
     result = {
-        'yapfast': {key: yapfast_sample[key] for key in ('cpu_percent_one_core', 'pss_mib_mean', 'rss_mib_mean')},
+        'obsidian': {key: obsidian_sample[key] for key in ('cpu_percent_one_core', 'pss_mib_mean', 'rss_mib_mean')},
         'headless_participant_cpu_percent_one_core': summary('cpu_percent_one_core'),
         'headless_participant_pss_mib': summary('pss_mib'),
         'headless_participant_rss_mib': summary('rss_mib'),
@@ -151,17 +151,17 @@ try:
     with (fixture / 'load.log').open('ab') as log:
         subprocess.run([str(args.participant_executable.resolve()), '--exact', 'matrix_voice::tests::load_participants',
                         '--ignored', '--nocapture'], cwd=ROOT, stdout=log, stderr=log, check=True, timeout=1200,
-                       env=dict(os.environ, YAPFAST_TEST_VOICE_ROOT=str(fixture),
-                                YAPFAST_TEST_EXTRA_ACCOUNTS=str(count - 1)))
+                       env=dict(os.environ, OBSIDIAN_TEST_VOICE_ROOT=str(fixture),
+                                OBSIDIAN_TEST_EXTRA_ACCOUNTS=str(count - 1)))
     accounts = [fixture / 'bob'] + [fixture / f'load-{index}' for index in range(count - 1)]
-    log = (args.output / 'yapfast.log').open('wb')
-    yapfast = subprocess.Popen([str(args.exe.resolve()), '--renderer', 'gpu', '--data-dir', str(fixture / 'alice')],
-                            env=dict(os.environ, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}'),
+    log = (args.output / 'obsidian.log').open('wb')
+    obsidian = subprocess.Popen([str(args.exe.resolve()), '--renderer', 'gpu', '--data-dir', str(fixture / 'alice')],
+                            env=dict(os.environ, OBSIDIAN_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}'),
                             stdout=log, stderr=log, start_new_session=True)
     try:
         time.sleep(12)
-        if yapfast.poll() is not None:
-            raise RuntimeError('Yapfast exited during startup; see yapfast.log')
+        if obsidian.poll() is not None:
+            raise RuntimeError('Discord Obsidian exited during startup; see obsidian.log')
         origin_x, origin_y = locate_rail(capture('startup'))
 
         def click(x, y):
@@ -178,10 +178,10 @@ try:
             raise RuntimeError('participants did not finish syncing')
         time.sleep(args.gap)
         for position, person in enumerate(people):
-            joins.append(join(person, people[:position], yapfast, people))
+            joins.append(join(person, people[:position], obsidian, people))
             time.sleep(args.gap)
         capture('full')
-        steady_state = steady(yapfast, people)
+        steady_state = steady(obsidian, people)
         last = people[-1]
         for cycle in range(args.rejoins):
             last.send('leave')
@@ -189,17 +189,17 @@ try:
                 raise RuntimeError('rejoin participant did not leave')
             leave_s = round(last.status().get('leave_ms', 0) / 1000, 2)
             time.sleep(args.gap)
-            result = join(last, people[:-1], yapfast, people)
+            result = join(last, people[:-1], obsidian, people)
             result['leave_call_s_before'] = leave_s
             rejoins.append(result)
             time.sleep(args.gap)
         capture('after-rejoins')
         click(WIDTH - 19, -20)  # Close on the private window's title bar.
-        yapfast.wait(timeout=20)
+        obsidian.wait(timeout=20)
     finally:
-        if yapfast.poll() is None:
-            os.killpg(yapfast.pid, signal.SIGTERM)
-            yapfast.wait(timeout=20)
+        if obsidian.poll() is None:
+            os.killpg(obsidian.pid, signal.SIGTERM)
+            obsidian.wait(timeout=20)
         log.close()
 finally:
     for person in people:
@@ -209,7 +209,7 @@ finally:
         'binary': str(args.exe), 'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
         'participant_binary': str(args.participant_executable),
         'os': f'{platform.system()} {platform.release()}', 'machine': platform.machine(),
-        'isolation': 'Private headless Weston and PulseAudio; Yapfast, every participant process, LiveKit and Synapse share the host',
+        'isolation': 'Private headless Weston and PulseAudio; Discord Obsidian, every participant process, LiveKit and Synapse share the host',
         'people': args.people, 'gap_seconds': args.gap,
         'joins': joins, 'steady_state': steady_state, 'rejoins': rejoins,
     }, indent=2) + '\n')

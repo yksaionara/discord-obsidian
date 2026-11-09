@@ -1,7 +1,7 @@
-//! Yapfast's icon in the system tray, which keeps Yapfast running with its window
-//! closed: a StatusNotifierItem on Linux, on the session bus Yapfast is given,
+//! Discord Obsidian's icon in the system tray, which keeps Discord Obsidian running with its window
+//! closed: a StatusNotifierItem on Linux, on the session bus Discord Obsidian is given,
 //! and a notification-area icon on Windows. Clicking it opens the window; its
-//! menu opens Yapfast, leaves a call and quits.
+//! menu opens Discord Obsidian, leaves a call and quits.
 
 use std::cell::Cell;
 
@@ -30,7 +30,7 @@ pub struct Tray {
 }
 
 impl Tray {
-    /// Puts Yapfast's icon in the tray. `chosen` runs on Slint's event loop with
+    /// Puts Discord Obsidian's icon in the tray. `chosen` runs on Slint's event loop with
     /// what the person picked. `None` where there's no tray to use.
     pub fn start(chosen: fn(Choice)) -> Option<Self> {
         let platform = platform::Tray::start(chosen)?;
@@ -54,24 +54,21 @@ impl Tray {
     }
 }
 
-/// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
-/// unread messages cut into its corner.
+/// Discord Obsidian's orange logo, `size` pixels square, with a red dot for
+/// unread messages in its corner.
 fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
     let mut svg = include_str!("../ui/icons/logo.svg")
         .replacen(
             r#"width="24" height="24""#,
             &format!(r#"width="{size}" height="{size}""#),
             1,
-        )
-        .replacen(r##"fill="#fff" mask"##, r##"fill="#ffbf47" mask"##, 1);
+        );
     if unread {
-        svg = svg
-            .replacen("</mask>", r#"<circle cx="74" cy="74" r="21" /></mask>"#, 1)
-            .replacen(
-                "</svg>",
-                r##"<circle cx="74" cy="74" r="15" fill="#f0545e" /></svg>"##,
-                1,
-            );
+        svg = svg.replacen(
+            "</svg>",
+            r##"<circle cx="19" cy="19" r="5" fill="#f0545e" stroke="#000000" stroke-opacity="0.35" stroke-width="1" /></svg>"##,
+            1,
+        );
     }
     slint::Image::load_from_svg_data(svg.as_bytes())
         .ok()?
@@ -134,7 +131,7 @@ mod linux {
             let (updates, shown) = mpsc::channel();
             // Registering waits on the bus, and so does each update.
             let started = std::thread::Builder::new()
-                .name("yapfast-tray".into())
+                .name("obsidian-tray".into())
                 .spawn(move || run(item, shown));
             if let Err(error) = started {
                 tracing::warn!(%error, "could not start the tray icon");
@@ -158,12 +155,12 @@ mod linux {
         let chosen = item.chosen;
         // Until registering says otherwise; it reports a missing watcher.
         online.store(true, Ordering::Relaxed);
-        // A tray that starts after Yapfast, or comes back, still gets the icon.
+        // A tray that starts after Discord Obsidian, or comes back, still gets the icon.
         let handle = match item.assume_sni_available(true).spawn() {
             Ok(handle) => handle,
             Err(error) => {
                 online.store(false, Ordering::Relaxed);
-                tracing::info!(%error, "no tray icon; closing the window quits Yapfast");
+                tracing::info!(%error, "no tray icon; closing the window quits Discord Obsidian");
                 return;
             }
         };
@@ -191,11 +188,11 @@ mod linux {
 
     impl ksni::Tray for Item {
         fn id(&self) -> String {
-            "yapfast".into()
+            "obsidian".into()
         }
 
         fn title(&self) -> String {
-            "Yapfast".into()
+            "Discord Obsidian".into()
         }
 
         fn category(&self) -> ksni::Category {
@@ -208,7 +205,7 @@ mod linux {
 
         fn tool_tip(&self) -> ksni::ToolTip {
             ksni::ToolTip {
-                title: "Yapfast".into(),
+                title: "Discord Obsidian".into(),
                 description: if self.shown.unread {
                     "Unread messages".into()
                 } else {
@@ -324,7 +321,7 @@ mod windows {
                 let class = WNDCLASSW {
                     lpfnWndProc: Some(procedure),
                     hInstance: instance,
-                    lpszClassName: w!("YapfastTray"),
+                    lpszClassName: w!("ObsidianTray"),
                     ..std::mem::zeroed()
                 };
                 RegisterClassW(&class);
@@ -332,8 +329,8 @@ mod windows {
                 // which wouldn't hear that Explorer restarted.
                 let window = CreateWindowExW(
                     0,
-                    w!("YapfastTray"),
-                    w!("Discord"),
+                    w!("ObsidianTray"),
+                    w!("Discord Obsidian"),
                     WS_OVERLAPPED,
                     0,
                     0,
@@ -360,12 +357,12 @@ mod windows {
                     hIcon: icons[0],
                     ..std::mem::zeroed()
                 };
-                for (place, unit) in data.szTip.iter_mut().zip("Discord".encode_utf16()) {
+                for (place, unit) in data.szTip.iter_mut().zip("Discord Obsidian".encode_utf16()) {
                     *place = unit;
                 }
                 let added = notify(NIM_ADD, &data);
                 if !added {
-                    tracing::info!("no notification area; closing the window quits Yapfast");
+                    tracing::info!("no notification area; closing the window quits Discord Obsidian");
                 }
                 ICON.set(Some(Icon {
                     data,
@@ -543,19 +540,19 @@ mod none {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn the_logo_is_marigold_and_unread_adds_a_red_dot() {
+    fn the_logo_is_orange_and_unread_adds_a_red_dot() {
         let plain = super::logo(32, false).unwrap();
         let unread = super::logo(32, true).unwrap();
         assert_eq!((plain.width(), plain.height()), (32, 32));
-        let marigold = |pixel: &slint::Rgba8Pixel| {
-            pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xff, 0xbf, 0x47)
+        let orange = |pixel: &slint::Rgba8Pixel| {
+            pixel.a == 255 && pixel.r > 0xf0 && (0x9c..=0xc0).contains(&pixel.g) && pixel.b < 0x50
         };
         let red = |pixel: &slint::Rgba8Pixel| {
             pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xf0, 0x54, 0x5e)
         };
-        assert!(plain.as_slice().iter().any(marigold));
+        assert!(plain.as_slice().iter().any(orange));
         assert!(!plain.as_slice().iter().any(red));
-        assert!(unread.as_slice().iter().any(marigold));
+        assert!(unread.as_slice().iter().any(orange));
         // The dot is in the bottom-right corner.
         let corner = (24 * 32 + 24) as usize;
         assert!(red(&unread.as_slice()[corner]));

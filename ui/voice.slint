@@ -621,9 +621,17 @@ component StageTile inherits Rectangle {
     /// Stops the stream it shows; none when empty.
     in property <string> stop-label;
     callback clicked;
+    /// A click on it while it's the large one, as Discord's: the grid again.
+    /// It waits out a double-click, which is full screen instead.
+    callback unfocus;
     callback right-clicked(length, length);
     callback stop;
     callback full-screen(bool);
+    property <bool> unfocusing;
+    Timer {
+        interval: 300ms; running: root.unfocusing;
+        triggered => { root.unfocusing = false; root.unfocus(); }
+    }
     /// A stream shows here: large, the wheel zooms it toward the pointer,
     /// up to 8x, and a drag moves it.
     in property <bool> zoomable;
@@ -655,8 +663,10 @@ component StageTile inherits Rectangle {
     touch := TouchArea {
         mouse-cursor: root.zoom > 1 ? (self.pressed ? MouseCursor.grabbing : MouseCursor.grab)
             : root.focused ? MouseCursor.default : MouseCursor.pointer;
-        clicked => { root.clicked(); }
-        double-clicked => { if root.focused { root.full-screen(!root.full); } }
+        clicked => {
+            if root.focused && !root.full && root.zoom <= 1 { root.unfocusing = true; } else { root.clicked(); }
+        }
+        double-clicked => { root.unfocusing = false; if root.focused { root.full-screen(!root.full); } }
         pointer-event(event) => {
             if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                 root.right-clicked(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
@@ -878,11 +888,6 @@ export component ParticipantGrid inherits Flickable {
         root.large(slot) ? root.focus-top
             : root.first-row + floor(root.place(slot) / max(1, root.columns)) * (root.tile-height + root.gap)
     }
-    // A click beside the large tile shows the grid again.
-    TouchArea {
-        width: root.width; height: root.content-height;
-        clicked => { if root.focusing && !root.full { root.focus-tile(-1); } }
-    }
     if root.sharing: StageTile {
         x: root.tile-x(0); y: root.tile-y(0);
         width: root.large(0) ? root.focus-width : root.tile-width;
@@ -896,6 +901,7 @@ export component ParticipantGrid inherits Flickable {
         stop => { root.stop-sharing(); }
         clicked => { if !self.focused { root.focus-tile(0); } }
         full-screen(on) => { root.full-screen(on); }
+        unfocus => { root.focus-tile(-1); }
         Image { width: parent.width; height: parent.height; source: root.share-frame; image-fit: contain; }
         if root.share-frame.width == 0: VerticalLayout {
             alignment: center; spacing: 10px;
@@ -929,6 +935,7 @@ export component ParticipantGrid inherits Flickable {
         right-clicked(x, y) => { root.open-volume(self.person, x, y); }
         stop => { root.stop-watching(); }
         full-screen(on) => { root.full-screen(on); }
+        unfocus => { if self.watched { root.focus-tile(-1); } else { root.watch-stream(self.person.id); } }
         zoomable: self.watched;
         if stream.watched: StreamPicture {
             frame: root.watch-frame; status: root.watch-status;
@@ -980,6 +987,7 @@ export component ParticipantGrid inherits Flickable {
         right-clicked(x, y) => { root.open-volume(person, x, y); }
         stop => { root.stop-watching(); }
         full-screen(on) => { root.full-screen(on); }
+        unfocus => { if self.streams-here && !self.watched { root.watch-stream(person.id); } else { root.focus-tile(-1); } }
         if tile.filmed: Image { width: tile.width; height: tile.height; source: tile.frame; image-fit: contain; }
         if tile.watched: StreamPicture {
             frame: root.watch-frame; status: root.watch-status;

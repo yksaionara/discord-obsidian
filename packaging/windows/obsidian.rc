@@ -1,0 +1,23 @@
+// Discord Obsidian's icon, which Explorer shows for Discord Obsidian.exe and
+// its shortcuts, and the window loads by its number (src/icon.rs), and the
+// name Task Manager shows for it. scripts/make-windows-icon draws the icon.
+1 ICON "discord.ico"
+
+1 VERSIONINFO
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Discord Obsidian"
+      VALUE "ProductName", "Discord Obsidian"
+      VALUE "OriginalFilename", "Discord Obsidian.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

@@ -18,7 +18,7 @@ pub fn build(root: &Path) -> String {
         std::env::consts::OS,
         std::env::consts::ARCH,
     );
-    match tail(&root.join("yapfast.log")) {
+    match tail(&root.join("obsidian.log")) {
         Some(log) => {
             report.push_str("\nLog (last part):\n");
             for line in log.lines() {
@@ -108,7 +108,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let line = "x".repeat(100);
         let log: String = (0..1000).map(|n| format!("{n} {line}\n")).collect();
-        std::fs::write(folder.path().join("yapfast.log"), &log).unwrap();
+        std::fs::write(folder.path().join("obsidian.log"), &log).unwrap();
         let report = build(folder.path());
         assert!(report.contains("999 xxx"));
         assert!(!report.contains("\n0 xxx"));

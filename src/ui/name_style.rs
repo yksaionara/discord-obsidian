@@ -6,7 +6,7 @@
 //! does, which the client uses, and the rows wearing it share them.
 
 use slint::Color;
-use yapfast_core::chat::NameStyle;
+use obsidian_core::chat::NameStyle;
 
 use super::*;
 

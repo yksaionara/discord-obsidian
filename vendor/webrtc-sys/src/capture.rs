@@ -1,6 +1,6 @@
-// Yapfast: runs the application's code on each call's captured audio after
+// Discord Obsidian: runs the application's code on each call's captured audio after
 // WebRTC's own processing, through the audio processing builder's capture
-// post-processing. See README.yapfast.md.
+// post-processing. See README.obsidian.md.
 
 use std::sync::Mutex;
 

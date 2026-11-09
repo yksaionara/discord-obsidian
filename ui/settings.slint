@@ -1,6 +1,6 @@
-import { SettingsToggle } from "yapfast/settings-toggle.slint";
-import { SettingsNavigation } from "yapfast/settings-nav.slint";
-import { ClientStyle } from "yapfast/style.slint";
+import { SettingsToggle } from "obsidian/settings-toggle.slint";
+import { SettingsNavigation } from "obsidian/settings-nav.slint";
+import { ClientStyle } from "obsidian/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup } from "theme.slint";
@@ -544,7 +544,7 @@ export component VoiceSettings inherits VerticalLayout {
     in-out property <bool> talk-recording;
     /// How long the microphone keeps sending after the key comes up, in ms.
     in-out property <int> talk-delay: 20;
-    /// Where the key works: in every app, or only in Yapfast and why.
+    /// Where the key works: in every app, or only in Discord Obsidian and why.
     in property <string> talk-note;
     /// The mute and deafen shortcuts' names, empty while unset; which one
     /// the next key pressed becomes: 0 neither, 1 mute, 2 deafen; and where
@@ -962,7 +962,7 @@ component ThemeColourRow inherits HorizontalLayout {
     }
 }
 
-// Settings: the window's colours, from the themes Yapfast comes with and the
+// Settings: the window's colours, from the themes Discord Obsidian comes with and the
 // person's own. A click shows one at once. New theme opens the editor, whose
 // changes show at once too; Save keeps them, Cancel restores the theme from
 // before.
@@ -991,7 +991,7 @@ export component AppearanceSettings inherits VerticalLayout {
     callback save-theme();
     callback cancel-theme();
     callback delete-theme();
-    /// The desktop draws the window's title bar; offered where Yapfast can
+    /// The desktop draws the window's title bar; offered where Discord Obsidian can
     /// draw its own.
     in-out property <bool> system-title-bar;
     in property <bool> title-bar-choice;
@@ -1111,7 +1111,7 @@ export component MessageSettings inherits VerticalLayout {
     in-out property <int> text-size;
     in-out property <bool> link-previews;
     in-out property <bool> share-typing;
-    /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
+    /// When animations play: 0 while Discord Obsidian has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> reply-ping;
     in-out property <bool> strip-tracking;
@@ -1242,7 +1242,7 @@ export component NotificationSettings inherits VerticalLayout {
     }
 }
 
-// Settings: Yapfast's own sounds for calls and messages, which instrument plays
+// Settings: Discord Obsidian's own sounds for calls and messages, which instrument plays
 // them, and how loud they are, all together or each on its own.
 export component SoundSettings inherits VerticalLayout {
     /// The set, in the order the choices show.
@@ -1294,7 +1294,7 @@ export component SoundSettings inherits VerticalLayout {
     }
 }
 
-// Settings: how Yapfast draws its window and encodes a shared screen. Slint
+// Settings: how Discord Obsidian draws its window and encodes a shared screen. Slint
 // picks a renderer once per process, so a change to that waits for a
 // restart, which this offers; encoding changes from the next stream. Also
 // Developer Mode, which shows Copy ID in menus.

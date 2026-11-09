@@ -67,13 +67,13 @@ pub mod string;
 pub mod styled_text;
 #[cfg(test)]
 mod testing;
-// Yapfast: see the modules.
-pub mod yapfast_anchor;
-pub mod yapfast_autoscroll;
-pub mod yapfast_emoji;
-pub mod yapfast_marks;
-pub mod yapfast_selection;
-pub mod yapfast_typing;
+// Discord Obsidian: see the modules.
+pub mod obsidian_anchor;
+pub mod obsidian_autoscroll;
+pub mod obsidian_emoji;
+pub mod obsidian_marks;
+pub mod obsidian_selection;
+pub mod obsidian_typing;
 pub mod textlayout;
 pub mod timers;
 pub mod translations;

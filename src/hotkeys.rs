@@ -201,7 +201,7 @@ mod windows {
             *PRESSED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(pressed);
             let (started, thread) = mpsc::sync_channel(1);
             let spawned = std::thread::Builder::new()
-                .name("yapfast-shortcuts".into())
+                .name("obsidian-shortcuts".into())
                 .spawn(move || {
                     // SAFETY: the hook procedure reads only the event Windows
                     // hands it; the message loop runs on this thread, which

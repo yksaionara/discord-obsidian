@@ -12,7 +12,7 @@ pub(super) struct Changes {
 }
 
 impl Changes {
-    fn read(adapter: &Adapter, window: &YapfastWindow) -> Self {
+    fn read(adapter: &Adapter, window: &ObsidianWindow) -> Self {
         let state = &adapter.app.state;
         Self {
             reset: adapter.reset_version != state.reset_version,
@@ -86,13 +86,13 @@ const PICTURE_BATCH: std::time::Duration = std::time::Duration::from_millis(100)
 impl Adapter {
     /// Browse Channels' rows whose channel's name has its search in it, each
     /// under its category's heading.
-    fn browse_rows(&self, state: &AppState, window: &YapfastWindow) -> Vec<BrowseRow> {
-        use yapfast_core::application::BrowsedKind;
+    fn browse_rows(&self, state: &AppState, window: &ObsidianWindow) -> Vec<BrowseRow> {
+        use obsidian_core::application::BrowsedKind;
         let Some(browse) = &state.browse else {
             return Vec::new();
         };
         let query = window.get_browse_filter().trim().to_lowercase();
-        let row = |channel: &yapfast_core::application::BrowsedChannel| BrowseRow {
+        let row = |channel: &obsidian_core::application::BrowsedChannel| BrowseRow {
             id: channel.id.as_str().into(),
             name: channel.name.as_str().into(),
             topic: channel.topic.as_str().into(),
@@ -148,7 +148,7 @@ pub(super) struct SidebarShown {
 }
 
 impl SidebarShown {
-    fn of(state: &AppState, window: &YapfastWindow) -> Self {
+    fn of(state: &AppState, window: &ObsidianWindow) -> Self {
         Self {
             lists: Self::lists(state),
             navigation: state.navigation.clone(),
@@ -181,7 +181,7 @@ impl SidebarShown {
     }
 
     /// Whether the sidebar would show the same.
-    fn shows(&self, state: &AppState, window: &YapfastWindow) -> bool {
+    fn shows(&self, state: &AppState, window: &ObsidianWindow) -> bool {
         self.navigation == state.navigation
             && self.selected == state.selected
             && self.dm_screen == state.dm_screen
@@ -198,7 +198,7 @@ impl SidebarShown {
 
 impl Icons {
     /// A conversation's icon, as the sidebar shows it.
-    fn room(&self, room: &yapfast_core::chat::ChatRoom) -> slint::Image {
+    fn room(&self, room: &obsidian_core::chat::ChatRoom) -> slint::Image {
         if room.locked {
             self.lock.clone()
         } else if room.voice {
@@ -250,7 +250,7 @@ const ASIDE_GUTTER: i32 = 16 + 40 + 16 + 16;
 
 impl Adapter {
     /// Shows what a burst of backend events can have changed.
-    pub(super) fn show(&mut self, window: &YapfastWindow, reach: Reach) {
+    pub(super) fn show(&mut self, window: &ObsidianWindow, reach: Reach) {
         if reach.everything {
             self.refresh(window);
             return;
@@ -278,7 +278,7 @@ impl Adapter {
         }
     }
 
-    pub(super) fn refresh(&mut self, window: &YapfastWindow) {
+    pub(super) fn refresh(&mut self, window: &ObsidianWindow) {
         refresh_avatar_sources(&self.app.state);
         window
             .global::<PictureStore>()
@@ -374,7 +374,7 @@ impl Adapter {
     /// Drives the animated emoji: the frames the rows and the picker show are
     /// wanted, decoded ahead of the draw, and the clock moves only while
     /// something plays and the window is focused, used and not minimised.
-    fn show_emoji_animations(&mut self, window: &YapfastWindow) {
+    fn show_emoji_animations(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let mut shown: Vec<(String, Option<char>, String)> = state
             .messages
@@ -446,7 +446,7 @@ impl Adapter {
 
     /// The card an emoji in a message opened, built again while it is open, so
     /// it shows what Discord said of its server once that arrives.
-    fn show_emoji_card(&mut self, window: &YapfastWindow) {
+    fn show_emoji_card(&mut self, window: &ObsidianWindow) {
         let Some(target) = self.emoji_card.as_ref() else {
             return;
         };
@@ -458,9 +458,9 @@ impl Adapter {
         window.set_emoji_card(card);
     }
 
-    /// Whether Yapfast is signed in or previewing, what the account is doing, and
+    /// Whether Discord Obsidian is signed in or previewing, what the account is doing, and
     /// linking Discord.
-    fn show_workspace(&mut self, window: &YapfastWindow) {
+    fn show_workspace(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let workspace = state.preview || state.account.is_some();
         window.set_workspace(workspace);
@@ -479,7 +479,7 @@ impl Adapter {
         // Only the sign-in screen offers it, and finding out reads the OS
         // credential store or the disk.
         if !workspace {
-            window.set_restore_available(yapfast_core::chat::can_restore(&self.root));
+            window.set_restore_available(obsidian_core::chat::can_restore(&self.root));
         }
         window.set_dms_selected(state.navigation == Navigation::DirectMessages);
         window.set_dms_unread(
@@ -525,7 +525,7 @@ impl Adapter {
         );
         #[cfg(feature = "discord")]
         {
-            use yapfast_core::application::DiscordLink;
+            use obsidian_core::application::DiscordLink;
             let (phase, name, note) = match &state.discord_link {
                 None => (0, "", ""),
                 Some(DiscordLink::Starting) => (1, "", ""),
@@ -559,7 +559,7 @@ impl Adapter {
 
     /// The rail, the channel or DM list, and the friends and requests screens,
     /// built again only when what they show changed.
-    pub(super) fn show_sidebar(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_sidebar(&mut self, window: &ObsidianWindow) {
         if self
             .sidebar
             .as_ref()
@@ -624,7 +624,7 @@ impl Adapter {
             }
             .into(),
         );
-        let rooms_by_id: HashMap<&str, &yapfast_core::chat::ChatRoom> = state
+        let rooms_by_id: HashMap<&str, &obsidian_core::chat::ChatRoom> = state
             .rooms
             .iter()
             .map(|room| (room.id.as_str(), &**room))
@@ -763,7 +763,7 @@ impl Adapter {
                 .map_or(&[][..], |server| server.pinned.as_slice()),
             Navigation::DirectMessages => &[],
         };
-        let pinned_at = |room: &yapfast_core::chat::ChatRoom| {
+        let pinned_at = |room: &obsidian_core::chat::ChatRoom| {
             pinned
                 .iter()
                 .position(|id| *id == room.id || room.parent.as_ref() == Some(id))
@@ -994,7 +994,7 @@ impl Adapter {
     /// The channel or category being dragged in a Discord server's channel
     /// list, by its place, and the places it may drop on; it stops if it
     /// left the list.
-    pub(super) fn show_arranging(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_arranging(&mut self, window: &ObsidianWindow) {
         let dragged = self
             .arranging
             .as_ref()
@@ -1016,7 +1016,7 @@ impl Adapter {
     }
 
     /// The account at the bottom of the sidebar, and the notice.
-    fn show_account(&mut self, window: &YapfastWindow) {
+    fn show_account(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let account = state.account.as_deref().unwrap_or("Preview");
         let account_name = state
@@ -1064,7 +1064,7 @@ impl Adapter {
             .map(status_line)
             .unzip();
         window.set_account_status_emoji(status_emoji.flatten().unwrap_or_default().into());
-        // The game Yapfast shows as playing, as the activity icon Discord puts
+        // The game Discord Obsidian shows as playing, as the activity icon Discord puts
         // before the status: alone it names the game, before a status it adds a bullet.
         let playing = state
             .discord_playing
@@ -1100,7 +1100,7 @@ impl Adapter {
     /// The rows of the inbox popout's open tab, from what the client already
     /// knows: the channels and conversations with unread messages, muted ones
     /// only for a mention, or those that mention this account.
-    fn show_inbox(&mut self, window: &YapfastWindow) {
+    fn show_inbox(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let mentions_only = window.get_inbox_tab() == 1;
         let servers: HashMap<&str, &str> = state
@@ -1143,7 +1143,7 @@ impl Adapter {
 
     /// Starting a thread: what the open channel offers, and the "New
     /// Thread" form beside it.
-    fn show_new_thread(&mut self, window: &YapfastWindow) {
+    fn show_new_thread(&mut self, window: &ObsidianWindow) {
         let app = &self.app;
         let state = &app.state;
         window.set_can_start_threads(app.can_start_threads());
@@ -1157,7 +1157,7 @@ impl Adapter {
         let Some(form) = form else {
             return;
         };
-        // The fields are the window's while it's open; Yapfast writes them only
+        // The fields are the window's while it's open; Discord Obsidian writes them only
         // when they differ, so the caret stays.
         if window.get_new_thread_name() != form.name.as_str() {
             window.set_new_thread_name(form.name.as_str().into());
@@ -1192,7 +1192,7 @@ impl Adapter {
     /// it shows changes, or a minute passes.
     /// Who reacted: the tooltip over the reaction the pointer stays on, and
     /// the Reactions window.
-    fn show_reactions(&mut self, window: &YapfastWindow) {
+    fn show_reactions(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let emoji_of = |item: &str, key: &str| -> String {
             state.message(item).map_or_else(
@@ -1275,7 +1275,7 @@ impl Adapter {
         update_model(&self.models.reactor_rows, rows);
     }
 
-    fn show_threads(&mut self, window: &YapfastWindow) {
+    fn show_threads(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         window.set_can_list_threads(state.threads_channel().is_some());
         let list = state.thread_list();
@@ -1292,7 +1292,7 @@ impl Adapter {
         let channel = &list.room;
         window.set_threads_searchable(
             self.app
-                .may(channel, yapfast_core::chat::Permission::ReadHistory),
+                .may(channel, obsidian_core::chat::Permission::ReadHistory),
         );
         window.set_threads_more(list.more && list.search.is_none());
         window.set_threads_loading(list.loading);
@@ -1352,7 +1352,7 @@ impl Adapter {
     }
 
     /// The open Discord forum's posts, in place of messages.
-    fn show_forum(&mut self, window: &YapfastWindow) {
+    fn show_forum(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let forum = state.forum();
         window.set_room_forum(state.selected_room().is_some_and(|room| room.forum));
@@ -1366,7 +1366,7 @@ impl Adapter {
         let room = &forum.list.room;
         window.set_posts_searchable(
             self.app
-                .may(room, yapfast_core::chat::Permission::ReadHistory),
+                .may(room, obsidian_core::chat::Permission::ReadHistory),
         );
         let posts = self.app.forum_posts().unwrap_or_default();
         let info = self.app.forum_info(room).unwrap_or_default();
@@ -1422,7 +1422,7 @@ impl Adapter {
     }
 
     /// The form for a post in the forum on screen.
-    fn show_new_post(&mut self, window: &YapfastWindow) {
+    fn show_new_post(&mut self, window: &ObsidianWindow) {
         let app = &self.app;
         let state = &app.state;
         window.set_can_post(app.can_post());
@@ -1435,7 +1435,7 @@ impl Adapter {
             }
             return;
         };
-        // The fields are the window's while it's open; Yapfast writes them only
+        // The fields are the window's while it's open; Discord Obsidian writes them only
         // when they differ, so the caret stays.
         if window.get_post_title() != post.title.as_str() {
             window.set_post_title(post.title.as_str().into());
@@ -1445,7 +1445,7 @@ impl Adapter {
         }
         let info = app.forum_info(&post.room).unwrap_or_default();
         window.set_post_tag_required(info.require_tag);
-        window.set_post_more_tags(post.tags.len() < yapfast_core::application::POST_TAGS);
+        window.set_post_more_tags(post.tags.len() < obsidian_core::application::POST_TAGS);
         let topic = state.topic.as_ref();
         window.set_post_has_guidelines(topic.is_some_and(|topic| !topic.body.trim().is_empty()));
         if !matches!((topic, &self.guidelines_shown), (Some(topic), Some(shown)) if Arc::ptr_eq(topic, shown))
@@ -1463,7 +1463,7 @@ impl Adapter {
         if self.post_tags_shown.as_ref() == Some(&shown) {
             return;
         }
-        let choice = |tag: &yapfast_core::chat::ForumTag| PostTagChoice {
+        let choice = |tag: &obsidian_core::chat::ForumTag| PostTagChoice {
             id: tag.id.as_str().into(),
             tag: post_tag(&tag.name, tag.emoji.as_ref()),
             chosen: post.tags.contains(&tag.id),
@@ -1481,7 +1481,7 @@ impl Adapter {
     }
 
     /// The open conversation's header.
-    fn show_header(&mut self, window: &YapfastWindow) {
+    fn show_header(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let room = state.selected_room();
         window.set_room_selected(room.is_some());
@@ -1592,7 +1592,7 @@ impl Adapter {
         window.set_can_notify(state.selected.as_deref().is_some_and(|id| {
             state
                 .menu_choices(id)
-                .contains(&yapfast_core::application::MenuChoice::ChannelNotifications)
+                .contains(&obsidian_core::application::MenuChoice::ChannelNotifications)
         }));
         // A forum's topic is its post guidelines, which the form shows.
         let topic = state
@@ -1619,7 +1619,7 @@ impl Adapter {
 
     /// What the open DM's header opens: its pinned messages, what its
     /// search found, and the friends picker.
-    fn show_dm_tools(&mut self, window: &YapfastWindow) {
+    fn show_dm_tools(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let twelve_hour = self.layout.twelve_hour_clock;
         window.set_can_pin(
@@ -1760,9 +1760,9 @@ impl Adapter {
     }
 
     /// The member list, the reactions offered on messages, and a role's card.
-    fn show_members(&mut self, window: &YapfastWindow) {
+    fn show_members(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
-        let now = yapfast_core::clock::now_ms();
+        let now = obsidian_core::clock::now_ms();
         let members = match &state.members {
             Some(Ok(members)) => members.as_slice(),
             _ => &[],
@@ -1929,7 +1929,7 @@ impl Adapter {
     }
 
     /// A Discord server's or channel's invite dialog.
-    fn show_invite(&self, window: &YapfastWindow) {
+    fn show_invite(&self, window: &ObsidianWindow) {
         let invite = self.app.state.invite.as_ref();
         // A dialog opening starts from the link it makes first.
         if let Some(invite) = invite
@@ -1980,7 +1980,7 @@ impl Adapter {
     }
 
     /// Join a Server, or the dialog a clicked invite link opens.
-    fn show_join(&self, window: &YapfastWindow) {
+    fn show_join(&self, window: &ObsidianWindow) {
         let state = &self.app.state;
         window.set_can_join_server(state.discord_online || state.preview);
         let join = state.join.as_ref();
@@ -2055,7 +2055,7 @@ impl Adapter {
     }
 
     /// The scheduled event a clicked event link opened.
-    fn show_event(&self, window: &YapfastWindow) {
+    fn show_event(&self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let dialog = state.scheduled_event.as_ref();
         window.set_event_open(dialog.is_some());
@@ -2066,10 +2066,10 @@ impl Adapter {
         let when = preview
             .filter(|preview| preview.starts_at > 0)
             .map(|preview| {
-                yapfast_core::clock::event(
+                obsidian_core::clock::event(
                     preview.starts_at,
                     preview.ends_at,
-                    yapfast_core::clock::now_ms() / 1000,
+                    obsidian_core::clock::now_ms() / 1000,
                     self.layout.twelve_hour_clock,
                 )
             });
@@ -2129,7 +2129,7 @@ impl Adapter {
     }
 
     /// The gift a clicked gift link opened.
-    fn show_gift(&self, window: &YapfastWindow) {
+    fn show_gift(&self, window: &ObsidianWindow) {
         let gift = self.app.state.gift.as_ref();
         window.set_gift_open(gift.is_some());
         let Some(gift) = gift else {
@@ -2148,7 +2148,7 @@ impl Adapter {
         });
         let redeeming = self.app.state.redeeming_gifts.contains(&gift.code);
         let redeemable =
-            !gift.redeemed && preview.is_some_and(yapfast_core::chat::GiftPreview::redeemable);
+            !gift.redeemed && preview.is_some_and(obsidian_core::chat::GiftPreview::redeemable);
         let in_discord = !gift.redeemed && preview.is_some_and(|preview| preview.in_discord);
         let status = if gift.redeemed {
             "Redeemed. Enjoy!"
@@ -2189,14 +2189,14 @@ impl Adapter {
     }
 
     /// The application a clicked authorization link opened.
-    fn show_oauth(&self, window: &YapfastWindow) {
+    fn show_oauth(&self, window: &ObsidianWindow) {
         let dialog = self.app.state.oauth.as_ref();
         window.set_oauth_open(dialog.is_some());
         let Some(dialog) = dialog else {
             return;
         };
         let preview = dialog.preview.as_ref();
-        let addable: Vec<&yapfast_core::chat::OAuthGuild> = preview
+        let addable: Vec<&obsidian_core::chat::OAuthGuild> = preview
             .map(|preview| {
                 preview
                     .guilds
@@ -2336,7 +2336,7 @@ impl Adapter {
 
     /// The dialog that makes, copies or deletes a Discord channel or
     /// category.
-    fn show_channel_dialog(&self, window: &YapfastWindow) {
+    fn show_channel_dialog(&self, window: &ObsidianWindow) {
         let dialog = self.app.state.channel_dialog.as_ref();
         // Its fields start from the channel's, as it opens.
         if let Some(dialog) = dialog
@@ -2414,8 +2414,8 @@ impl Adapter {
 
     /// The editor of this account's Discord profile, its main one or a
     /// server's, as its profile card shows it.
-    pub(super) fn show_profile_editor(&mut self, window: &YapfastWindow) {
-        use yapfast_core::application::{BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, ProfileText};
+    pub(super) fn show_profile_editor(&mut self, window: &ObsidianWindow) {
+        use obsidian_core::application::{BIO_LIMIT, NAME_LIMIT, PRONOUNS_LIMIT, ProfileText};
         let editor = self.app.state.profile_editor.as_ref();
         // Its texts follow the editor's: what Discord has once that's here,
         // and again after Reset. Typing changes both alike.
@@ -2474,7 +2474,7 @@ impl Adapter {
         };
         // The bio as written is Markdown, where the fallback's was rendered.
         let view = ProfileView {
-            profile: yapfast_core::chat::Profile {
+            profile: obsidian_core::chat::Profile {
                 id: fallback
                     .map(|fallback| fallback.id.clone())
                     .unwrap_or_default(),
@@ -2589,7 +2589,7 @@ impl Adapter {
 
     /// Asks before leaving a Discord server or group DM, as Discord's
     /// dialogs do.
-    fn show_leave(&self, window: &YapfastWindow) {
+    fn show_leave(&self, window: &ObsidianWindow) {
         let leave = self.app.state.leave.as_ref();
         window.set_leave_open(leave.is_some());
         let Some(leave) = leave else {
@@ -2619,7 +2619,7 @@ impl Adapter {
 
     /// Asks whether a channel dragged into a category takes its
     /// permissions, as Discord's client does.
-    fn show_move_sync(&self, window: &YapfastWindow) {
+    fn show_move_sync(&self, window: &ObsidianWindow) {
         let asked = self.app.state.move_sync.as_ref();
         window.set_move_sync_open(asked.is_some());
         let Some(asked) = asked else {
@@ -2639,7 +2639,7 @@ impl Adapter {
     }
 
     /// The dialog from a DM's menu about its other person.
-    fn show_person_dialog(&self, window: &YapfastWindow) {
+    fn show_person_dialog(&self, window: &ObsidianWindow) {
         let dialog = self.app.state.person_dialog.as_ref();
         // The field starts from the note or nickname there is, once it's here.
         if let Some(text) = dialog.and_then(|dialog| dialog.text.as_deref())
@@ -2779,7 +2779,7 @@ impl Adapter {
 
     /// The dialogs for adding a friend, the custom status, a new DM and
     /// forwarding, and the quick switcher.
-    fn show_dialogs(&mut self, window: &YapfastWindow) {
+    fn show_dialogs(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let add_friend = state.add_friend.as_ref();
         if add_friend.is_some() && !window.get_add_friend_open() {
@@ -2886,7 +2886,7 @@ impl Adapter {
                 .unwrap_or_default()
                 .into(),
         );
-        window.set_forward_limit(yapfast_core::application::FORWARD_LIMIT as i32);
+        window.set_forward_limit(obsidian_core::application::FORWARD_LIMIT as i32);
         window
             .set_forward_chosen(forwarding.map_or(0, |forwarding| forwarding.chosen.len()) as i32);
         window.set_forward_error(
@@ -2985,7 +2985,7 @@ impl Adapter {
     /// A conversation as Forward To and the quick switcher list it: a DM by
     /// its picture, and a channel by its server's icon in Forward To, as
     /// Discord's dialog shows it, or else by its own.
-    fn place_row(&self, room: &yapfast_core::chat::ChatRoom, server_icon: bool) -> PlaceRow {
+    fn place_row(&self, room: &obsidian_core::chat::ChatRoom, server_icon: bool) -> PlaceRow {
         let state = &self.app.state;
         let server = state
             .servers
@@ -3016,7 +3016,7 @@ impl Adapter {
     /// its hint.
     /// The thread beside the open channel: its rows, built again only for
     /// messages that changed, and its composer.
-    pub(super) fn show_aside(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_aside(&mut self, window: &ObsidianWindow) {
         self.mark_mentions();
         let state = &self.app.state;
         let Some(aside) = &state.aside else {
@@ -3076,7 +3076,7 @@ impl Adapter {
             return;
         }
         let marks = Marks {
-            first_new: yapfast_core::chat::first_new(&aside.messages, aside.seen.as_deref()),
+            first_new: obsidian_core::chat::first_new(&aside.messages, aside.seen.as_deref()),
             first_unread: None,
             revealed: &self.revealed,
             restyle: std::mem::take(&mut self.aside_restyle),
@@ -3129,7 +3129,7 @@ impl Adapter {
             return;
         }
         let marks = if draft.contains(['@', '#']) {
-            yapfast_core::mention::marks(draft, &state.mention_candidates())
+            obsidian_core::mention::marks(draft, &state.mention_candidates())
         } else {
             Vec::new()
         };
@@ -3137,7 +3137,7 @@ impl Adapter {
             draft: draft.to_owned(),
             sources,
         };
-        i_slint_core::yapfast_marks::mark(
+        i_slint_core::obsidian_marks::mark(
             slot,
             marked.draft.as_str().into(),
             marks.into_iter().map(|(range, color)| {
@@ -3148,7 +3148,7 @@ impl Adapter {
         self.mentions_marked[slot] = Some(marked);
     }
 
-    pub(super) fn show_composer(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_composer(&mut self, window: &ObsidianWindow) {
         self.mark_mentions();
         let state = &self.app.state;
         let room = state.selected_room();
@@ -3313,7 +3313,7 @@ impl Adapter {
     }
 
     /// Emoji for the `:name` being typed, or none.
-    pub(super) fn show_emoji_suggestions(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_emoji_suggestions(&mut self, window: &ObsidianWindow) {
         let (query, cells) = match &self.emoji_word {
             Some((_, name)) => (
                 name.as_str(),
@@ -3333,7 +3333,7 @@ impl Adapter {
 
     /// The messages, built again only where they changed, and where the list
     /// scrolls.
-    fn show_messages(&mut self, window: &YapfastWindow, changes: &Changes) {
+    fn show_messages(&mut self, window: &ObsidianWindow, changes: &Changes) {
         let &Changes {
             reset,
             selection: selection_changed,
@@ -3383,9 +3383,9 @@ impl Adapter {
         let state = &self.app.state;
         // A poll's time left counts down by the minute, and at midnight
         // today's times become yesterday's.
-        let minute = yapfast_core::clock::now_ms() / 60_000;
+        let minute = obsidian_core::clock::now_ms() / 60_000;
         if self.clock_minute != minute {
-            let date = yapfast_core::clock::date;
+            let date = obsidian_core::clock::date;
             let new_day =
                 self.clock_minute != 0 && date(self.clock_minute * 60) != date(minute * 60);
             self.clock_minute = minute;
@@ -3401,7 +3401,7 @@ impl Adapter {
                 window.set_jump_item(SharedString::default());
             }
             let marks = Marks {
-                first_new: yapfast_core::chat::first_new(&state.messages, state.seen.as_deref()),
+                first_new: obsidian_core::chat::first_new(&state.messages, state.seen.as_deref()),
                 first_unread: state.first_unread.as_deref(),
                 revealed: &self.revealed,
                 restyle,
@@ -3480,7 +3480,7 @@ impl Adapter {
 
     /// Which of the call's tiles shows large, the streams with tiles of their
     /// own, and what the corner shows while the call is off screen.
-    pub(super) fn show_stage(&mut self, window: &YapfastWindow) {
+    pub(super) fn show_stage(&mut self, window: &ObsidianWindow) {
         let voice = &self.app.state.voice;
         let watching = voice
             .watching
@@ -3531,7 +3531,7 @@ impl Adapter {
 
     /// The call: the voice dock, sharing and watching a screen, a DM's call,
     /// ringing, and the devices.
-    fn show_voice(&mut self, window: &YapfastWindow) {
+    fn show_voice(&mut self, window: &ObsidianWindow) {
         self.ring();
         // The server of a call shows it on the rail, so the rail follows a
         // call that starts, ends or moves; other voice events leave it be.
@@ -3933,7 +3933,7 @@ impl Adapter {
 
     /// The call's soundboard, its rows made again only when its sounds
     /// change or pictures arrive, and why it can't play, as Discord says.
-    fn show_soundboard(&mut self, window: &YapfastWindow) {
+    fn show_soundboard(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let voice = &state.voice;
         let groups = voice.soundboard.as_ref().filter(|_| voice.active());
@@ -3972,7 +3972,7 @@ impl Adapter {
 
     /// Settings' soundboard volume and entrance sounds, while Voice & video
     /// shows them.
-    fn show_soundboard_settings(&mut self, window: &YapfastWindow) {
+    fn show_soundboard_settings(&mut self, window: &ObsidianWindow) {
         if !window.get_settings_open() || window.get_settings_section() != 1 {
             return;
         }
@@ -3980,14 +3980,14 @@ impl Adapter {
         window.set_discord_nitro(self.app.discord_nitro());
         if self.soundboard_volume_shown != Some(state.soundboard_volume) {
             self.soundboard_volume_shown = Some(state.soundboard_volume);
-            let slider = yapfast_core::volume::to_slider(state.soundboard_volume / 100.0);
+            let slider = obsidian_core::volume::to_slider(state.soundboard_volume / 100.0);
             window.set_soundboard_volume(slider.round() as i32);
         }
         // Discord's servers by their own ids, which the app's carry after
         // a prefix.
         let discord_servers = || {
             state.servers.iter().filter_map(|server| {
-                Some((yapfast_core::discord::parse_server(&server.id)?, server))
+                Some((obsidian_core::discord::parse_server(&server.id)?, server))
             })
         };
         let same = self.entrance_servers.len() == discord_servers().count() + 1
@@ -4049,7 +4049,7 @@ impl Adapter {
 
     /// The open profile card, and the profile beside a one-to-one DM, with
     /// what's known so far.
-    fn show_profile(&mut self, window: &YapfastWindow) {
+    fn show_profile(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         window.set_profile_open(state.profile.is_some());
         window.set_panel_profile_shown(state.panel_profile.is_some());
@@ -4063,7 +4063,7 @@ impl Adapter {
                     let (emoji, activity) = if names_an_activity(activity, &room.activities) {
                         (None, "")
                     } else {
-                        yapfast_core::discord::status_parts(activity)
+                        obsidian_core::discord::status_parts(activity)
                     };
                     data.activity = activity.into();
                     data.activity_emoji = emoji.unwrap_or_default().into();
@@ -4096,7 +4096,7 @@ impl Adapter {
     /// The image viewer: the full image once it arrives, the preview until then.
     /// The video playing, which its cell shows through [`VideoPlayer`]; its
     /// pictures come with each stream tick.
-    fn show_video(&mut self, window: &YapfastWindow) {
+    fn show_video(&mut self, window: &ObsidianWindow) {
         let player = window.global::<VideoPlayer>();
         let video = self.app.state.video.as_ref();
         // Stream ticks bring its pictures, until a quiet moment while it
@@ -4161,7 +4161,7 @@ impl Adapter {
         }
     }
 
-    fn show_viewer(&mut self, window: &YapfastWindow) {
+    fn show_viewer(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let viewing = state.viewer.as_ref().and_then(|viewer| {
             let message = state.message(&viewer.item)?;
@@ -4280,7 +4280,7 @@ pub(super) fn unread_dm_rows(state: &AppState) -> Vec<ServerRow> {
 /// than all moving down one.
 fn rail(
     state: &AppState,
-    rooms_by_id: &HashMap<&str, &yapfast_core::chat::ChatRoom>,
+    rooms_by_id: &HashMap<&str, &obsidian_core::chat::ChatRoom>,
     open_folders: &std::collections::BTreeSet<String>,
 ) -> Vec<ServerRow> {
     let mut rail = unread_dm_rows(state);
@@ -4296,12 +4296,12 @@ fn rail(
 /// while it's open.
 pub(super) fn rail_rows(
     state: &AppState,
-    rooms_by_id: &HashMap<&str, &yapfast_core::chat::ChatRoom>,
+    rooms_by_id: &HashMap<&str, &obsidian_core::chat::ChatRoom>,
     open_folders: &std::collections::BTreeSet<String>,
 ) -> Vec<ServerRow> {
     // A server's channels: whether any is unread, and its mentions. One its
     // channel list leaves out marks it only by mentions, as in Discord.
-    let marks = |server: &yapfast_core::chat::ChatServer| {
+    let marks = |server: &obsidian_core::chat::ChatServer| {
         let rooms = || {
             server
                 .channels
@@ -4316,11 +4316,11 @@ pub(super) fn rail_rows(
             rooms().map(|room| room.mentions).sum::<u64>(),
         )
     };
-    let selected = |server: &yapfast_core::chat::ChatServer| {
+    let selected = |server: &obsidian_core::chat::ChatServer| {
         state.navigation == Navigation::Server(server.id.clone())
     };
     let call = call_room(state);
-    let in_call = |server: &yapfast_core::chat::ChatServer| {
+    let in_call = |server: &obsidian_core::chat::ChatServer| {
         call.is_some_and(|room| server.channels.iter().any(|channel| channel == room))
     };
     let mut rows = Vec::with_capacity(state.servers.len());
@@ -4412,7 +4412,7 @@ pub(super) struct VoicePlace<'a> {
 /// DM calls stay out: Discord's friends list shows only servers' channels.
 pub(super) fn voice_places<'a>(
     state: &'a AppState,
-    rooms_by_id: &HashMap<&str, &'a yapfast_core::chat::ChatRoom>,
+    rooms_by_id: &HashMap<&str, &'a obsidian_core::chat::ChatRoom>,
 ) -> HashMap<&'a str, VoicePlace<'a>> {
     let mut places = HashMap::new();
     for server in &state.servers {
@@ -4447,7 +4447,7 @@ fn call_room(state: &AppState) -> Option<&str> {
 const FOLDER_COLOR: slint::Color = slint::Color::from_rgb_u8(0x58, 0x65, 0xf2);
 
 fn server_row(
-    server: &yapfast_core::chat::ChatServer,
+    server: &obsidian_core::chat::ChatServer,
     selected: bool,
     unread: bool,
     mentions: u64,
@@ -4555,12 +4555,12 @@ pub(super) fn with_empty_categories(
 /// A custom emoji and its picture, once that has arrived.
 /// Whether the next call joins with the microphone off: unmuting on joining
 /// is turned off, or deafening on joining is on.
-fn joins_muted(window: &YapfastWindow) -> bool {
+fn joins_muted(window: &ObsidianWindow) -> bool {
     !window.get_unmute_on_join() || window.get_deafen_on_join()
 }
 
 /// What a prompt to switch calls adds when the next one joins muted.
-fn joining_muted(window: &YapfastWindow) -> &'static str {
+fn joining_muted(window: &ObsidianWindow) -> &'static str {
     if joins_muted(window) {
         " You'll join muted."
     } else {
@@ -4574,7 +4574,7 @@ fn staged_rows(
     thumbnails: &mut HashMap<PathBuf, Option<pictures::Thumbnail>>,
     runtime: &BackgroundRuntime,
     weak: &std::rc::Weak<RefCell<Adapter>>,
-    staged: &[yapfast_core::chat::Staged],
+    staged: &[obsidian_core::chat::Staged],
 ) -> Vec<StagedFile> {
     let mut rows = Vec::with_capacity(staged.len());
     for file in staged {
@@ -4607,8 +4607,8 @@ fn staged_rows(
 
 pub(super) fn arrived<'a>(
     state: &'a AppState,
-    emoji: &'a yapfast_core::chat::CustomEmoji,
-) -> Option<(&'a str, &'a yapfast_core::chat::Picture)> {
+    emoji: &'a obsidian_core::chat::CustomEmoji,
+) -> Option<(&'a str, &'a obsidian_core::chat::Picture)> {
     Some((
         emoji.id.as_str(),
         state.pictures.get(&emoji.picture)?.as_ref(),
@@ -4623,7 +4623,7 @@ const ADMINISTRATOR: u64 = 1 << 3;
 fn permission_names(bits: u64) -> String {
     let mut named = 0u64;
     let mut names: Vec<&str> = Vec::new();
-    for permission in yapfast_core::application::ROLE_PERMISSIONS
+    for permission in obsidian_core::application::ROLE_PERMISSIONS
         .iter()
         .flat_map(|group| group.permissions.iter())
     {
@@ -4688,7 +4688,7 @@ pub(super) fn span(seconds: u32) -> String {
 fn show_hits(
     model: &VecModel<FoundRow>,
     state: &AppState,
-    hits: &[yapfast_core::chat::SearchHit],
+    hits: &[obsidian_core::chat::SearchHit],
     server: bool,
     twelve_hour: bool,
 ) {
@@ -4764,7 +4764,7 @@ pub(super) fn video_time(at_ms: u64, duration_ms: Option<u64>) -> String {
 /// A section of a list of threads: its heading over the first, if it has any.
 fn push_section(
     rows: &mut Vec<ThreadRow>,
-    threads: &[yapfast_core::chat::ListedThread],
+    threads: &[obsidian_core::chat::ListedThread],
     heading: String,
     now: u64,
 ) {
@@ -4779,7 +4779,7 @@ fn push_section(
 
 /// A thread as its list shows it: an active one with its newest message,
 /// an archived one with who started it, as Discord's client does.
-fn thread_row(thread: &yapfast_core::chat::ListedThread, now: u64) -> ThreadRow {
+fn thread_row(thread: &obsidian_core::chat::ListedThread, now: u64) -> ThreadRow {
     let ago = ago(thread.active_ms, now);
     let (person, lead, text, time) = match (&thread.recent, &thread.owner, thread.archived) {
         (Some(recent), _, false) => (Some(&recent.author), "", recent.text.as_str(), ago),
@@ -4817,7 +4817,7 @@ fn thread_row(thread: &yapfast_core::chat::ListedThread, now: u64) -> ThreadRow 
 }
 
 /// A forum's tag, or an emoji, as a card or the form for a post shows it.
-fn post_tag(name: &str, emoji: Option<&yapfast_core::chat::ShownEmoji>) -> PostTag {
+fn post_tag(name: &str, emoji: Option<&obsidian_core::chat::ShownEmoji>) -> PostTag {
     PostTag {
         name: name.into(),
         emoji: emoji
@@ -4835,8 +4835,8 @@ fn post_tag(name: &str, emoji: Option<&yapfast_core::chat::ShownEmoji>) -> PostT
 /// forum's own, its replies, and when it was last active, or made when the
 /// forum sorts by that.
 fn post_row(
-    post: &yapfast_core::application::ForumPost,
-    info: &yapfast_core::application::ForumInfo,
+    post: &obsidian_core::application::ForumPost,
+    info: &obsidian_core::application::ForumInfo,
     now: u64,
 ) -> PostRow {
     const TAGS: usize = 3;
@@ -4926,8 +4926,8 @@ pub(super) struct RequestRows {
 /// someone's friend request and message request on one row.
 pub(super) fn request_rows(
     state: &AppState,
-    message_requests: &[&yapfast_core::chat::ChatRoom],
-    spam: &[&yapfast_core::chat::ChatRoom],
+    message_requests: &[&obsidian_core::chat::ChatRoom],
+    spam: &[&obsidian_core::chat::ChatRoom],
     twelve_hour: bool,
 ) -> RequestRows {
     let mut rows = RequestRows {
@@ -4936,17 +4936,17 @@ pub(super) fn request_rows(
         spam: Vec::new(),
     };
     let rooms = || message_requests.iter().chain(spam);
-    let with_room = |row: &mut RequestRow, room: &yapfast_core::chat::ChatRoom| {
+    let with_room = |row: &mut RequestRow, room: &obsidian_core::chat::ChatRoom| {
         row.room = room.id.as_str().into();
         row.unread = room.unread > 0;
         if let Some(preview) = &room.preview {
             row.message = preview.text.as_str().into();
             let seconds = preview.at / 1000;
-            let today = yapfast_core::clock::date(yapfast_core::clock::now_ms() / 1000);
-            row.time = if yapfast_core::clock::date(seconds) == today {
-                yapfast_core::clock::time_on(seconds, twelve_hour)
+            let today = obsidian_core::clock::date(obsidian_core::clock::now_ms() / 1000);
+            row.time = if obsidian_core::clock::date(seconds) == today {
+                obsidian_core::clock::time_on(seconds, twelve_hour)
             } else {
-                yapfast_core::clock::day(seconds)
+                obsidian_core::clock::day(seconds)
             }
             .into();
         }
@@ -4973,7 +4973,7 @@ pub(super) fn request_rows(
             () => rows.sent.push(row),
         }
     }
-    let befriending = |room: &&&yapfast_core::chat::ChatRoom| {
+    let befriending = |room: &&&obsidian_core::chat::ChatRoom| {
         !state
             .friend_requests
             .iter()
