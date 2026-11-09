@@ -6435,7 +6435,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian"
-version = "0.4.10"
+version = "0.4.11"
 dependencies = [
  "anyhow",
  "arboard",

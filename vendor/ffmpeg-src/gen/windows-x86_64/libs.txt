@@ -1,3 +1,6 @@
 bcrypt
 ole32
 user32
+mfuuid
+strmiids
+dxguid

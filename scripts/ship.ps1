@@ -51,7 +51,13 @@ $installer = "target\dist\personal\Discord-Setup.exe"
 # Commit, tag and push.
 git add -A
 $body = if ($Notes) { $Notes } else { "Release v$Version." }
-if ($Trailer) { git commit -m "Ship v$Version" -m $body -m $Trailer } else { git commit -m "Ship v$Version" -m $body }
+# Through a file: Windows PowerShell splits an argument with double quotes
+# in it, so notes quoting an error message broke the commit.
+$message = "Ship v$Version`n`n$body"
+if ($Trailer) { $message += "`n`n$Trailer" }
+$messageFile = Join-Path $env:TEMP "obsidian-ship-message.txt"
+[System.IO.File]::WriteAllText($messageFile, $message)
+git commit -F $messageFile
 if ($LASTEXITCODE -ne 0) { throw "nothing to commit, or the commit failed" }
 git tag "v$Version"
 git push $Remote HEAD:main "v$Version"
@@ -60,6 +66,8 @@ if ($LASTEXITCODE -ne 0) { throw "the push failed" }
 # The release the apps update from.
 $title = "Discord Obsidian v$Version"
 if (-not $Notes) { $Notes = "Update v$Version." }
-gh release create "v$Version" $installer --repo $Repository --title $title --notes $Notes
+$notesFile = Join-Path $env:TEMP "obsidian-ship-notes.txt"
+[System.IO.File]::WriteAllText($notesFile, $Notes)
+gh release create "v$Version" $installer --repo $Repository --title $title --notes-file $notesFile
 if ($LASTEXITCODE -ne 0) { throw "the release didn't publish" }
 Write-Host "Shipped v${Version}: https://github.com/$Repository/releases/tag/v$Version"

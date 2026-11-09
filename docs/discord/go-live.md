@@ -101,15 +101,20 @@ their own, and a keyframe's first packet marked as starting a coded video
 sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
 frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
-frame's first 8 packets, the rest are paced at two and a half times the
-target bitrate, libwebrtc's pacing factor, and at least 40 Mbit/s: a 1080p
-keyframe of 200 sent at once can overflow buffers on the way. The pacer
+frame's first 8 packets, the rest are paced at twice the target bitrate:
+a 1080p keyframe of 200 sent at once can overflow buffers on the way. With
+the encoders' eighth of a second buffer, the largest frame leaves in about
+60 ms. Pacing at two and a half times the target and at least 40 Mbit/s sent
+keyframes at four times a 10 Mbit/s upload, which dropped most of them. The pacer
 keeps its schedule in absolute time, so a timer that wakes late sends what
 fell due meanwhile at once rather than slowing the stream; sleeping 1 ms
 every 4 packets held 1080p144 below 30 fps on Windows, where each sleep took
 15.6 ms. About a tenth of a second of frames may wait to be sent, at least
-4 and at most 36; a frame that doesn't fit is dropped and the next is a
-keyframe. Media connections ask for 4 MiB UDP buffers each way, and a send
+4 and at most 36. While more than half that waits, the worker skips
+encoding frames, which leaves what viewers decode whole; a frame that
+doesn't fit even so is dropped and the next is a keyframe. Keyframes come
+at most once a second, however many viewers ask: under loss, viewers asking
+for one after each lost one kept the path full of the largest frames. Media connections ask for 4 MiB UDP buffers each way, and a send
 the system has no room for drops the packet, as a congested path would:
 Windows fails such a send (WSAENOBUFS) where other systems wait, and ending
 the connection on it dropped streams and calls. Discord Obsidian keeps the last 2048 video packets, and when a viewer reports
@@ -162,7 +167,10 @@ each second it takes the larger of the loss the server's receiver reports
 give for the video and the share of packets viewers' NACKs name, each once,
 and grows 8% while under 2% is lost, reaching a 1080p144 cap in about 20 s,
 holds up to 10% and while nothing reports, and above that drops by half the
-fraction lost, never below 500 kbit/s. Starting at a 1080p360 stream's
+fraction lost, never below 500 kbit/s. It remembers the bitrate heavy loss
+came at, and within 15% of it grows 1% a second instead, until a minute
+passes without loss: growing at full speed ran into the same loss every
+8 seconds, each time freezing viewers. Starting at a 1080p360 stream's
 36 Mbit/s cap lost three packets in four on a home connection. The encoder follows when the
 two differ by more than a tenth. The server's bandwidth estimate (REMB) is
 logged but not followed: it only grows past what it receives once the
@@ -283,18 +291,30 @@ threads), in Main profile, which Discord's client sends (profile-level-id
 `4d0033`). Superfast is the default because it costs little processor time;
 faster takes about twice as much for about NVENC's quality. Adaptive
 quantization is off: it was the one setting that helped both screens and games
-against x264's defaults. The bitrate peaks at the target over half a second's
-buffer; a second's buffer let a second reach twice the cap, and a two-frame
-buffer starved keyframes. Capped CRF ran past Discord's cap.
+against x264's defaults. The bitrate peaks at the target over an eighth of a
+second's buffer, about 4 frames at 30 fps, so no frame bursts past what the
+path carries; a second's buffer let a second reach twice the cap, and a
+two-frame buffer starved keyframes. Capped CRF ran past Discord's cap.
 
 ## Encoding on the GPU
 
 With "Encode streams with the GPU" in Settings, Advanced, on unless turned off,
 a stream's H264 goes to the graphics card's encoder where it has one:
 `native/hwenc.c` opens FFmpeg's NVENC encoder, then on Windows its AMF one
-(AMD) and on Linux its VA-API one (AMD and Intel), and x264 when none opens.
+(AMD) and on Linux its VA-API one (AMD and Intel), then on Windows the GPU's
+encoder Media Foundation lists, which every GPU maker's driver provides:
+Intel's Quick Sync, on Arc cards and the graphics in Intel's processors, and
+any GPU the others don't open on. Only a GPU's: Microsoft's own encoder runs
+on the processor, where x264 does better, and x264 encodes when none opens.
 It's on by default because it takes almost no processor time and looks better
-than x264 at low bitrates. Intel graphics encode with x264 on Windows so far.
+than x264 at low bitrates. Media Foundation's encoders get the same settings
+where the driver has them (low latency, the display remoting scenario,
+variable bitrate under a peak, the bitrate changed as the stream runs, Main
+profile, forced keyframes), and the access unit delimiter they start each
+frame with is left out, as every other encoder here and Discord's client
+send none. `OBSIDIAN_HWENC=_mf` tries only the encoders with that in their
+name, to try Media Foundation's on a GPU whose own would open first; on an
+RTX 5070 Ti it encoded H264, H265 and AV1 through NVIDIA's.
 The setting lives in `layout.json` and reaches the worker with each
 `Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
 during a stream, x264 takes over from that frame with a keyframe. The worker
@@ -325,7 +345,7 @@ and the Arch package lists it as optional.
 The settings match x264's where they can: low-latency tuning (NVENC's p4
 preset, `ll`; AMF's `lowlatency` usage and balanced preset), no B-frames, a
 frame out for each frame in, Main profile, keyframes every 3 seconds and when
-asked, and variable bitrate capped at the target over half a second, which
+asked, and variable bitrate capped at the target over an eighth of a second, which
 leaves a calm screen below the cap rather than padding it. NVENC, AMF and
 VA-API change their bitrate as they run, without the IDR frame FFmpeg would
 insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer
@@ -352,7 +372,7 @@ checked yet.
 AV1 encodes on NVIDIA's RTX 40 series and newer (`av1_nvenc`), on AMD's
 RX 7000 series and newer and the Radeon 700M graphics, through AMF on
 Windows (`av1_amf`) and through Mesa's radeonsi on Linux (`av1_vaapi`), and
-on Intel's Arc and Core Ultra graphics through VA-API (iHD) on Linux. GPUs
+on Intel's Arc and Core Ultra graphics through VA-API (iHD) on Linux and Media Foundation on Windows (`av1_mf`). GPUs
 before those have no AV1 encoder, so the stream offers H265 and H264. On an
 RX 7900 XTX with AMD's driver 32.0.31041.1004 on Windows, `native/hwenc.c`,
 built on its own with FFmpeg's Windows build, encoded with `av1_amf`,

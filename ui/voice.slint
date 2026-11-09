@@ -239,7 +239,7 @@ export component CallLinkCard inherits Rectangle {
             LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
             LinkRow { label: "Packets resent:"; value: CallLink.resent; }
             Text {
-                text: "The bitrate starts at the most your quality allows and comes down only while packets are lost on the way. Fast motion at a low bitrate looks blocky to viewers.";
+                text: "The bitrate starts low and climbs toward the most your quality allows while your connection keeps up, backing off when packets are lost. Fast motion at a low bitrate looks blocky to viewers.";
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;
             }
         }

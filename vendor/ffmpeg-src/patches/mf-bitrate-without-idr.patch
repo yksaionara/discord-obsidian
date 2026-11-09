@@ -1,0 +1,63 @@
+--- a/libavcodec/mfenc.c
++++ b/libavcodec/mfenc.c
+@@ -31,9 +31,9 @@
+ #include "codec_internal.h"
+ #include "internal.h"
+ #include "compat/w32dlfcn.h"
+-#if CONFIG_D3D11VA
++// Always: the encoder's context and its D3D11 input are declared with
++// these types, even where FFmpeg is built without D3D11VA, as here.
+ #include "libavutil/hwcontext_d3d11va.h"
+-#endif
+ 
+ typedef struct MFContext {
+     AVClass *av_class;
+@@ -59,6 +59,8 @@
+     int async_need_input, async_have_output, async_marker;
+     int64_t reorder_delay;
+     ICodecAPI *codec_api;
++    // The bitrate the encoder was last given; see mf_follow_bitrate.
++    int64_t rate_given;
+     // set by AVOption
+     int opt_enc_rc;
+     int opt_enc_quality;
+@@ -627,6 +629,23 @@
+     return ret;
+ }
+ 
++// Gives the encoder a bitrate changed since it last had one: Media
++// Foundation's encoders take the mean and peak bitrate and the buffer size
++// as they run, where FFmpeg sets them only when it opens the encoder.
++static void mf_follow_bitrate(AVCodecContext *avctx)
++{
++    MFContext *c = avctx->priv_data;
++    if (!c->codec_api || c->rate_given == avctx->bit_rate)
++        return;
++    c->rate_given = avctx->bit_rate;
++    if (avctx->rc_max_rate > 0)
++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncCommonMaxBitRate, FF_VAL_VT_UI4(avctx->rc_max_rate));
++    if (avctx->rc_buffer_size > 0)
++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncCommonBufferSize, FF_VAL_VT_UI4(avctx->rc_buffer_size));
++    if (avctx->bit_rate)
++        ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncCommonMeanBitRate, FF_VAL_VT_UI4(avctx->bit_rate));
++}
++
+ static int mf_receive_packet(AVCodecContext *avctx, AVPacket *avpkt)
+ {
+     MFContext *c = avctx->priv_data;
+@@ -646,6 +665,7 @@
+             return ret;
+         }
+         if (c->is_video && c->codec_api) {
++            mf_follow_bitrate(avctx);
+             if (c->frame->pict_type == AV_PICTURE_TYPE_I || !c->sample_sent)
+                 ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncVideoForceKeyFrame, FF_VAL_VT_UI4(1));
+         }
+@@ -839,6 +859,7 @@
+ 
+     // Note that some of the ICodecAPI options must be set before SetOutputType.
+     if (c->codec_api) {
++        c->rate_given = avctx->bit_rate;
+         if (avctx->bit_rate)
+             ICodecAPI_SetValue(c->codec_api, &ff_CODECAPI_AVEncCommonMeanBitRate, FF_VAL_VT_UI4(avctx->bit_rate));
+ 

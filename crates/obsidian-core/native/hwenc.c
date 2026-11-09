@@ -1,7 +1,9 @@
 #include <stdlib.h>
 /* Hardware encoding for Go Live, through FFmpeg's encoders in
  * vendor/ffmpeg-src: NVIDIA's NVENC, then AMD's AMF on Windows and VA-API
- * (AMD and Intel) on Linux.
+ * (AMD and Intel) on Linux, then on Windows the hardware encoder Media
+ * Foundation lists, which every GPU maker's driver provides: Intel's Quick
+ * Sync, and any GPU the others don't open on.
  * The same interface as h264.c, so Rust drives both alike: I420 frames in,
  * Annex B access units out, each NAL unit after a start code. Opening tries
  * each encoder in turn and says which one opened, or why none did.
@@ -9,8 +11,8 @@
  * Settings, as measured on screen recordings and games
  * (docs/discord/go-live.md):
  * low-latency tuning, no B-frames, a frame out for each frame in, the
- * bitrate capped over half a second without padding a calm screen, H264's
- * Main profile, and parameter sets before each IDR. */
+ * bitrate capped over an eighth of a second without padding a calm screen,
+ * H264's Main profile, and parameter sets before each IDR. */
 #define _POSIX_C_SOURCE 200809L
 #include <stdarg.h>
 #include <stdint.h>
@@ -57,8 +59,11 @@ static void keep_error(void *context, int level, const char *format, va_list arg
 static void set_rate(AVCodecContext *codec, unsigned kbps) {
   codec->bit_rate = (int64_t)kbps * 1000;
   codec->rc_max_rate = (int64_t)kbps * 1000;
-  /* A second of bits: room for a busy frame or a keyframe to stay sharp. */
-  codec->rc_buffer_size = (int)(kbps * 1000);
+  /* An eighth of a second of bits, as realtime streaming keeps it: a
+   * second's let one keyframe after a calm moment reach a megabyte at
+   * 10 Mbit/s, which a home upload dropped most of, freezing viewers. A
+   * keyframe starts a little soft and sharpens over the next frames. */
+  codec->rc_buffer_size = (int)(kbps * 1000 / 8);
 }
 
 static void close_encoder(struct obsidian_hwenc *h) {
@@ -100,7 +105,8 @@ static int open_vaapi(struct obsidian_hwenc *h, AVCodecContext *codec, struct va
 static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct va_device device,
                         unsigned codec_id, unsigned width, unsigned height, unsigned fps,
                         unsigned kbps) {
-  int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL;
+  int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL,
+      mf = strstr(found->name, "_mf") != NULL;
   AVCodecContext *codec = h->codec = avcodec_alloc_context3(found);
   if (!codec) return AVERROR(ENOMEM);
   codec->width = (int)width;
@@ -110,7 +116,7 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
   /* A new viewer waits at most this long for a picture. */
   codec->gop_size = (int)fps * 3;
   codec->max_b_frames = 0;
-  codec->pix_fmt = vaapi ? AV_PIX_FMT_VAAPI : amf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+  codec->pix_fmt = vaapi ? AV_PIX_FMT_VAAPI : amf || mf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
   /* libyuv converts captured pixels with BT.601's limited range. */
   codec->color_primaries = AVCOL_PRI_SMPTE170M;
   codec->color_trc = AVCOL_TRC_SMPTE170M;
@@ -150,6 +156,15 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
       av_opt_set_int(options, "header_spacing", codec->gop_size, 0);
     }
     h->poll = 1;
+  } else if (mf) {
+    /* Only a GPU's encoder: Microsoft's own runs on the processor, where
+     * x264 does better. FFmpeg waits for the encoder's events, so its
+     * packet comes as soon as it's made, without polling. A setting the
+     * driver doesn't have is left at its default. */
+    codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    av_opt_set_int(options, "hw_encoding", 1, 0);
+    av_opt_set(options, "scenario", "display_remoting", 0);
+    av_opt_set(options, "rate_control", "pc_vbr", 0);
   } else {
     /* p6 with a quarter-size first pass up to 60 fps (6 ms a 1440p AV1
        frame on an RTX 5070 Ti, of the 16 it has); p5 up to 120; p4, Discord's own quality, up to 240; p3 above, so a frame still
@@ -174,7 +189,7 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
   h->frame = av_frame_alloc();
   h->packet = av_packet_alloc();
   if (!h->frame || !h->packet) return AVERROR(ENOMEM);
-  h->frame->format = vaapi || amf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+  h->frame->format = vaapi || amf || mf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
   return av_frame_get_buffer(h->frame, 0);
@@ -182,10 +197,10 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
 
 /* The encoders to try for each codec, best first; each system builds in
  * those it has. */
-static const char *const ENCODERS[][4] = {
-    [CODEC_H264] = {"h264_nvenc", "h264_amf", "h264_vaapi", NULL},
-    [CODEC_HEVC] = {"hevc_nvenc", "hevc_amf", "hevc_vaapi", NULL},
-    [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_vaapi", NULL},
+static const char *const ENCODERS[][5] = {
+    [CODEC_H264] = {"h264_nvenc", "h264_amf", "h264_vaapi", "h264_mf", NULL},
+    [CODEC_HEVC] = {"hevc_nvenc", "hevc_amf", "hevc_vaapi", "hevc_mf", NULL},
+    [CODEC_AV1] = {"av1_nvenc", "av1_amf", "av1_vaapi", "av1_mf", NULL},
 };
 
 /* The libva drivers for each kernel driver whose GPUs encode, best first.
@@ -262,7 +277,12 @@ struct obsidian_hwenc *obsidian_hwenc_new(unsigned codec_id, unsigned width, uns
   av_log_set_level(AV_LOG_ERROR);
   av_log_set_callback(keep_error);
   struct opening o = {codec_id, width, height, fps, kbps, report, report_size, 0};
+  /* OBSIDIAN_HWENC=_mf tries only the encoders with that in their name, to
+   * try one where another would open first, as Media Foundation's behind
+   * NVENC on an NVIDIA GPU. */
+  const char *only = getenv("OBSIDIAN_HWENC");
   for (const char *const *name = ENCODERS[codec_id]; *name; name++) {
+    if (only && *only && !strstr(*name, only)) continue;
     const AVCodec *found = avcodec_find_encoder_by_name(*name);
     if (!found) continue;
     struct obsidian_hwenc *h = NULL;
@@ -313,6 +333,60 @@ static int fill(struct obsidian_hwenc *h, const uint8_t *y, int y_stride, const 
   return 0;
 }
 
+/* Whether the Annex B unit at `unit` is an access unit delimiter in
+ * `codec`'s numbering: H264's type 9, HEVC's 35. */
+static int delimiter(enum AVCodecID codec, const uint8_t *unit, size_t size) {
+  if (!size) return 0;
+  if (codec == AV_CODEC_ID_H264) return (unit[0] & 0x1f) == 9;
+  if (codec == AV_CODEC_ID_HEVC) return ((unit[0] >> 1) & 0x3f) == 35;
+  return 0;
+}
+
+static const uint8_t START_CODE[4] = {0, 0, 0, 1};
+
+/* Appends `data`'s units to `out` at `*size`, each after a four-byte start
+ * code, leaving out access unit delimiters: Media Foundation's encoders
+ * start each frame with one, which no other encoder here sends, nor
+ * Discord's client. Returns -2 when `out` is too small. AV1 goes as it is. */
+static int append_units(enum AVCodecID codec, const uint8_t *data, size_t length, uint8_t *out,
+                        size_t capacity, size_t *size) {
+  if (codec != AV_CODEC_ID_H264 && codec != AV_CODEC_ID_HEVC) {
+    if (*size + length > capacity) return -2;
+    memcpy(out + *size, data, length);
+    *size += length;
+    return 0;
+  }
+  size_t at = 0;
+  /* Each unit's first byte, past its start code. */
+  while (at + 3 <= length) {
+    if (data[at] == 0 && data[at + 1] == 0 && data[at + 2] == 1) {
+      at += 3;
+      break;
+    }
+    at++;
+  }
+  while (at < length) {
+    size_t end = at, next = length;
+    while (end + 3 <= length) {
+      if (data[end] == 0 && data[end + 1] == 0 && (data[end + 2] == 1 ||
+          (end + 4 <= length && data[end + 2] == 0 && data[end + 3] == 1))) {
+        next = end + (data[end + 2] == 1 ? 3 : 4);
+        break;
+      }
+      end++;
+    }
+    if (end + 3 > length) end = length;
+    if (!delimiter(codec, data + at, end - at)) {
+      if (*size + sizeof START_CODE + (end - at) > capacity) return -2;
+      memcpy(out + *size, START_CODE, sizeof START_CODE);
+      memcpy(out + *size + sizeof START_CODE, data + at, end - at);
+      *size += sizeof START_CODE + (end - at);
+    }
+    at = next;
+  }
+  return 0;
+}
+
 /* Encodes one I420 frame into `out`. Returns the encoded size, 0 when the
  * encoder gave no frame, or a negative number on failure. `pts` and
  * `duration` are unused: frames are timed by the frame rate. */
@@ -348,12 +422,11 @@ long obsidian_hwenc_encode(struct obsidian_hwenc *h, const unsigned char *y, int
       continue;
     }
     if (ret < 0) break;
-    if (size + (size_t)h->packet->size > capacity) {
+    if (append_units(h->codec->codec_id, h->packet->data, (size_t)h->packet->size, out, capacity,
+                     &size) < 0) {
       av_packet_unref(h->packet);
       return -2;
     }
-    memcpy(out + size, h->packet->data, (size_t)h->packet->size);
-    size += (size_t)h->packet->size;
     *is_key |= (h->packet->flags & AV_PKT_FLAG_KEY) != 0;
     av_packet_unref(h->packet);
   }
@@ -362,7 +435,8 @@ long obsidian_hwenc_encode(struct obsidian_hwenc *h, const unsigned char *y, int
 }
 
 /* Changes the bitrate aimed for, from the next frame on, without a
- * keyframe: patches/ in vendor/ffmpeg-src make NVENC and VA-API follow it.
+ * keyframe: patches/ in vendor/ffmpeg-src make NVENC, VA-API, AMF and Media
+ * Foundation follow it.
  * Returns 0. */
 int obsidian_hwenc_set_bitrate(struct obsidian_hwenc *h, unsigned kbps) {
   set_rate(h->codec, kbps);

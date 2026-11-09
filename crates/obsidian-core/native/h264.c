@@ -14,11 +14,13 @@ struct obsidian_h264 {
   x264_param_t param;
 };
 
-/* Aims for `kbps`, never above it over half a second's buffer. */
+/* Aims for `kbps`, never above it over an eighth of a second's buffer, as
+ * the GPU's encoders do (native/hwenc.c): no frame bursts past what the
+ * path carries. */
 static void set_rate(x264_param_t *param, unsigned kbps) {
   param->rc.i_bitrate = (int)kbps;
   param->rc.i_vbv_max_bitrate = (int)kbps;
-  param->rc.i_vbv_buffer_size = kbps > 1 ? (int)(kbps / 2) : 1;
+  param->rc.i_vbv_buffer_size = kbps > 8 ? (int)(kbps / 8) : 1;
 }
 
 /* A realtime encoder, as measured on screen recordings and games (see

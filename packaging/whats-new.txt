@@ -1,4 +1,3 @@
-- Fixed streams (and calls) dropping with "the system lacked sufficient buffer space" (error 10055): a full network buffer now drops one packet instead of ending the connection.
-- Streams start at about 4 Mbit/s, like Discord, and climb to your quality's cap while your connection keeps up, instead of starting at the cap and flooding it.
-- Packets resent to viewers are capped, so heavy loss can't double the traffic, and the network buffers are bigger.
-- Updates: the green Update pill shows up whenever an update is ready, in a call or not. Click it to update now; otherwise it installs the next time you open the app. The app no longer restarts on its own to update, and it checks every 30 minutes instead of every 6 hours.
+- Fixed screen shares freezing for viewers: frames can no longer burst far past your upload (the encoder's buffer is an eighth of a second instead of a full second, and packets are paced to your bitrate), keyframes come at most once a second, and when the network falls behind a frame is skipped instead of breaking the video.
+- The bitrate no longer runs into the same packet loss every few seconds: it remembers where loss started and creeps up slowly near it.
+- Hardware encoding for every GPU on Windows: Intel GPUs (Arc and the graphics built into Intel processors) and any other GPU now encode streams on the GPU through Windows Media Foundation, in H264, H265 and AV1 where the GPU supports them. NVIDIA and AMD keep their own encoders, and the processor encodes only when no GPU can.

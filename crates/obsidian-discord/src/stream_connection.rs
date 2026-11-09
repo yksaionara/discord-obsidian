@@ -40,15 +40,22 @@ const MAX_SSRCS: usize = 4;
 /// A frame's first `BURST` packets go at once and the rest at [`pace`]'s
 /// rate: a 1080p keyframe sent at once can overflow buffers on the way.
 const BURST: usize = 8;
-/// The slowest packets are paced, about 3 packets a millisecond.
-const PACE_FLOOR: u64 = 40_000_000;
+/// The slowest packets are paced.
+const PACE_FLOOR: u64 = 1_000_000;
 
 /// The bit/s a frame's packets are paced at for a stream aiming at `target`
-/// bit/s: two and a half times it, libwebrtc's pacing factor, so a keyframe
-/// leaves in a few frames' time, and never below [`PACE_FLOOR`].
+/// bit/s: twice it, so a frame as large as the encoder's eighth of a second
+/// buffer allows leaves in about 60 ms without flooding the path. Pacing at
+/// 40 Mbit/s or more sent keyframes at four times a home upload, which
+/// dropped most of them.
 fn pace(target: u64) -> u64 {
-    (target * 5 / 2).max(PACE_FLOOR)
+    (target * 2).max(PACE_FLOOR)
 }
+
+/// Keyframes no closer than this, however many viewers ask: each is the
+/// largest frame there is, and under loss, a viewer asking again for every
+/// one lost kept the path full of them.
+pub const KEYFRAME_GAP: Duration = Duration::from_secs(1);
 
 /// How long `bytes` take at `rate` bit/s.
 fn airtime(bytes: usize, rate: u64) -> Duration {
@@ -82,12 +89,23 @@ const RESEND_SHARE: u64 = 4;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RateControl {
     bitrate: u64,
+    /// The bitrate heavy loss last came at, until [`FORGET_CEILING`]
+    /// seconds pass without loss.
+    ceiling: Option<u64>,
+    /// Seconds in a row with hardly any loss.
+    clear: u32,
 }
+
+/// Seconds without loss after which the rate control forgets where loss
+/// came, and grows at full speed again.
+const FORGET_CEILING: u32 = 60;
 
 impl RateControl {
     pub fn new(cap: u64) -> Self {
         Self {
             bitrate: START_BITRATE.min(cap),
+            ceiling: None,
+            clear: 0,
         }
     }
 
@@ -96,13 +114,31 @@ impl RateControl {
     }
 
     /// Takes a second's `loss`, a fraction of the packets sent, and gives the
-    /// bit/s to aim for from now on, at most `cap`.
+    /// bit/s to aim for from now on, at most `cap`. Within 15% of where heavy
+    /// loss last came it grows 1% a second instead of 8%, so it doesn't run
+    /// into the same loss every few seconds.
     pub fn update(&mut self, loss: Option<f64>, cap: u64) -> u64 {
         let rate = self.bitrate as f64;
         let next = match loss {
-            Some(loss) if loss > 0.10 => rate * (1.0 - 0.5 * loss.min(1.0)),
-            Some(loss) if loss >= 0.02 => rate,
-            Some(_) => rate * 1.08 + 1000.0,
+            Some(loss) if loss > 0.10 => {
+                self.ceiling = Some(self.bitrate);
+                self.clear = 0;
+                rate * (1.0 - 0.5 * loss.min(1.0))
+            }
+            Some(loss) if loss >= 0.02 => {
+                self.clear = 0;
+                rate
+            }
+            Some(_) => {
+                self.clear += 1;
+                if self.clear >= FORGET_CEILING {
+                    self.ceiling = None;
+                }
+                let near = self
+                    .ceiling
+                    .is_some_and(|ceiling| rate >= ceiling as f64 * 0.85);
+                if near { rate * 1.01 + 1000.0 } else { rate * 1.08 + 1000.0 }
+            }
             // Too few packets to tell.
             None => rate,
         };
@@ -380,6 +416,14 @@ impl StreamSender {
     /// dropped frames, or when a viewer asked for one.
     pub fn take_keyframe_request(&self) -> bool {
         self.shared.keyframe.swap(false, Ordering::Relaxed)
+    }
+
+    /// Whether frames wait to be sent: more than half the queue. The
+    /// encoder skips a frame then, which, unlike a frame dropped after
+    /// encoding, needs no keyframe for viewers to go on.
+    pub fn backlogged(&self) -> bool {
+        let queued = self.frames.max_capacity() - self.frames.capacity();
+        queued * 2 > self.frames.max_capacity()
     }
 
     /// The bit/s to encode at: the cap for the stream's size and rate,
@@ -1236,7 +1280,17 @@ mod tests {
         assert_eq!(rate.update(Some(0.05), cap), cap, "some loss holds it");
         assert_eq!(rate.update(Some(0.20), cap), cap * 9 / 10, "heavy loss lowers it");
         let lowered = rate.bitrate();
-        assert_eq!(rate.update(Some(0.01), cap), lowered * 108 / 100 + 1000, "and it grows back");
+        assert_eq!(
+            rate.update(Some(0.01), cap),
+            lowered * 101 / 100 + 1000,
+            "and it grows back slowly near where loss came"
+        );
+        for _ in 0..FORGET_CEILING {
+            rate.update(Some(0.0), cap);
+        }
+        rate.update(Some(0.5), cap);
+        let far = rate.update(Some(0.5), cap);
+        assert_eq!(rate.update(Some(0.0), cap), far * 108 / 100 + 1000, "far below it, at full speed");
         for _ in 0..100 {
             rate.update(Some(1.0), cap);
         }
@@ -1266,11 +1320,15 @@ mod tests {
 
     #[test]
     fn paces_keyframes_without_holding_the_frame_rate() {
-        assert_eq!(pace(1_000_000), PACE_FLOOR);
-        assert_eq!(pace(21_600_000), 54_000_000, "two and a half times the target");
-        // A 1080p144 keyframe of 150 KB leaves in about 22 ms.
-        let keyframe: Duration = (0..125).map(|_| airtime(1200, pace(21_600_000))).sum();
-        assert!(keyframe < Duration::from_millis(25), "{keyframe:?}");
+        assert_eq!(pace(100_000), PACE_FLOOR);
+        assert_eq!(pace(10_000_000), 20_000_000, "twice the target");
+        // The largest frame the encoder's eighth of a second allows leaves in
+        // about 60 ms, whatever the bitrate.
+        for target in [4_000_000u64, 10_000_000, 21_600_000] {
+            let largest = (target / 8 / 8) as usize;
+            let frame: Duration = (0..largest / 1200).map(|_| airtime(1200, pace(target))).sum();
+            assert!(frame <= Duration::from_millis(63), "{target}: {frame:?}");
+        }
         assert_eq!(frame_queue(30), 4);
         assert_eq!(frame_queue(144), 14);
         assert_eq!(frame_queue(360), 36);

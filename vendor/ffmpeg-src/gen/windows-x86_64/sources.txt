@@ -192,3 +192,5 @@ libavutil/x86/lls_init.c
 libavutil/x86/tx_float_init.c
 libavutil/xga_font_data.c
 libavutil/xtea.c
+libavcodec/mf_utils.c
+libavcodec/mfenc.c

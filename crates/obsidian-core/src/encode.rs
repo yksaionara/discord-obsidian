@@ -644,6 +644,33 @@ mod tests {
         eprintln!("encoded with {engine}");
     }
 
+    /// Media Foundation's encoders, as an Intel GPU, or any other NVENC and
+    /// AMF don't open on, encodes: `OBSIDIAN_HWENC=_mf cargo test -p
+    /// obsidian-core media_foundation -- --ignored --nocapture`. On an
+    /// NVIDIA or AMD GPU that's their own driver's Media Foundation encoder.
+    #[test]
+    #[ignore = "needs a GPU, and OBSIDIAN_HWENC=_mf"]
+    fn encodes_through_media_foundation() {
+        assert_eq!(std::env::var("OBSIDIAN_HWENC").as_deref(), Ok("_mf"));
+        let engine = check_h264(Effort::Light, (320, 180), true);
+        assert!(engine.contains("_mf"), "{engine}");
+        for codec in [Codec::H265, Codec::Av1] {
+            match Encoder::new(codec, 320, 180, 30, 500, Effort::Light, true) {
+                Ok(_) => {
+                    let (frames, engine) = encode_four(codec, Effort::Light, (320, 180), true);
+                    let keys: Vec<bool> = frames.iter().map(|(key, _)| *key).collect();
+                    assert_eq!(keys[..3], [true, false, true], "{engine}");
+                    eprintln!("{codec:?} through {engine}");
+                }
+                Err(error) => eprintln!("no Media Foundation encoder for {codec:?}: {error:#}"),
+            }
+        }
+        // The bitrate changes as the stream runs, without a keyframe.
+        let mut encoder = Encoder::new(Codec::H264, 320, 180, 30, 2000, Effort::Light, true).unwrap();
+        encoder.set_bitrate(500).unwrap();
+        assert_eq!(encoder.bitrate(), 500);
+    }
+
     /// Times NVENC at a game's size and rate: `OBSIDIAN_NVENC_PRESET=p4
     /// cargo test -p obsidian-core encode_speed -- --ignored --nocapture`.
     #[test]

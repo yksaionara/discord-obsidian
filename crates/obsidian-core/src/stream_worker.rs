@@ -553,6 +553,8 @@ struct Video {
     /// When the stream last reported how it goes out, and the bytes it had
     /// sent then.
     measured: (Instant, u64),
+    /// When the encoder last gave a keyframe.
+    keyframed: Option<Instant>,
 }
 
 impl Video {
@@ -689,6 +691,7 @@ impl Sink {
                 encoder,
                 sound,
                 measured: (Instant::now(), 0),
+                keyframed: None,
             });
         }
         let reopen = std::mem::take(&mut self.reopen);
@@ -740,16 +743,30 @@ impl Sink {
                 }
             }
         }
+        // The network is behind: skip this frame rather than queue it,
+        // which keeps what viewers decode whole.
+        if video.sender.backlogged() {
+            return Ok(());
+        }
         let pts = self.started.elapsed().as_micros() as u64 * encode::CLOCK / 1_000_000;
-        let keyframe = video.sender.take_keyframe_request();
+        // A keyframe asked for within a second of the last waits its turn.
+        let keyframe = video
+            .keyframed
+            .is_none_or(|at| at.elapsed() >= stream_connection::KEYFRAME_GAP)
+            && video.sender.take_keyframe_request();
         let codec = video.encoder.codec();
         match video.encoder.encode_i420(picture, pts, keyframe) {
-            Ok(Some(frame)) => video.sender.send(stream_connection::Frame {
-                data: frame.data.to_vec(),
-                codec,
-                timestamp: pts as u32,
-                keyframe: frame.keyframe,
-            }),
+            Ok(Some(frame)) => {
+                if frame.keyframe {
+                    video.keyframed = Some(Instant::now());
+                }
+                video.sender.send(stream_connection::Frame {
+                    data: frame.data.to_vec(),
+                    codec,
+                    timestamp: pts as u32,
+                    keyframe: frame.keyframe,
+                })
+            }
             Ok(None) => {}
             // Only the GPU encodes AV1 and H265: Discord chooses another
             // codec instead, which the next frame encodes.

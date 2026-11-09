@@ -1,8 +1,9 @@
 # FFmpeg for Discord Obsidian
 
 Go Live's hardware encoders: FFmpeg 9.0.2's NVENC encoders for NVIDIA, on
-Linux and Windows, on Windows its AMF ones for AMD, and on Linux its VA-API
-ones for AMD and Intel, for H264, HEVC and AV1; and its HEVC decoder, for
+Linux and Windows, on Windows its AMF ones for AMD and its Media Foundation
+ones for every other GPU, Intel's among them, and on Linux its VA-API ones
+for AMD and Intel, for H264, HEVC and AV1; and its HEVC decoder, for
 watching H265 streams, which libwebrtc's FFmpeg can't decode, with its
 x86-64 assembly. Nothing else of FFmpeg is built: no other decoders,
 formats or filters.
@@ -45,7 +46,10 @@ The minimum NVIDIA driver follows the nv-codec-headers version: 12.0 needs
 520 or newer. Newer headers would raise it. AMF's do the same for AMD's
 driver: FFmpeg asks its AMF runtime for the headers' version, and 1.5.2 is
 the oldest FFmpeg 9 builds with. FFmpeg loads `amfrt64.dll` from the system
-folder only when an AMF encoder opens.
+folder only when an AMF encoder opens. Media Foundation's encoders load
+`mfplat.dll` only when one opens too, so the binary starts on Windows'
+N editions, which lack it; only `mfuuid` and `strmiids`, static GUID
+libraries, are linked.
 
 ## Changes
 
@@ -60,6 +64,9 @@ folder only when an AMF encoder opens.
   bitrate only when it opens the encoder. AMF takes the target, peak and
   buffer size as it runs; the patch sets them before the next frame when
   the bitrate changes, the peak first when it rises.
+- `mf-bitrate-without-idr.patch`: the same for Media Foundation, whose
+  encoders take the mean and peak bitrate and the buffer size through
+  `ICodecAPI` as they run; FFmpeg sets them only when it opens one.
 
 ## Updating
 

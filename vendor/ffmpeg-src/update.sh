@@ -23,7 +23,7 @@ AMF_SHA256=d3c12eb324edf05e214608b6a395a51dd95770ed9d45520185d6c3a206811c99
 # Hardware encoders, and the HEVC decoder for watching H265 streams, which
 # libwebrtc's FFmpeg lacks: the libraries hold nothing else.
 LINUX_ENCODERS=h264_nvenc,hevc_nvenc,av1_nvenc,h264_vaapi,hevc_vaapi,av1_vaapi
-WINDOWS_ENCODERS=h264_nvenc,hevc_nvenc,av1_nvenc,h264_amf,hevc_amf,av1_amf
+WINDOWS_ENCODERS=h264_nvenc,hevc_nvenc,av1_nvenc,h264_amf,hevc_amf,av1_amf,h264_mf,hevc_mf,av1_mf
 COMMON=(--disable-everything --disable-programs --disable-doc --disable-network
   --disable-autodetect --disable-avformat --disable-avdevice --disable-swscale
   --disable-swresample --disable-avfilter --disable-iconv
@@ -137,7 +137,7 @@ chmod +x "$work/bin/lib"
   windows="clang-cl --target=x86_64-pc-windows-msvc"
   build windows-x86_64 llvm-nm --toolchain=msvc --cc="$windows" --cxx="$windows" --ld=lld-link \
     --ar=lib --nm=llvm-nm --target-os=win64 --arch=x86_64 --enable-cross-compile \
-    --enable-ffnvcodec --enable-nvenc --enable-amf --enable-encoder="$WINDOWS_ENCODERS" \
+    --enable-ffnvcodec --enable-nvenc --enable-amf --enable-mediafoundation --enable-encoder="$WINDOWS_ENCODERS" \
     --enable-decoder=hevc
 )
 
