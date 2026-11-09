@@ -410,6 +410,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
+        { text: "Add-ons", icon: @image-url("icons/puzzle.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     property <[SettingsRow]> without-discord: [
@@ -420,6 +421,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
+        { text: "Add-ons", icon: @image-url("icons/puzzle.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     SettingsCard {
@@ -431,7 +433,8 @@ export component SettingsScreen inherits Rectangle {
             page-title: root.settings-section == 0 ? "My Account" : root.settings-section == 1 ? "Voice & Video"
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
-                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance" : "Game Activity";
+                : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
+                : root.settings-section == 9 ? "Add-ons" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -1551,6 +1554,86 @@ export component DiscordSettings inherits VerticalLayout {
             ActionButton {
                 text: "See " + (root.blocked.length - root.blocked-shown) + " more"; ghost: true; small: true;
                 clicked => { root.blocked-shown += 5; }
+            }
+        }
+    }
+}
+
+// Settings: the add-ons, each a card with its own switches. The Message
+// Logger comes first.
+export component AddonsSettings inherits VerticalLayout {
+    in-out property <bool> logger-on;
+    in-out property <bool> logger-deletions;
+    in-out property <bool> logger-edits;
+    in-out property <bool> logger-ignore-bots;
+    in-out property <bool> logger-ghost-pings;
+    callback preferences-changed;
+    spacing: 16px;
+    SettingsTitle { text: "Add-ons"; }
+    Text {
+        text: "Extras that change how Discord Obsidian works for you. Nothing here is sent to Discord or anyone else.";
+        color: Theme.secondary; font-size: 14px; wrap: word-wrap;
+    }
+    Rectangle {
+        background: Theme.sidebar; border-radius: 8px;
+        border-width: 1px; border-color: root.logger-on ? Theme.danger.transparentize(0.6) : Theme.line;
+        animate border-color { duration: Theme.quick; }
+        VerticalLayout {
+            padding: 16px; spacing: 14px;
+            HorizontalLayout {
+                spacing: 12px;
+                Rectangle {
+                    width: 40px; height: 40px; border-radius: 10px; background: Theme.danger.transparentize(0.82);
+                    Image { width: 22px; height: 22px; source: @image-url("icons/history.svg"); colorize: Theme.danger-text; }
+                }
+                VerticalLayout {
+                    alignment: center; spacing: 2px; horizontal-stretch: 1;
+                    Text { text: "Message Logger"; color: Theme.text; font-size: 16px; font-weight: 700; }
+                    Text {
+                        text: "Deleted messages stay, in red, and edits keep what they said before.";
+                        color: Theme.secondary; font-size: 13px; wrap: word-wrap;
+                    }
+                }
+            }
+            SettingsSwitch {
+                text: "Turn on Message Logger";
+                checked <=> root.logger-on;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.logger-on: VerticalLayout {
+                spacing: 14px;
+                SettingsSwitch {
+                    text: "Keep deleted messages";
+                    description: "Someone else's message that's deleted stays where it was, tinted red, with when it went. Its pictures fade. Yours go as usual.";
+                    checked <=> root.logger-deletions;
+                    toggled => { root.preferences-changed(); }
+                }
+                SettingsSwitch {
+                    text: "Keep edit history";
+                    description: "\"(edited)\" opens what a message said before each edit, with when it changed.";
+                    checked <=> root.logger-edits;
+                    toggled => { root.preferences-changed(); }
+                }
+                SettingsSwitch {
+                    text: "Catch ghost pings";
+                    description: "When someone pings you and deletes it, even in a channel you haven't opened, a notification says who and what it said.";
+                    checked <=> root.logger-ghost-pings;
+                    toggled => { root.preferences-changed(); }
+                }
+                SettingsSwitch {
+                    text: "Ignore bots";
+                    description: "Bots' deleted and edited messages go as usual, so cleanups don't fill channels with red.";
+                    checked <=> root.logger-ignore-bots;
+                    toggled => { root.preferences-changed(); }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Image { y: 2px; width: 14px; height: 14px; source: @image-url("icons/shield.svg"); colorize: Theme.muted; }
+                Text {
+                    text: "It keeps only messages already loaded in channels you opened, in memory: nothing is saved, and a restart shows everything as Discord has it again.";
+                    color: Theme.muted; font-size: 12px; wrap: word-wrap; horizontal-stretch: 1;
+                }
             }
         }
     }

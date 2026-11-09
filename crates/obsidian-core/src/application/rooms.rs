@@ -22,6 +22,10 @@ pub enum MenuChoice {
     /// Keep a DM at the top of the DM list on this device, or stop.
     Pin,
     Unpin,
+    /// Move a server or folder one place up or down the rail, on this
+    /// device; a server in a folder moves within it.
+    MoveUp,
+    MoveDown,
     /// Start a DM's call, or join the one going on.
     Call,
     /// Write this account's note on a Discord DM's other person, or the
@@ -1017,6 +1021,21 @@ impl Application {
         effects
     }
 
+    /// Puts the rail in the order this device keeps: from the networks'
+    /// lists, or the preview's own servers, which no network sends.
+    pub(super) fn rearrange_servers(&mut self) -> Vec<Effect> {
+        if !self.state.preview {
+            return self.show_lists();
+        }
+        let mut servers = self.state.servers.clone();
+        server_order::arrange(&mut servers, &self.state.server_order);
+        if servers != self.state.servers {
+            self.state.servers = servers;
+            self.state.list_changes = self.state.list_changes.wrapping_add(1);
+        }
+        vec![]
+    }
+
     /// Shows the Matrix and Discord lists together, leaving a server or
     /// conversation that disappeared.
     pub(super) fn show_lists(&mut self) -> Vec<Effect> {
@@ -1029,10 +1048,15 @@ impl Application {
             &mut self.state.rooms,
             self.matrix_rooms.iter().chain(discord_rooms),
         );
-        let servers = chat::sync_list(
-            &mut self.state.servers,
-            self.matrix_servers.iter().chain(discord_servers),
-        );
+        // In the order this device keeps, where servers were moved here.
+        let mut listed: Vec<Arc<chat::ChatServer>> = self
+            .matrix_servers
+            .iter()
+            .chain(discord_servers)
+            .cloned()
+            .collect();
+        server_order::arrange(&mut listed, &self.state.server_order);
+        let servers = chat::sync_list(&mut self.state.servers, listed.iter());
         if rooms || servers {
             self.state.list_changes = self.state.list_changes.wrapping_add(1);
         }

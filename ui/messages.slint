@@ -601,6 +601,75 @@ export component PollView inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
+/// What a message said before an edit, and when the edit came, as the
+/// Message Logger add-on keeps it.
+export struct EarlierRow { text: string, time: string }
+
+/// The Message Logger add-on's red, for deleted messages it keeps.
+export global Logged {
+    out property <color> text: Theme.danger-text.mix(Theme.text, 0.8);
+    out property <color> tint: Theme.danger.transparentize(0.9);
+    out property <color> tint-hover: Theme.danger.transparentize(0.84);
+    out property <color> edge: Theme.danger;
+}
+
+/// "Deleted · 2m later", with when, on hover, under a message the Message
+/// Logger kept.
+component LoggedLabel inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> tip;
+    spacing: 4px; alignment: start;
+    Image { source: @image-url("icons/trash-2.svg"); width: 13px; image-fit: contain; colorize: Theme.danger-text; }
+    label := Text {
+        text: root.text; color: Theme.danger-text; font-size: 12px; font-weight: 600; vertical-alignment: center;
+        accessible-role: AccessibleRole.text; accessible-label: root.tip;
+        touch := TouchArea {
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = root.tip; Tip.side = 0;
+                    Tip.x = label.absolute-position.x + label.width / 2; Tip.y = label.absolute-position.y;
+                } else if Tip.text == root.tip {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}
+
+/// "(edited)", which opens what the message said before each edit, oldest
+/// first, struck through, as the Message Logger kept it.
+component EarlierTexts inherits VerticalLayout {
+    in property <[EarlierRow]> earlier;
+    in property <bool> logged;
+    property <bool> open;
+    spacing: 2px; alignment: start;
+    HorizontalLayout {
+        alignment: start;
+        Text {
+            text: root.open ? "(edited) · hide earlier" : root.earlier.length == 1 ? "(edited) · see before" : "(edited) · see " + root.earlier.length + " earlier";
+            color: touch.has-hover ? Theme.text : Theme.muted; font-size: 12px;
+            accessible-role: button; accessible-label: root.open ? "Hide earlier versions" : "Show earlier versions";
+            accessible-action-default => { root.open = !root.open; }
+            touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open = !root.open; } }
+        }
+    }
+    if root.open: Rectangle {
+        border-radius: 4px; background: Theme.overlay.with-alpha(0.05); clip: true;
+        VerticalLayout {
+            padding: 6px; padding-left: 12px; spacing: 4px;
+            for version in root.earlier: HorizontalLayout {
+                spacing: 8px;
+                Text { text: version.time; color: Theme.muted; font-size: 11px; vertical-alignment: center; }
+                Text {
+                    text: version.text; color: root.logged ? Logged.text.transparentize(0.25) : Theme.muted; font-size: 13px;
+                    wrap: word-wrap; horizontal-stretch: 1;
+                }
+            }
+        }
+        Rectangle { x: 0px; width: 2px; height: parent.height; background: Theme.muted; }
+    }
+}
+
 export struct MessageRow {
     id: string, item: string, author: string, initial: string, tint: color, picture: image, body: string, time: string, short-time: string, own: bool,
     picture-url: string, reply-picture-url: string,
@@ -632,6 +701,11 @@ export struct MessageRow {
     /// through all three. A body of nothing but emoji shows them large.
     jumbo: bool,
     styled: styled-text, author-styled: styled-text, time-styled: styled-text, edited: bool, deleted: bool,
+    /// Deleted on Discord but kept by the Message Logger add-on: its label,
+    /// "Deleted · 2m later", and when, for its tip; empty for any other.
+    logged: string, logged-tip: string,
+    /// What it said before each edit, oldest first, kept by the add-on.
+    earlier: [EarlierRow],
     /// A notice in place of a message, such as Discord's that someone pinned
     /// one, by the icon it shows in place of the avatar: "pin", "join",
     /// "thread", "call" or "poll"; empty for a message. Its text has its
@@ -2184,7 +2258,7 @@ export component MessageContent inherits VerticalLayout {
                 // An overlong word breaks, as in Discord's client, rather than widening the row.
                 min-width: 0px;
                 text: message.styled; link-color: Theme.link;
-                default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                default-color: message.logged != "" ? Logged.text : message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
                 // Discord's large emoji are 48 pixels where text's are 22.
                 default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
                 // A mention's card opens beside the pointer.
@@ -2195,13 +2269,18 @@ export component MessageContent inherits VerticalLayout {
                 accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
                 TextBlocks {
                     blocks: message.blocks; font-size: root.message-font-size;
-                    color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                    color: message.logged != "" ? Logged.text : message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
                     open-link(link) => { root.link-clicked(link); }
                 }
             }
-            if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
+            if message.edited && message.earlier.length == 0 && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
+            // The Message Logger's: what it said before, opened from "(edited)".
+            if message.earlier.length > 0: EarlierTexts { earlier: message.earlier; logged: message.logged != ""; }
+            if message.logged != "": LoggedLabel { text: message.logged; tip: message.logged-tip; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
             if message.images.length > 0: MessageGallery {
+                // A deleted message's pictures, kept by the Message Logger, fade.
+                opacity: message.logged != "" ? 0.5 : 1;
                 images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;
                 item: message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
                 reveal-attachment(id, index) => { root.reveal-attachment(id, index); }

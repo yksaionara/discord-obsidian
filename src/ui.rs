@@ -1243,6 +1243,12 @@ struct Layout {
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
     strip_tracking: Option<bool>,
+    /// The rail's order as moved on this device: server and folder ids.
+    #[serde(default)]
+    server_order: Vec<String>,
+    /// The Message Logger add-on's switches.
+    #[serde(default)]
+    message_logger: MessageLogger,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
     /// When animations play.
@@ -1534,6 +1540,7 @@ impl Layout {
         window.set_link_previews(self.link_previews.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
+        self.message_logger.show(window);
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
@@ -1815,6 +1822,8 @@ struct Icons {
     befriend: slint::Image,
     cancel: slint::Image,
     pin: slint::Image,
+    move_up: slint::Image,
+    move_down: slint::Image,
     unpin: slint::Image,
     note: slint::Image,
     nickname: slint::Image,
@@ -2092,6 +2101,10 @@ impl Adapter {
             ))?,
             cancel: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/x.svg"))?,
             pin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin.svg"))?,
+            move_up: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/chevron-up.svg"))?,
+            move_down: slint::Image::load_from_svg_data(include_bytes!(
+                "../ui/icons/chevron-down.svg"
+            ))?,
             unpin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin-off.svg"))?,
             note: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/sticky-note.svg"))?,
             nickname: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user-pen.svg"))?,
@@ -2157,6 +2170,7 @@ impl Adapter {
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
+        app.dispatch(Action::SetServerOrder(layout.server_order.clone()));
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {
                 events: None,
@@ -3180,3 +3194,61 @@ fn update_model_by_id<T: Clone + PartialEq + 'static>(
 
 #[cfg(test)]
 mod tests;
+
+/// The Message Logger add-on's switches as the layout keeps them: on, with
+/// everything but ignoring bots, until changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct MessageLogger {
+    on: bool,
+    deletions: bool,
+    edits: bool,
+    ignore_bots: bool,
+    ghost_pings: bool,
+}
+
+impl Default for MessageLogger {
+    fn default() -> Self {
+        let switches = obsidian_core::message_logger::Switches::default();
+        Self {
+            on: switches.on,
+            deletions: switches.deletions,
+            edits: switches.edits,
+            ignore_bots: switches.ignore_bots,
+            ghost_pings: switches.ghost_pings,
+        }
+    }
+}
+
+impl MessageLogger {
+    /// Shows the switches in Settings and sets the add-on going by them.
+    fn show(self, window: &ObsidianWindow) {
+        window.set_logger_on(self.on);
+        window.set_logger_deletions(self.deletions);
+        window.set_logger_edits(self.edits);
+        window.set_logger_ignore_bots(self.ignore_bots);
+        window.set_logger_ghost_pings(self.ghost_pings);
+        self.apply();
+    }
+
+    /// The switches as Settings shows them now.
+    fn chosen(window: &ObsidianWindow) -> Self {
+        Self {
+            on: window.get_logger_on(),
+            deletions: window.get_logger_deletions(),
+            edits: window.get_logger_edits(),
+            ignore_bots: window.get_logger_ignore_bots(),
+            ghost_pings: window.get_logger_ghost_pings(),
+        }
+    }
+
+    fn apply(self) {
+        obsidian_core::message_logger::set(obsidian_core::message_logger::Switches {
+            on: self.on,
+            deletions: self.deletions,
+            edits: self.edits,
+            ignore_bots: self.ignore_bots,
+            ghost_pings: self.ghost_pings,
+        });
+    }
+}

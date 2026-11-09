@@ -191,6 +191,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::RemoveFromChannelList
                 | MenuChoice::UnfollowCategory => 3,
                 MenuChoice::ServerNickname | MenuChoice::Roles | MenuChoice::MoveTo => 4,
+                MenuChoice::MoveUp | MenuChoice::MoveDown => 9,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
                 | MenuChoice::SelfMute
@@ -364,6 +365,8 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::AcceptFriend => ("Accept friend request", &icons.befriend),
         MenuChoice::CancelFriendRequest => ("Cancel friend request", &icons.cancel),
         MenuChoice::Pin => ("Pin", &icons.pin),
+        MenuChoice::MoveUp => ("Move up", &icons.move_up),
+        MenuChoice::MoveDown => ("Move down", &icons.move_down),
         MenuChoice::Unpin => ("Unpin", &icons.unpin),
         MenuChoice::Call if in_call => ("Join call", &icons.call),
         MenuChoice::Call => ("Start call", &icons.call),
@@ -950,6 +953,10 @@ pub(super) fn choose(
         MenuChoice::Message => Some(Action::MessagePerson(target)),
         MenuChoice::AddFriend | MenuChoice::AcceptFriend => user.map(Action::Befriend),
         MenuChoice::CancelFriendRequest => user.map(Action::RemoveFriendRequest),
+        MenuChoice::MoveUp | MenuChoice::MoveDown => Some(Action::MoveServer {
+            id: target.clone(),
+            up: choice == MenuChoice::MoveUp,
+        }),
         MenuChoice::Pin | MenuChoice::Unpin => room.map(|room| Action::Pin {
             room,
             pinned: choice == MenuChoice::Pin,
@@ -1098,9 +1105,14 @@ pub(super) fn choose(
         return;
     };
     let pins = matches!(action, Action::Pin { .. } | Action::CloseDm(_));
+    let moves = matches!(action, Action::MoveServer { .. });
     adapter.action(window, action);
     if pins {
         adapter.layout.pinned = adapter.app.state.pinned.clone();
+        adapter.layout.write(&adapter.root);
+    }
+    if moves {
+        adapter.layout.server_order = adapter.app.state.server_order.clone();
         adapter.layout.write(&adapter.root);
     }
 }
@@ -1135,8 +1147,10 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 67] = [
     MenuChoice::MarkRead,
+    MenuChoice::MoveUp,
+    MenuChoice::MoveDown,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
     MenuChoice::Profile,
@@ -1206,6 +1220,8 @@ const CHOICES: [MenuChoice; 65] = [
 fn choice_id(choice: MenuChoice) -> &'static str {
     match choice {
         MenuChoice::MarkRead => "mark-read",
+        MenuChoice::MoveUp => "move-up",
+        MenuChoice::MoveDown => "move-down",
         MenuChoice::JoinVoice => "join-voice",
         MenuChoice::OpenChat => "open-chat",
         MenuChoice::Profile => "profile",

@@ -143,6 +143,7 @@ pub(super) fn live_events(
             .map(|id| Live::Deleted {
                 channel: channel(),
                 id: id.to_owned(),
+                bulk: false,
             })
             .into_iter()
             .collect(),
@@ -154,6 +155,7 @@ pub(super) fn live_events(
             .map(|id| Live::Deleted {
                 channel: channel(),
                 id: id.to_owned(),
+                bulk: true,
             })
             .collect(),
         Event::MessageReactionAdd => reaction(true).into_iter().collect(),

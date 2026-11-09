@@ -1602,6 +1602,8 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         layout.link_previews = Some(window.get_link_previews());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
+        layout.message_logger = MessageLogger::chosen(&window);
+        layout.message_logger.apply();
         layout.nameplates = Some(window.get_show_nameplates());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);

@@ -54,7 +54,7 @@ impl Tray {
     }
 }
 
-/// Discord Obsidian's orange logo, `size` pixels square, with a red dot for
+/// Discord Obsidian's logo, the angry face on black, `size` pixels square, with a red dot for
 /// unread messages in its corner.
 fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
     let mut svg = include_str!("../ui/icons/logo.svg")
@@ -540,19 +540,19 @@ mod none {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn the_logo_is_orange_and_unread_adds_a_red_dot() {
+    fn the_logo_is_a_white_face_on_black_and_unread_adds_a_red_dot() {
         let plain = super::logo(32, false).unwrap();
         let unread = super::logo(32, true).unwrap();
         assert_eq!((plain.width(), plain.height()), (32, 32));
-        let orange = |pixel: &slint::Rgba8Pixel| {
-            pixel.a == 255 && pixel.r > 0xf0 && (0x9c..=0xc0).contains(&pixel.g) && pixel.b < 0x50
+        let white = |pixel: &slint::Rgba8Pixel| {
+            pixel.a == 255 && pixel.r == 0xff && pixel.g == 0xff && pixel.b == 0xff
         };
         let red = |pixel: &slint::Rgba8Pixel| {
             pixel.a == 255 && (pixel.r, pixel.g, pixel.b) == (0xf0, 0x54, 0x5e)
         };
-        assert!(plain.as_slice().iter().any(orange));
+        assert!(plain.as_slice().iter().any(white));
         assert!(!plain.as_slice().iter().any(red));
-        assert!(unread.as_slice().iter().any(orange));
+        assert!(unread.as_slice().iter().any(white));
         // The dot is in the bottom-right corner.
         let corner = (24 * 32 + 24) as usize;
         assert!(red(&unread.as_slice()[corner]));

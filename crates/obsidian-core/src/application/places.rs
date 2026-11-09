@@ -117,6 +117,26 @@ impl Application {
     /// server's and its categories' menus offer what this account may do
     /// there, as Discord's do.
     pub fn menu_choices(&self, id: &str) -> Vec<MenuChoice> {
+        let mut choices = self.place_choices(id);
+        // A server or folder moves up and down the rail, before copying.
+        let rail = server_order::is_folder(&self.state.servers, id)
+            || self.state.servers.iter().any(|server| server.id == id);
+        if rail {
+            let (up, down) = server_order::can_move(&self.state.servers, id);
+            let moves = [(up, MenuChoice::MoveUp), (down, MenuChoice::MoveDown)]
+                .into_iter()
+                .filter_map(|(can, choice)| can.then_some(choice));
+            let at = choices
+                .iter()
+                .position(|choice| *choice == MenuChoice::CopyLink)
+                .unwrap_or(choices.len());
+            choices.splice(at..at, moves);
+        }
+        choices
+    }
+
+    /// A place's menu, without moving it on the rail.
+    fn place_choices(&self, id: &str) -> Vec<MenuChoice> {
         let listed = self.state.menu_choices(id);
         if self.state.preview {
             return listed;

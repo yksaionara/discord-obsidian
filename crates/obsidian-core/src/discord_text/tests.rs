@@ -99,7 +99,8 @@ fn live_events_echoes_and_failed_sends() {
     );
     assert!(open.live(&Live::Deleted {
         channel: "11".into(),
-        id: "3".into()
+        id: "3".into(),
+        bulk: false,
     }));
     let order: Vec<_> = open.shown.messages.keys().copied().collect();
     assert_eq!(order, [5, 7]);
@@ -555,7 +556,8 @@ fn channels_go_to_disk_once_they_change() {
     assert!(open.take_changes().is_none(), "saved, and unchanged since");
     assert!(!open.live(&Live::Deleted {
         channel: "11".into(),
-        id: "9".into()
+        id: "9".into(),
+        bulk: false,
     }));
     assert!(open.take_changes().is_none(), "a message it didn't have");
     open.deleted("2");
@@ -578,6 +580,7 @@ fn a_page_asked_for_before_a_delete_doesnt_bring_the_message_back() {
     open.live(&Live::Deleted {
         channel: "11".into(),
         id: "2".into(),
+        bulk: false,
     });
     open.deleted("3");
     open.loaded(Load::Latest, shown(page(1..=4)));
@@ -1872,4 +1875,74 @@ async fn a_servers_card_shows_how_many_of_its_members_are_online() {
     let preview = answer.expect("what the server's card shows");
     assert_eq!(preview.online, Some(3), "Dave is offline");
     assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
+}
+
+/// The Message Logger keeps others' deleted messages, marked, and what edits
+/// replaced, and none of it goes to disk.
+#[test]
+fn the_message_logger_keeps_deleted_messages_and_earlier_texts() {
+    use crate::message_logger::{Switches, test_with};
+    test_with(Some(Switches::default()), "me");
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    let mine = Message {
+        author_id: "me".into(),
+        ..message("4", None)
+    };
+    let bot = Message {
+        bot: true,
+        ..message("6", None)
+    };
+    open.loaded(
+        Load::Latest,
+        shown(vec![message("3", None), mine, message("5", None), bot]),
+    );
+    let delete = |id: &str, bulk: bool| Live::Deleted {
+        channel: "11".into(),
+        id: id.into(),
+        bulk,
+    };
+    assert!(open.live(&delete("3", false)));
+    let three = &open.shown.messages[&3];
+    assert!(three.logged_deletion.is_some_and(|deletion| !deletion.purge));
+    assert!(!open.live(&delete("3", false)), "marked once");
+    // A purge says so; this account's own deleted message goes.
+    assert!(open.live(&delete("5", true)));
+    assert!(open.shown.messages[&5].logged_deletion.is_some_and(|deletion| deletion.purge));
+    assert!(open.live(&delete("4", false)));
+    assert!(!open.shown.messages.contains_key(&4));
+
+    // Each edit keeps the text before it, up to the most kept.
+    for edit in 0..12 {
+        open.edited(Message {
+            content: format!("edit {edit}"),
+            edited: true,
+            ..message("5", None)
+        });
+    }
+    let five = &open.shown.messages[&5];
+    assert_eq!(five.content, "edit 11");
+    assert_eq!(five.earlier.len(), crate::message_logger::MAX_EARLIER);
+    assert_eq!(five.earlier.last().unwrap().content, "edit 10");
+    assert!(five.logged_deletion.is_some(), "an edit keeps the mark");
+
+    // Nothing logged reaches disk.
+    let (_, kept) = open.take_changes().unwrap();
+    let ids: Vec<&str> = kept.iter().map(|message| message.id.as_str()).collect();
+    assert_eq!(ids, ["6"]);
+
+    // Bots go as they did when told to.
+    test_with(
+        Some(Switches {
+            ignore_bots: true,
+            ..Switches::default()
+        }),
+        "me",
+    );
+    assert!(open.live(&delete("6", false)));
+    assert!(!open.shown.messages.contains_key(&6));
+
+    // Turned off, deleting removes as it always did.
+    test_with(None, "me");
+    assert!(open.live(&delete("3", false)));
+    assert!(!open.shown.messages.contains_key(&3));
 }

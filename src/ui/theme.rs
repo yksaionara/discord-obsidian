@@ -441,6 +441,49 @@ const TOKYO_NIGHT: Theme = Theme {
     avatar: rgb(0x565f89),
 };
 
+/// Midnight: Discord Obsidian's own, near black with a deep navy cast and a
+/// violet accent, for late nights and OLED screens.
+const MIDNIGHT: Theme = Theme {
+    dark: true,
+    rail: rgb(0x040509),
+    sidebar: rgb(0x080a11),
+    panel: rgb(0x040509),
+    chat: rgb(0x0b0d15),
+    stage: rgb(0x0b0d15),
+    raised: rgb(0x121522),
+    field: rgb(0x111420),
+    sunken: rgb(0x06070c),
+    hover: rgb(0x141726),
+    active: rgb(0x1d2134),
+    row_hover: rgb(0x0f111b),
+    line: rgb(0x191c2b),
+    outline: rgb(0x1d2134),
+    outline_chat: rgb(0x191c2b),
+    outline_field: rgb(0x23283d),
+    edge: rgb(0x020306),
+    text: rgb(0xe6e8f3),
+    secondary: rgb(0xb4b9d0),
+    muted: rgb(0x7c829f),
+    faint: rgb(0x4c5270),
+    accent: rgb(0x8b7bff),
+    accent_hover: rgb(0x9d90ff),
+    on_accent: rgb(0xffffff),
+    accent_soft: rgba(0x8b7bff26),
+    danger: rgb(0xff5c7a),
+    danger_hover: rgb(0xff7a92),
+    on_danger: rgb(0xffffff),
+    live: rgb(0x3ddc97),
+    loud: rgb(0xffb454),
+    link: rgb(0x82b8ff),
+    button_default: rgb(0x1d2134),
+    button_default_hover: rgb(0x292e47),
+    overlay: rgb(0xffffff),
+    shimmer: rgba(0xffffff0d),
+    reply_spine: rgb(0x292e47),
+    tooltip: rgb(0x020306),
+    avatar: rgb(0x383e5c),
+};
+
 /// Rosé Pine's light variant, with rose for the accent.
 const ROSE_PINE_DAWN: Theme = Theme {
     dark: false,
@@ -535,11 +578,16 @@ pub struct BuiltIn {
 
 /// The themes Discord Obsidian comes with, as Appearance lists them: the dark ones, then
 /// the light ones. The palettes credited in docs/themes.md are MIT licensed.
-pub const BUILT_IN: [BuiltIn; 10] = [
+pub const BUILT_IN: [BuiltIn; 11] = [
     BuiltIn {
         id: "yap",
         name: "Obsidian",
         theme: YAP,
+    },
+    BuiltIn {
+        id: "midnight",
+        name: "Midnight",
+        theme: MIDNIGHT,
     },
     BuiltIn {
         id: "bonfire",

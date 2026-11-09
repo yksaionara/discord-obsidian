@@ -56,7 +56,14 @@ pub struct Channels {
     pub(super) typed: Option<(String, Instant)>,
     /// Counts member searches, so one typed over before it went is dropped.
     pub(super) searches: Arc<std::sync::atomic::AtomicU64>,
+    /// The latest messages that pinged this account, by channel and message
+    /// id, newest last, so the Message Logger tells of one deleted: a ghost
+    /// ping. At most [`KEPT_PINGS`], and only in memory.
+    pub(super) pings: std::collections::VecDeque<(String, String, Notification)>,
 }
+
+/// How many pings the Message Logger remembers for catching ghost pings.
+pub(super) const KEPT_PINGS: usize = 50;
 
 /// How long a member search waits for more typing before it goes to Discord.
 pub(super) const SEARCH_PAUSE: Duration = Duration::from_millis(300);

@@ -709,12 +709,34 @@ pub fn live(
         return;
     }
     if let Ok(Live::Notify { guild, message }) = &event {
-        let _ = events.send(Event::Notify(notification(
-            discord,
-            guild.as_deref(),
-            message,
-        )));
+        let notification = notification(discord, guild.as_deref(), message);
+        // Remembered so the Message Logger tells of it if it's deleted.
+        if notification.mention {
+            if channels.pings.len() >= super::channels::KEPT_PINGS {
+                channels.pings.pop_front();
+            }
+            channels.pings.push_back((
+                message.channel_id.clone(),
+                message.id.clone(),
+                notification.clone(),
+            ));
+        }
+        let _ = events.send(Event::Notify(notification));
         return;
+    }
+    // A ping deleted: the Message Logger tells of the ghost ping.
+    if let Ok(Live::Deleted { channel, id, .. }) = &event
+        && let Some(at) = channels
+            .pings
+            .iter()
+            .position(|(pinged, message, _)| pinged == channel && message == id)
+        && let Some((_, _, ping)) = channels.pings.remove(at)
+        && crate::message_logger::ghost_pings()
+    {
+        let _ = events.send(Event::Notify(Notification {
+            body: format!("Ghost pinged you: {}", ping.body),
+            ..ping
+        }));
     }
     if let Ok(Live::Typing {
         guild,

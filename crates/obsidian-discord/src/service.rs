@@ -401,6 +401,8 @@ pub enum Live {
     Deleted {
         channel: String,
         id: String,
+        /// One of several deleted at once, by a moderator's purge.
+        bulk: bool,
     },
     Reaction {
         channel: String,

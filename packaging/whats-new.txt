@@ -1,2 +1,5 @@
-- We're Discord Obsidian now: new name, new orange icon and its own folders. Your login, settings and favourites come with you.
-- Clicking beside a focused stream no longer leaves it. Click the stream itself to go back to the grid, as in Discord.
+- New Settings > Add-ons page. The first add-on is Message Logger: deleted messages stay in red, (edited) shows what a message said before, and ghost pings get caught.
+- Nothing the logger keeps is saved. A restart shows everything as Discord has it again.
+- New look: the angry Discord face on black, in the window, tray, taskbar and installer.
+- New Midnight theme: near black with a violet accent. Settings > Appearance.
+- Move servers and folders up and down: right-click one and choose Move up or Move down. The order is kept on this PC.

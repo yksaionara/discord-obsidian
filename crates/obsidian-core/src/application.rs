@@ -44,6 +44,7 @@ mod reactions;
 mod rooms;
 mod scheduled_event;
 mod server;
+mod server_order;
 mod server_settings;
 mod session;
 mod threads;
@@ -549,6 +550,9 @@ pub struct AppState {
     /// Shared with the networks' lists they're shown from.
     pub rooms: Vec<Arc<ChatRoom>>,
     pub servers: Vec<Arc<ChatServer>>,
+    /// The rail's order as moved on this device: server and folder ids,
+    /// each folder's servers after it; see [`server_order`].
+    pub server_order: Vec<String>,
     /// What the card of a server's emoji shows of it beyond its name and icon,
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
@@ -1618,6 +1622,10 @@ pub enum Action {
     },
     /// The DMs pinned on this device, as it remembers them.
     SetPinned(Vec<String>),
+    /// The rail's order this device keeps, from its layout.
+    SetServerOrder(Vec<String>),
+    /// Moves a server or folder one place up or down the rail.
+    MoveServer { id: String, up: bool },
     /// Close a Discord DM; it comes back when either side writes.
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
@@ -3027,6 +3035,21 @@ impl Application {
             Action::SetPinned(pinned) => {
                 self.state.pinned = pinned;
                 vec![]
+            }
+            // From the layout at start: the networks' lists take it as they
+            // come; the preview's servers are already here.
+            Action::SetServerOrder(order) => {
+                self.state.server_order = order;
+                if self.state.preview { self.rearrange_servers() } else { vec![] }
+            }
+            Action::MoveServer { id, up } => {
+                match server_order::moved(&self.state.servers, &id, up) {
+                    Some(order) => {
+                        self.state.server_order = order;
+                        self.rearrange_servers()
+                    }
+                    None => vec![],
+                }
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),

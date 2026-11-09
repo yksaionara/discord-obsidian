@@ -75,6 +75,7 @@ pub mod runtime;
 pub mod session;
 #[cfg(feature = "discord")]
 pub mod discord_sounds;
+pub mod message_logger;
 #[cfg(feature = "discord")]
 pub mod soundboard;
 pub mod sounds;
@@ -112,6 +113,12 @@ pub fn default_directory() -> anyhow::Result<std::path::PathBuf> {
 /// first time, so an update keeps the account, settings and caches. The old
 /// folder stays in use while it can't be moved, as while an old copy runs.
 fn move_from_old_name(directory: std::path::PathBuf) -> std::path::PathBuf {
+    // The old install's folder, which its update empties but can't always
+    // remove while it starts the new one.
+    #[cfg(windows)]
+    if let Some(base) = directories::BaseDirs::new() {
+        let _ = std::fs::remove_dir(base.data_local_dir().join("Programs").join("Yapfast"));
+    }
     let Some(old) = directories::ProjectDirs::from("io.github", "yapfast", "Yapfast")
         .map(|dirs| dirs.data_local_dir().to_owned())
     else {

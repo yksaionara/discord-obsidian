@@ -102,8 +102,13 @@ impl Run {
         };
         let until = last.order();
         let listed: HashSet<u64> = page.messages.iter().map(Message::order).collect();
-        self.messages
-            .retain(|order, _| *order < since || *order > until || listed.contains(order));
+        // What the Message Logger keeps isn't in Discord's page any more.
+        self.messages.retain(|order, message| {
+            *order < since
+                || *order > until
+                || listed.contains(order)
+                || message.logged_deletion.is_some()
+        });
     }
 
     /// Keeps only the newest `count`; the older ones load again.
@@ -548,13 +553,21 @@ impl OpenChannel {
         if !std::mem::take(&mut self.dirty) {
             return None;
         }
-        let newest = &self.latest.as_ref().unwrap_or(&self.shown).messages;
+        // What the Message Logger keeps never goes to disk.
+        let newest: Vec<&Message> = self
+            .latest
+            .as_ref()
+            .unwrap_or(&self.shown)
+            .messages
+            .values()
+            .filter(|message| message.logged_deletion.is_none())
+            .collect();
         let skip = newest
             .len()
             .saturating_sub(obsidian_discord::cache::CHANNEL_MESSAGES);
         Some((
             self.channel.clone(),
-            newest.values().skip(skip).cloned().collect(),
+            newest.into_iter().skip(skip).cloned().collect(),
         ))
     }
 
@@ -594,7 +607,7 @@ impl OpenChannel {
 
     /// Applies a gateway event; returns whether the shown messages changed.
     pub fn live(&mut self, event: &Live) -> bool {
-        if let Live::Deleted { channel, id } = event
+        if let Live::Deleted { channel, id, .. } = event
             && *channel == self.channel
         {
             self.deleted.insert(id.parse().unwrap_or_default());
@@ -1609,6 +1622,7 @@ impl OpenChannel {
         wanted: &mut Vec<String>,
     ) -> ChatMessage {
         let me = snapshot.user_id.as_deref().unwrap_or_default();
+        crate::message_logger::note_me(me);
         let name = |user: &str, fallback: &str| {
             discord
                 .name(&self.guild, user)
@@ -1744,7 +1758,30 @@ impl OpenChannel {
             timestamp,
             own,
             edited: message.edited,
-            deleted: false,
+            // Kept by the Message Logger: it can't be answered or changed.
+            deleted: message.logged_deletion.is_some(),
+            logged: message
+                .logged_deletion
+                .map(|deletion| {
+                    let label = if deletion.purge { "Deleted in a purge" } else { "Deleted" };
+                    match crate::message_logger::later(timestamp * 1000, deletion.at) {
+                        later if later.is_empty() => label.to_owned(),
+                        later => format!("{label} · {later}"),
+                    }
+                })
+                .unwrap_or_default(),
+            logged_tip: message
+                .logged_deletion
+                .map(|deletion| format!("Deleted at {}", crate::clock::time(deletion.at / 1000)))
+                .unwrap_or_default(),
+            earlier: message
+                .earlier
+                .iter()
+                .map(|earlier| {
+                    let (text, _) = rendered(discord, server, &earlier.content);
+                    (text, crate::clock::time(earlier.until / 1000))
+                })
+                .collect(),
             blocked: snapshot.blocked.contains(&message.author_id),
             mentions_me: message.names_me(me, marks),
             replies_to_me: message.replies_to(me),
@@ -1915,10 +1952,25 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
                 Some(poll) if !poll.counted => known.poll.take(),
                 poll => poll.clone(),
             };
+            // The Message Logger keeps what an edit replaced.
+            let mut earlier = std::mem::take(&mut known.earlier);
+            if known.content != message.content
+                && !known.content.is_empty()
+                && crate::message_logger::keeps_edits(message.bot)
+            {
+                earlier.push(obsidian_discord::message::EarlierText {
+                    content: std::mem::take(&mut known.content),
+                    until: crate::message_logger::now(),
+                });
+                let over = earlier.len().saturating_sub(crate::message_logger::MAX_EARLIER);
+                earlier.drain(..over);
+            }
             *known = Message {
                 reactions,
                 poll,
                 reply,
+                earlier,
+                logged_deletion: known.logged_deletion,
                 ..message.clone()
             };
             Some(message.order())
@@ -1937,8 +1989,21 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
         Live::Deleted {
             channel: id,
             id: message,
+            bulk,
         } if id == channel => {
             let order = message.parse().unwrap_or_default();
+            let known = messages.get_mut(&order)?;
+            // The Message Logger keeps it, marked; once is enough.
+            if crate::message_logger::keeps_deleted(&known.author_id, known.bot) {
+                if known.logged_deletion.is_some() {
+                    return None;
+                }
+                known.logged_deletion = Some(obsidian_discord::message::Deletion {
+                    at: crate::message_logger::now(),
+                    purge: *bulk,
+                });
+                return Some(order);
+            }
             messages.remove(&order).map(|_| order)
         }
         Live::Reaction {

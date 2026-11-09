@@ -164,6 +164,31 @@ pub struct Message {
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// Deleted while shown, and kept by the Message Logger add-on. Never
+    /// kept on disk: after a restart it's gone, as Discord has it.
+    #[serde(skip)]
+    pub logged_deletion: Option<Deletion>,
+    /// What it said before each edit while shown, oldest first, as the
+    /// Message Logger add-on keeps it. Never kept on disk.
+    #[serde(skip)]
+    pub earlier: Vec<EarlierText>,
+}
+
+/// When a message the Message Logger kept was deleted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Deletion {
+    /// In Unix milliseconds.
+    pub at: u64,
+    /// With others at once, as a moderator's purge deletes them.
+    pub purge: bool,
+}
+
+/// A message's text before an edit, and when the edit replaced it, in Unix
+/// milliseconds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EarlierText {
+    pub content: String,
+    pub until: u64,
 }
 
 /// A message's poll, its votes as Discord counted them when the message
@@ -793,6 +818,8 @@ pub fn parse(value: &Value) -> Option<Message> {
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
         poll: Poll::of(&shown["poll"]),
+        logged_deletion: None,
+        earlier: Vec::new(),
     })
 }
 

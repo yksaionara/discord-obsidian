@@ -6712,7 +6712,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_new_theme();
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
-    assert_eq!(window.get_theme_start(), 4);
+    assert_eq!(window.get_theme_start(), 5);
     assert_eq!(window.get_theme_starts().row_count(), theme::BUILT_IN.len());
     let colours = window.get_theme_colours();
     assert_eq!(colours.row_count(), theme::Theme::NAMES.len());
@@ -6796,7 +6796,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     // A new theme from another start takes its colours and name.
     window.invoke_new_theme();
     assert_eq!(window.get_theme_name(), "Midnight copy");
-    window.invoke_theme_start_chosen(9);
+    window.invoke_theme_start_chosen(10);
     assert_eq!(window.get_theme_name(), "Sakura copy");
     assert_eq!(
         theme::Theme::shown(&window),

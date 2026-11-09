@@ -1681,6 +1681,14 @@ pub struct ChatMessage {
     pub own: bool,
     pub edited: bool,
     pub deleted: bool,
+    /// Deleted on Discord, but kept by the Message Logger add-on: what its
+    /// label says, "Deleted · 2m later"; empty for any other message.
+    pub logged: String,
+    /// When it was deleted, as the label's tip says it.
+    pub logged_tip: String,
+    /// What it said before each edit, oldest first, with when the edit came,
+    /// as the Message Logger add-on keeps it.
+    pub earlier: Vec<(String, String)>,
     /// From someone this account blocked: it shows collapsed until asked for.
     pub blocked: bool,
     /// Mentions this account or a group it's in, other than as a reply to

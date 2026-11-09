@@ -711,6 +711,23 @@ pub(super) fn message_row_within(
         time_styled: slint::StyledText::from_plain_text(&message.time),
         edited: message.edited,
         deleted: message.deleted,
+        logged: message.logged.as_str().into(),
+        logged_tip: message.logged_tip.as_str().into(),
+        earlier: if message.earlier.is_empty() {
+            slint::ModelRc::default()
+        } else {
+            Rc::new(slint::VecModel::from(
+                message
+                    .earlier
+                    .iter()
+                    .map(|(text, time)| EarlierRow {
+                        text: text.as_str().into(),
+                        time: time.as_str().into(),
+                    })
+                    .collect::<Vec<_>>(),
+            ))
+            .into()
+        },
         forwarded: message.forwarded,
         has_reply: message.reply.is_some(),
         reply_author: reply_author.into(),
