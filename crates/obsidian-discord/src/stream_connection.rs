@@ -59,11 +59,21 @@ fn airtime(bytes: usize, rate: u64) -> Duration {
 /// floor for a screen.
 pub const MIN_BITRATE: u64 = 500_000;
 
+/// Where a stream's bitrate starts, about Discord's server's first estimate
+/// (4.2 Mbit/s): starting at a 1080p360 stream's 36 Mbit/s cap lost three
+/// packets in four on a home connection, and the resends that followed
+/// overflowed Windows' buffers.
+pub const START_BITRATE: u64 = 4_000_000;
+
+/// The share of the target bitrate packets sent again may take: under
+/// heavy loss, resending everything viewers ask for doubles what's sent.
+const RESEND_SHARE: u64 = 4;
+
 /// How a stream's bitrate follows the packets lost on the way, as
 /// libwebrtc's loss-based estimate does in Discord's client: it starts at
-/// the cap for the stream's quality, grows 8% a second while under 2% of
-/// packets are lost, holds between 2% and 10%, and above that drops by half
-/// the fraction lost.
+/// [`START_BITRATE`], grows 8% a second while under 2% of packets are lost,
+/// up to the cap for the stream's quality, holds between 2% and 10% and
+/// while nothing says, and above that drops by half the fraction lost.
 ///
 /// Discord's server also sends an estimate (REMB), but it only grows past
 /// what it receives once the sender probes with padding, as libwebrtc does.
@@ -76,7 +86,9 @@ pub struct RateControl {
 
 impl RateControl {
     pub fn new(cap: u64) -> Self {
-        Self { bitrate: cap }
+        Self {
+            bitrate: START_BITRATE.min(cap),
+        }
     }
 
     pub fn bitrate(&self) -> u64 {
@@ -90,8 +102,9 @@ impl RateControl {
         let next = match loss {
             Some(loss) if loss > 0.10 => rate * (1.0 - 0.5 * loss.min(1.0)),
             Some(loss) if loss >= 0.02 => rate,
-            // Too few packets to tell, or hardly any lost.
-            _ => rate * 1.08 + 1000.0,
+            Some(_) => rate * 1.08 + 1000.0,
+            // Too few packets to tell.
+            None => rate,
         };
         self.bitrate = (next.round() as u64).clamp(MIN_BITRATE.min(cap), cap);
         self.bitrate
@@ -317,9 +330,10 @@ impl StreamSender {
         let shared = Shared::new((width, height));
         *lock(&shared.offers) = offers;
         shared.fps.store(fps, Ordering::Relaxed);
-        shared
-            .target
-            .store(u64::from(max_bitrate(height, fps)), Ordering::Relaxed);
+        shared.target.store(
+            RateControl::new(u64::from(max_bitrate(height, fps))).bitrate(),
+            Ordering::Relaxed,
+        );
         // About a tenth of a second of frames, and at least four: a keyframe
         // takes a few frames' time to send. Beyond that the network can't
         // keep up.
@@ -610,6 +624,8 @@ async fn send(
     .await?;
     let mut rate = RateControl::new(u64::from(max_bitrate(size.1, fps)));
     let mut loss = Loss::default();
+    // The bytes resent since the rate control last looked.
+    let mut resent_bytes: u64 = 0;
     let mut rated = tokio::time::interval_at(Instant::now() + RATE_EVERY, RATE_EVERY);
     send_json(
         &mut connection.ws,
@@ -702,7 +718,7 @@ async fn send(
                     packets = packets.wrapping_add(1);
                     octets = octets.wrapping_add((packet.len() - clear) as u32);
                     connection.transport.seal(&mut packet, clear)?;
-                    connection.udp.send(&packet).await?;
+                    crate::voice_connection::send_media(&connection.udp, &packet).await?;
                     shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
                 }
                 if reported.elapsed() >= SENDER_REPORTS {
@@ -715,7 +731,7 @@ async fn send(
                         octets,
                     );
                     connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
-                    connection.udp.send(&report).await?;
+                    crate::voice_connection::send_media(&connection.udp, &report).await?;
                 }
             }
             _ = heartbeat.tick() => connection.heartbeat().await?,
@@ -760,7 +776,7 @@ async fn send(
                 sound_octets = sound_octets.wrapping_add(payload.len() as u32);
                 let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
                 connection.transport.seal(&mut packet, clear)?;
-                connection.udp.send(&packet).await?;
+                crate::voice_connection::send_media(&connection.udp, &packet).await?;
                 sent.sounds += 1;
                 if sound_reported.elapsed() >= SENDER_REPORTS {
                     sound_reported = Instant::now();
@@ -772,7 +788,7 @@ async fn send(
                         sound_octets,
                     );
                     connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
-                    connection.udp.send(&report).await?;
+                    crate::voice_connection::send_media(&connection.udp, &report).await?;
                 }
             }
             received = connection.udp.recv(&mut datagram) => {
@@ -807,19 +823,25 @@ async fn send(
                 let nacked = rtp::nacked(&rtcp, video);
                 loss.nacked.extend(nacked.iter().copied());
                 for lost in nacked.into_iter().take(RESENDS) {
+                    if resent_bytes * 8 > rate.bitrate() * RATE_EVERY.as_secs() / RESEND_SHARE {
+                        sent.over_budget += 1;
+                        continue;
+                    }
                     let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
                         sent.too_late += 1;
                         continue;
                     };
+                    resent_bytes += again.len() as u64;
                     let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
                     connection.transport.seal(&mut again, clear)?;
-                    connection.udp.send(&again).await?;
+                    crate::voice_connection::send_media(&connection.udp, &again).await?;
                     shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
                     shared.resent.fetch_add(1, Ordering::Relaxed);
                     sent.resent += 1;
                 }
             }
             _ = rated.tick() => {
+                resent_bytes = 0;
                 let lost = loss.take();
                 let before = rate.bitrate();
                 let after = rate.update(lost, u64::from(max_bitrate(size.1, fps)));
@@ -868,6 +890,8 @@ struct Sent {
     /// gone from the history.
     resent: u32,
     too_late: u32,
+    /// Packets asked for again past the share resends may take.
+    over_budget: u32,
     /// RTCP that wouldn't decrypt.
     unopened: u32,
     /// RTP, which a streamer isn't sent.
@@ -1045,7 +1069,7 @@ async fn receive_stream(
                 });
                 let mut report = rtp::receiver_report(connection.ssrc, media, (highest, lost, fraction), (middle, delay));
                 connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
-                connection.udp.send(&report).await?;
+                crate::voice_connection::send_media(&connection.udp, &report).await?;
             }
             _ = log.tick() => {
                 tracing::debug!(?received, "stream received");
@@ -1175,7 +1199,7 @@ async fn receive_stream(
                 received.asked += missing.len() as u64;
                 let mut request = rtp::nack(connection.ssrc, ssrc, &missing);
                 connection.transport.seal(&mut request, rtp::RTCP_CLEAR)?;
-                connection.udp.send(&request).await?;
+                crate::voice_connection::send_media(&connection.udp, &request).await?;
             }
         }
         // Ask for a keyframe after a loss, or when the decoder asked.
@@ -1188,7 +1212,7 @@ async fn receive_stream(
             received.keyframe_requests += 1;
             let mut request = rtp::picture_loss(connection.ssrc, media);
             connection.transport.seal(&mut request, rtp::RTCP_CLEAR)?;
-            connection.udp.send(&request).await?;
+            crate::voice_connection::send_media(&connection.udp, &request).await?;
         }
     }
 }
@@ -1198,12 +1222,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_bitrate_starts_at_the_cap_and_follows_the_loss() {
+    fn the_bitrate_starts_where_discords_estimate_does_and_follows_the_loss() {
         let cap = u64::from(max_bitrate(1080, 144));
         let mut rate = RateControl::new(cap);
-        assert_eq!(rate.bitrate(), 21_600_000, "1080p144 starts at its cap");
-        assert_eq!(rate.update(None, cap), cap, "no reports leave it at the cap");
-        assert_eq!(rate.update(Some(0.0), cap), cap, "never past the cap");
+        assert_eq!(rate.bitrate(), START_BITRATE, "starts where Discord's estimate does");
+        assert_eq!(RateControl::new(3_500_000).bitrate(), 3_500_000, "or lower, at 720p30's cap");
+        assert_eq!(rate.update(None, cap), START_BITRATE, "no reports hold it");
+        assert_eq!(rate.update(Some(0.0), cap), 4_321_000, "a clear path grows it 8%");
+        for _ in 0..60 {
+            rate.update(Some(0.0), cap);
+        }
+        assert_eq!(rate.bitrate(), cap, "up to the cap, in about 20 s");
         assert_eq!(rate.update(Some(0.05), cap), cap, "some loss holds it");
         assert_eq!(rate.update(Some(0.20), cap), cap * 9 / 10, "heavy loss lowers it");
         let lowered = rate.bitrate();
@@ -1213,8 +1242,8 @@ mod tests {
         }
         assert_eq!(rate.bitrate(), MIN_BITRATE, "a screen's floor");
         rate = RateControl::new(cap);
-        rate.cap(9_000_000);
-        assert_eq!(rate.bitrate(), 9_000_000, "a smaller quality's cap");
+        rate.cap(3_000_000);
+        assert_eq!(rate.bitrate(), 3_000_000, "a smaller quality's cap");
     }
 
     #[test]

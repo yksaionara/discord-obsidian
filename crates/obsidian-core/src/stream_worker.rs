@@ -795,15 +795,19 @@ impl Sink {
         Ok(encoder)
     }
 
-    /// An encoder in `codec`, at the bitrate Discord's cap for its height
-    /// allows.
+    /// An encoder in `codec`, at the bitrate the stream aims for: where the
+    /// rate control starts, before the stream connects.
     fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
+        let target = self
+            .video
+            .as_ref()
+            .map_or(stream_connection::START_BITRATE, |video| video.sender.target_bitrate());
         Encoder::new(
             codec,
             width,
             height,
             self.fps,
-            kbps(height, self.fps, None),
+            kbps(height, self.fps, Some(target)),
             self.effort,
             self.hardware,
         )

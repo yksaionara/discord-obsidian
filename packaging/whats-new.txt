@@ -1,7 +1,4 @@
-- Screen sharing is much sharper and smoother: streams start at the full bitrate for the chosen quality and only lower it when packets are actually lost (they used to get stuck around 1.5 Mbit/s).
-- No more choppy frames on Windows: packet pacing no longer stalls on Windows' 15.6 ms timer, and keyframes no longer cause stutter cascades.
-- Sharing a game window uses full-speed capture (up to 360 fps) whenever the game is in front, even if it was alt-tabbed when you started. Alt-tabbing out of a borderless game no longer shows viewers your desktop.
-- The stream no longer restarts its encoder when the window's size wobbles by a pixel or two.
-- The voice panel and your account panel are now one connected card, like Discord's.
-- New add-on, Game Activity Toggle (Settings > Add-ons, on by default): a controller button beside mute and deafen hides or shows your game in one click.
-- Undeafening now turns your microphone back on if it was on before you deafened.
+- Fixed streams (and calls) dropping with "the system lacked sufficient buffer space" (error 10055): a full network buffer now drops one packet instead of ending the connection.
+- Streams start at about 4 Mbit/s, like Discord, and climb to your quality's cap while your connection keeps up, instead of starting at the cap and flooding it.
+- Packets resent to viewers are capped, so heavy loss can't double the traffic, and the network buffers are bigger.
+- Updates: the green Update pill shows up whenever an update is ready, in a call or not. Click it to update now; otherwise it installs the next time you open the app. The app no longer restarts on its own to update, and it checks every 30 minutes instead of every 6 hours.

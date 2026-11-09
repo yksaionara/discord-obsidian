@@ -141,7 +141,7 @@ impl Sending {
             self.packets = self.packets.wrapping_add(1);
             self.octets = self.octets.wrapping_add((packet.len() - clear) as u32);
             connection.transport.seal(&mut packet, clear)?;
-            connection.udp.send(&packet).await?;
+            crate::voice_connection::send_media(&connection.udp, &packet).await?;
         }
         if self.reported.elapsed() >= SENDER_REPORTS {
             self.reported = Instant::now();
@@ -153,7 +153,7 @@ impl Sending {
                 self.octets,
             );
             connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
-            connection.udp.send(&report).await?;
+            crate::voice_connection::send_media(&connection.udp, &report).await?;
         }
         Ok(())
     }
@@ -177,7 +177,7 @@ impl Sending {
             };
             let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
             connection.transport.seal(&mut again, clear)?;
-            connection.udp.send(&again).await?;
+            crate::voice_connection::send_media(&connection.udp, &again).await?;
         }
         Ok(())
     }
@@ -367,13 +367,13 @@ impl Receiving {
             if !missing.is_empty() {
                 let mut request = rtp::nack(connection.ssrc, ssrc, &missing);
                 connection.transport.seal(&mut request, rtp::RTCP_CLEAR)?;
-                connection.udp.send(&request).await?;
+                crate::voice_connection::send_media(&connection.udp, &request).await?;
             }
             if lost && incoming.asked.elapsed() >= KEYFRAME_REQUESTS {
                 incoming.asked = Instant::now();
                 let mut request = rtp::picture_loss(connection.ssrc, ssrc);
                 connection.transport.seal(&mut request, rtp::RTCP_CLEAR)?;
-                connection.udp.send(&request).await?;
+                crate::voice_connection::send_media(&connection.udp, &request).await?;
             }
         }
         Ok(())

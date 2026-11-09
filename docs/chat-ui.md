@@ -405,7 +405,8 @@ The window follows Discord's arrangement:
   anywhere; a closed folder shows it for its servers. The rail is built again
   for a voice event only when the call starts, ends or moves.
   When an update has downloaded, an Update pill sits at the top of the
-  rail: it installs the update and restarts (see Updates below).
+  rail, in a call or not: it installs the update and restarts, and left
+  alone, the next start installs it (see Updates below).
   While any server or folder on the rail is marked unread, a "Read all" pill
   sits above the servers: it marks every server's unread channels read at
   once, leaving DMs as they are, and Discord gets them as bulk
@@ -618,15 +619,15 @@ message text need a check on real Windows.
 
 On Windows the app updates from the GitHub releases of `yksaionara/dc`
 (`crates/obsidian-core/src/update.rs`). Twenty seconds after starting, and
-every six hours after, a thread asks GitHub for the latest release; one newer
+every 30 minutes after, a thread asks GitHub for the latest release; one newer
 than the app has its `Discord-Setup.exe` downloaded into the data folder's
 `update` folder, streamed to the file and checked against the SHA-256 GitHub
-lists. It installs by itself as soon as nobody is using the app: every 30 s
-it looks, and goes ahead once there's no call, nothing shared, and the window
-isn't in front; hidden in the tray, the app starts again there. The next
-start runs it too, before opening a window, and the rail's Update pill does
-at once: the installer closes the app, installs over it with the first
-install's choices, and starts it again. `scripts/ship.ps1` publishes a
+lists, and the rail's Update pill shows, whatever the app is doing. Nothing
+installs while the app runs unless the pill is clicked, so an update never
+restarts the app in the middle of something: the pill installs it at once,
+and otherwise the next start does, before opening a window. The installer
+closes the app, installs over it with the first install's choices, and
+starts it again. `scripts/ship.ps1` publishes a
 release; its notes become `packaging/whats-new.txt`, which the app carries
 and shows in a "What's new" card in the corner after it updates, until "Got
 it" saves the version as seen (`seen_version` in `layout.json`).

@@ -388,7 +388,7 @@ impl Media {
                     _ = keepalive.tick() => {
                         let mut packet = [0u8; 8];
                         packet[..4].copy_from_slice(&connection.ssrc.to_be_bytes());
-                        connection.udp.send(&packet).await?;
+                        crate::voice_connection::send_media(&connection.udp, &packet).await?;
                     }
                     message = receive(&mut connection.ws, &mut connection.seq) => {
                         let handled = connection.handle(message?).await?;
@@ -553,7 +553,7 @@ impl Media {
         self.sequence = self.sequence.wrapping_add(1);
         let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
         connection.transport.seal(&mut packet, clear)?;
-        connection.udp.send(&packet).await?;
+        crate::voice_connection::send_media(&connection.udp, &packet).await?;
         Ok(())
     }
 

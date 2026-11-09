@@ -411,6 +411,7 @@ impl Connection {
                 .map_or(ssrc.wrapping_add(2), |ssrc| ssrc as u32);
 
             let udp = UdpSocket::bind(if ip.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).await?;
+            widen(&udp);
             udp.connect((ip, port)).await?;
             let (address, port) = discover(&udp, ssrc).await?;
             send_json(
@@ -584,8 +585,58 @@ fn announced(op: u64, data: &Value) -> Option<u64> {
     }
 }
 
+/// The UDP buffers a media connection asks for: a stream's keyframe and the
+/// packets viewers ask for again come in bursts, and Windows' default send
+/// buffer is small enough that one overflowed at 360 fps.
+const UDP_BUFFER: usize = 4 << 20;
+
+/// Asks for [`UDP_BUFFER`] each way; the system may give less.
+fn widen(udp: &UdpSocket) {
+    let socket = socket2::SockRef::from(udp);
+    for (way, result) in [
+        ("send", socket.set_send_buffer_size(UDP_BUFFER)),
+        ("receive", socket.set_recv_buffer_size(UDP_BUFFER)),
+    ] {
+        if let Err(error) = result {
+            tracing::debug!(%error, way, "the UDP buffer keeps its size");
+        }
+    }
+}
+
+/// Sends a media packet, or drops it when the system's buffers are full:
+/// as on a congested path, viewers ask for it again or the next keyframe
+/// makes up for it. Windows fails a send to a full buffer (WSAENOBUFS)
+/// where other systems wait, and taking that as the end of the
+/// connection dropped a stream and the call with it. Whether it was sent.
+pub(crate) async fn send_media(udp: &UdpSocket, packet: &[u8]) -> std::io::Result<bool> {
+    match udp.send(packet).await {
+        Ok(_) => Ok(true),
+        Err(error) if buffers_full(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// The error a send gives when the system has no room for the packet.
+fn buffers_full(error: &std::io::Error) -> bool {
+    #[cfg(windows)]
+    const NO_BUFFERS: i32 = 10055;
+    #[cfg(target_os = "macos")]
+    const NO_BUFFERS: i32 = 55;
+    #[cfg(not(any(windows, target_os = "macos")))]
+    const NO_BUFFERS: i32 = 105;
+    error.kind() == std::io::ErrorKind::WouldBlock || error.raw_os_error() == Some(NO_BUFFERS)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_full_buffer_drops_the_packet() {
+        assert!(super::buffers_full(&std::io::Error::from(std::io::ErrorKind::WouldBlock)));
+        #[cfg(windows)]
+        assert!(super::buffers_full(&std::io::Error::from_raw_os_error(10055)));
+        assert!(!super::buffers_full(&std::io::Error::from(std::io::ErrorKind::ConnectionRefused)));
+    }
+
     use super::*;
 
     #[test]

@@ -283,49 +283,21 @@ pub fn run(
 }
 
 /// How long after starting the first update check waits, and how often it
-/// checks again while the app runs.
+/// checks again while the app runs: often enough that a release shows
+/// within half an hour, at two of the 60 requests an hour GitHub allows.
 #[cfg(windows)]
 const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(20);
 #[cfg(windows)]
-const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// Checks for an update on a thread of its own, now and again, and shows the
-/// rail's Update button once one is downloaded; the button installs it.
 #[cfg(windows)]
 /// What this version changed, as its release notes say; see scripts/ship.ps1.
 const WHATS_NEW: &str = include_str!("../packaging/whats-new.txt");
 
-/// How often a downloaded update looks for a moment to install.
-const UPDATE_IDLE_CHECK: Duration = Duration::from_secs(30);
-
-thread_local! {
-    /// Looks for a moment to install a downloaded update.
-    static UPDATE_WAIT: RefCell<Option<slint::Timer>> = const { RefCell::new(None) };
-}
-
-/// Installs a downloaded update as soon as nobody's using the app: not in
-/// a call or sharing, and the window not in front, so a restart interrupts
-/// nothing. Hidden in the tray, it starts again there.
-fn install_when_idle(window: &ObsidianWindow, root: PathBuf) {
-    let weak = window.as_weak();
-    let timer = slint::Timer::default();
-    timer.start(slint::TimerMode::Repeated, UPDATE_IDLE_CHECK, move || {
-        let Some(window) = weak.upgrade() else { return };
-        if window.get_voice_active() || window.get_sharing() || FOCUSED.get() {
-            return;
-        }
-        let Some(pending) = obsidian_core::update::pending(&root) else { return };
-        let background = !window.window().is_visible();
-        match obsidian_core::update::apply(&pending, background) {
-            Ok(()) => {
-                let _ = slint::quit_event_loop();
-            }
-            Err(error) => tracing::warn!(error = format!("{error:#}"), "could not install the update"),
-        }
-    });
-    UPDATE_WAIT.with(|wait| *wait.borrow_mut() = Some(timer));
-}
-
+/// Checks for an update on a thread of its own, now and again, and shows the
+/// rail's Update pill once one is downloaded, in a call or not. Nothing
+/// installs by itself while the app runs: the pill installs it and restarts
+/// when clicked, and otherwise the next start does, before any window.
 fn watch_updates(window: &ObsidianWindow, root: PathBuf) {
     let weak = window.as_weak();
     let installing = root.clone();
@@ -349,11 +321,9 @@ fn watch_updates(window: &ObsidianWindow, root: PathBuf) {
                     Ok(Some(pending)) => {
                         let weak = weak.clone();
                         let version = pending.version.clone();
-                        let root = root.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak.upgrade() {
                                 window.set_update_version(version.into());
-                                install_when_idle(&window, root);
                             }
                         });
                     }

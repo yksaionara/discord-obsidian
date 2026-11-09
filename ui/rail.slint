@@ -882,7 +882,8 @@ export component ServerRail inherits Rectangle {
             height: 1px;
             Rectangle { width: 32px; height: 1px; background: Theme.outline; }
         }
-        // Installs a downloaded update; the app restarts into it.
+        // Installs a downloaded update; the app restarts into it. Left alone,
+        // the next start installs it.
         if root.update-version != "": HorizontalLayout {
             alignment: center;
             Rectangle {
@@ -896,7 +897,17 @@ export component ServerRail inherits Rectangle {
                 }
                 update-touch := TouchArea {
                     mouse-cursor: MouseCursor.pointer;
-                    clicked => { root.apply-update(); }
+                    clicked => { Tip.text = ""; root.apply-update(); }
+                    changed has-hover => {
+                        if self.has-hover {
+                            Tip.text = "Update to " + root.update-version + " now. Otherwise it installs the next time you open the app.";
+                            Tip.side = 1;
+                            Tip.x = parent.absolute-position.x + parent.width;
+                            Tip.y = parent.absolute-position.y + parent.height / 2;
+                        } else if Tip.side == 1 {
+                            Tip.text = "";
+                        }
+                    }
                 }
             }
         }

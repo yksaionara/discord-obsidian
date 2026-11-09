@@ -6435,7 +6435,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian"
-version = "0.4.9"
+version = "0.4.10"
 dependencies = [
  "anyhow",
  "arboard",
@@ -6553,6 +6553,7 @@ dependencies = [
  "serde_json",
  "serenity-voice-model",
  "sha2 0.10.9",
+ "socket2",
  "sysinfo",
  "tempfile",
  "tokio",

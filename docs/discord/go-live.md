@@ -109,11 +109,16 @@ fell due meanwhile at once rather than slowing the stream; sleeping 1 ms
 every 4 packets held 1080p144 below 30 fps on Windows, where each sleep took
 15.6 ms. About a tenth of a second of frames may wait to be sent, at least
 4 and at most 36; a frame that doesn't fit is dropped and the next is a
-keyframe. Discord Obsidian keeps the last 2048 video packets, and when a viewer reports
+keyframe. Media connections ask for 4 MiB UDP buffers each way, and a send
+the system has no room for drops the packet, as a congested path would:
+Windows fails such a send (WSAENOBUFS) where other systems wait, and ending
+the connection on it dropped streams and calls. Discord Obsidian keeps the last 2048 video packets, and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
-stream id (extension 12) in place of the stream id. An RTCP sender report goes
+stream id (extension 12) in place of the stream id. Resent packets take at
+most a quarter of the target bitrate each second; under heavy loss, resending
+all that viewers asked for doubled what went out. An RTCP sender report goes
 out every second.
 
 Before sharing, the share button's menu picks a resolution and a frame rate:
@@ -150,12 +155,15 @@ sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 to four times that at 240 fps and above, at most 40 Mbit/s, the cap op 12
 announces, with the frame rate as its
 `max_framerate`; a change of quality announces the new rate. The stream
-starts at the cap and follows the packets lost on the way, as libwebrtc's
+starts at 4 Mbit/s, about the server's own first estimate, or the cap if
+that's lower, and follows the packets lost on the way, as libwebrtc's
 loss-based estimate does in Discord's client (`stream_connection::RateControl`):
 each second it takes the larger of the loss the server's receiver reports
 give for the video and the share of packets viewers' NACKs name, each once,
-and grows 8% while under 2% is lost, holds up to 10%, and above that drops by
-half the fraction lost, never below 500 kbit/s. The encoder follows when the
+and grows 8% while under 2% is lost, reaching a 1080p144 cap in about 20 s,
+holds up to 10% and while nothing reports, and above that drops by half the
+fraction lost, never below 500 kbit/s. Starting at a 1080p360 stream's
+36 Mbit/s cap lost three packets in four on a home connection. The encoder follows when the
 two differ by more than a tenth. The server's bandwidth estimate (REMB) is
 logged but not followed: it only grows past what it receives once the
 sender probes with padding, as libwebrtc does, and without probing it held
