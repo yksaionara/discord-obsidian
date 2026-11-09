@@ -2282,6 +2282,13 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
         [Sound::Undeafen]
     );
     assert!(app.state.voice.muted);
+    // Undeafening turns back on a microphone that was on when deafening.
+    app.dispatch(Action::Voice(voice::Command::Mute(false)));
+    app.dispatch(Action::Voice(voice::Command::Deafen(true)));
+    assert!(app.state.voice.muted && app.state.voice.deafened);
+    app.dispatch(Action::Voice(voice::Command::Deafen(false)));
+    assert!(!app.state.voice.muted && !app.state.voice.deafened);
+    app.dispatch(Action::Voice(voice::Command::Mute(true)));
     // Unmuting while deafened undeafens too.
     app.dispatch(Action::Voice(voice::Command::Deafen(true)));
     assert_eq!(

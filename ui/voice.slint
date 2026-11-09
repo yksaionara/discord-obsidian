@@ -239,7 +239,7 @@ export component CallLinkCard inherits Rectangle {
             LinkRow { label: "Keyframes viewers asked for:"; value: CallLink.keyframes; }
             LinkRow { label: "Packets resent:"; value: CallLink.resent; }
             Text {
-                text: "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
+                text: "The bitrate starts at the most your quality allows and comes down only while packets are lost on the way. Fast motion at a low bitrate looks blocky to viewers.";
                 color: Theme.muted; font-size: 13px; wrap: word-wrap;
             }
         }
@@ -335,6 +335,12 @@ component DockButton inherits Rectangle {
 // the camera and sharing the screen, and while sharing, that it's live,
 // wherever the window is.
 export component VoiceDock inherits Rectangle {
+    /// The top of Discord's floating card, which the account panel ends:
+    /// no ground of its own, and its icons on the avatar's axis.
+    in property <bool> card;
+    // The column the icons sit in, and where in it a 24px icon starts.
+    property <length> lead: root.card ? 60px : 64px;
+    property <length> mark: root.card ? 16px : 24px;
     in property <string> voice-status;
     /// How long the call has lasted, as 12:05.
     in property <string> voice-time;
@@ -369,19 +375,19 @@ export component VoiceDock inherits Rectangle {
     callback open-soundboard(length, length);
     /// The call's connection in detail, from where its status is.
     callback open-call-link(length, length, length, length);
-    background: Theme.panel;
+    background: root.card ? transparent : Theme.panel;
     VerticalLayout {
-        padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
+        padding-top: 10px; padding-bottom: root.card ? 10px : 8px; padding-right: root.card ? 10px : 8px; spacing: 6px;
         HorizontalLayout {
             spacing: 0px;
             Rectangle {
-                width: 64px;
+                width: root.lead;
                 if !CallLink.measured || !root.voice-ready: Image {
-                    x: 24px; width: 24px; height: 24px; source: @image-url("icons/volume-2.svg");
+                    x: root.mark; width: 24px; height: 24px; source: @image-url("icons/volume-2.svg");
                     image-fit: contain; colorize: root.voice-color;
                 }
                 if CallLink.measured && root.voice-ready: SignalIcon {
-                    x: 24px; width: 24px; height: 24px; quality: CallLink.quality;
+                    x: root.mark; width: 24px; height: 24px; quality: CallLink.quality;
                 }
                 LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
             }
@@ -412,10 +418,10 @@ export component VoiceDock inherits Rectangle {
         if root.voice-active && root.sharing: HorizontalLayout {
             spacing: 0px;
             Rectangle {
-                width: 64px;
-                if root.share-live: LivePill { x: 36px - self.width / 2; }
+                width: root.lead;
+                if root.share-live: LivePill { x: root.mark + 12px - self.width / 2; }
                 if !root.share-live: Image {
-                    x: 26px; width: 20px; height: 20px; source: @image-url("icons/screen-share.svg");
+                    x: root.mark + 2px; width: 20px; height: 20px; source: @image-url("icons/screen-share.svg");
                     image-fit: contain; colorize: Theme.accent;
                 }
             }
@@ -459,15 +465,15 @@ export component VoiceDock inherits Rectangle {
         }
         // Wrapped in the dock's width; a scroll view would neither wrap nor stay short.
         if root.voice-warning != "" && root.voice-error == "": HorizontalLayout {
-            padding-left: 64px;
+            padding-left: root.lead;
             Label { text: root.voice-warning; color: Theme.accent; }
         }
         if root.voice-error != "": HorizontalLayout {
-            padding-left: 64px;
+            padding-left: root.lead;
             Text { text: root.voice-error; color: Theme.text; font-size: 14px; wrap: word-wrap; }
         }
         if !root.voice-active: HorizontalLayout {
-            padding-left: 54px;
+            padding-left: root.lead - 10px;
             ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismiss-voice-error(); } }
             Rectangle { horizontal-stretch: 1; }
         }

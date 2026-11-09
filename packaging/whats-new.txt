@@ -1,5 +1,7 @@
-- New Settings > Add-ons page. The first add-on is Message Logger: deleted messages stay in red, (edited) shows what a message said before, and ghost pings get caught.
-- Nothing the logger keeps is saved. A restart shows everything as Discord has it again.
-- New look: the angry Discord face on black, in the window, tray, taskbar and installer.
-- New Midnight theme: near black with a violet accent. Settings > Appearance.
-- Move servers and folders up and down: right-click one and choose Move up or Move down. The order is kept on this PC.
+- Screen sharing is much sharper and smoother: streams start at the full bitrate for the chosen quality and only lower it when packets are actually lost (they used to get stuck around 1.5 Mbit/s).
+- No more choppy frames on Windows: packet pacing no longer stalls on Windows' 15.6 ms timer, and keyframes no longer cause stutter cascades.
+- Sharing a game window uses full-speed capture (up to 360 fps) whenever the game is in front, even if it was alt-tabbed when you started. Alt-tabbing out of a borderless game no longer shows viewers your desktop.
+- The stream no longer restarts its encoder when the window's size wobbles by a pixel or two.
+- The voice panel and your account panel are now one connected card, like Discord's.
+- New add-on, Game Activity Toggle (Settings > Add-ons, on by default): a controller button beside mute and deafen hides or shows your game in one click.
+- Undeafening now turns your microphone back on if it was on before you deafened.

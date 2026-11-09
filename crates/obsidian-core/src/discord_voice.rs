@@ -364,6 +364,8 @@ pub(crate) async fn call(
     let track = call.play(input);
     let _ = track.pause();
     let mut capture: Option<Capture> = None;
+    // Whether undeafening turns the microphone back on: it was on when deafening.
+    let mut unmute_on_undeafen = false;
     let microphone_thread = discord_audio::MicrophoneThread::default();
     let mut filming: Option<Filming> = None;
     let mut opening: Opening = None;
@@ -530,8 +532,10 @@ pub(crate) async fn call(
                         Some(Command::Mute(true)) => {
                             capture = None;
                             state.muted = true;
+                            unmute_on_undeafen = false;
                         }
                         Some(Command::Mute(false)) => {
+                            unmute_on_undeafen = false;
                             // Unmuting while deafened means wanting to talk, which needs hearing too.
                             if state.deafened {
                                 state.deafened = false;
@@ -551,13 +555,25 @@ pub(crate) async fn call(
                             }
                         }
                         Some(Command::Deafen(deafened)) => {
-                            if deafened {
+                            if deafened && !state.deafened {
+                                unmute_on_undeafen = !state.muted;
                                 capture = None;
                                 state.muted = true;
                             }
                             state.deafened = deafened;
                             hearing.set_deafened(deafened);
                             Watch::hear(&mut watch, !deafened);
+                            // Undeafening gives back the microphone deafening took.
+                            if !deafened && std::mem::take(&mut unmute_on_undeafen) {
+                                match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
+                                    Ok(opened) => {
+                                        capture = Some(opened);
+                                        state.muted = false;
+                                        state.error = None;
+                                    }
+                                    Err(error) => state.error = Some(error.to_string()),
+                                }
+                            }
                         }
                         Some(Command::Devices) => { let _ = devices(state); }
                         Some(Command::Microphone(id)) => {

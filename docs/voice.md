@@ -6,8 +6,9 @@ starts muted and turns the microphone on as the call connects, unless Settings
 › Voice & video turns that off. The dock under the rail and sidebar exposes
 mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
 opens a menu that chooses the input or output device and links to the full
-settings. Deafen also mutes the microphone; undeafening keeps it muted, while
-unmuting when deafened undeafens too. The voice view shows the participants and
+settings. Deafen also mutes the microphone; undeafening turns it back on if it
+was on when deafening and leaves it muted otherwise, while unmuting when
+deafened undeafens too. The voice view shows the participants and
 their mute, deafen and speaking state; a deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
@@ -306,7 +307,7 @@ With the stack running, `scripts/test-voice` exercises encrypted native audio
 using isolated Linux virtual devices and a generated signal. It does not record
 the physical microphone or change the system's default devices. It covers a
 30-second wait alone, a muted late join, native encrypted audio in both
-directions, mute, deafen, undeafen staying muted and clean leave. It also
+directions, mute, deafen, undeafen keeping a muted microphone muted and clean leave. It also
 stalls authorization after membership publication, cancels with Leave, checks
 membership removal and then joins again. The two clients run in separate
 processes because LiveKit shares its audio engine within a process. The [pinned
@@ -321,8 +322,8 @@ accounts in the same encrypted channel:
 
 1. Join alone and wait at least ten minutes. Join from the other machine; both
    users should appear.
-2. Talk in both directions. Mute and deafen, then undeafen; the microphone
-   should stay muted. Change both devices and confirm sound follows the
+2. Talk in both directions. Deafen, then undeafen; the microphone should come
+   back on. Mute, deafen and undeafen; it should stay muted. Change both devices and confirm sound follows the
    selection.
 3. Browse text channels and DMs during the call. Return to voice and leave;
    check that the other participant disappears.

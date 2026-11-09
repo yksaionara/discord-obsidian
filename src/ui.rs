@@ -1251,6 +1251,9 @@ struct Layout {
     message_logger: MessageLogger,
     /// Nameplates show; on unless turned off.
     nameplates: Option<bool>,
+    /// The Game Activity Toggle add-on's button beside mute and deafen; on
+    /// unless turned off.
+    game_toggle: Option<bool>,
     /// When animations play.
     animate: Animate,
     /// Joining a call turns the microphone on; on unless turned off.
@@ -1542,6 +1545,7 @@ impl Layout {
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
         self.message_logger.show(window);
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_game_toggle_button(self.game_toggle.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);

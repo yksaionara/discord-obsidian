@@ -519,6 +519,9 @@ pub struct AppState {
     pub pending_watch: Option<(String, String)>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
+    /// The preview call's microphone was on when deafening, so undeafening
+    /// turns it back on, as the voice backends do.
+    pub unmute_on_undeafen: bool,
     /// The conversations visited before this one, newest last, and those
     /// stepped back from, for the title bar's back and forward arrows.
     pub nav_back: Vec<String>,

@@ -413,6 +413,8 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 reopen: false,
             };
             report(Report::Ready);
+            #[cfg(windows)]
+            let _precise = Precise::begin();
             match source {
                 Source::TestPattern => test_pattern(sink, width, height, &stop, report),
                 source => capture_screen(source, sink, width, height, &stop, report),
@@ -475,6 +477,41 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
     report(Report::Ended {
         error: result.err().map(|error| format!("{error:#}")),
     });
+}
+
+/// While sharing on Windows: timers to the millisecond for the packet pacer
+/// and the frame schedule, which Windows otherwise rounds up to its 15.6 ms
+/// tick in this process, whatever a game sets in its own; and the capture
+/// thread ahead of others for the processor, so a game using every core
+/// doesn't make the stream stutter. Undone when sharing ends.
+#[cfg(windows)]
+struct Precise;
+
+#[cfg(windows)]
+impl Precise {
+    fn begin() -> Self {
+        use windows::Win32::System::Threading::{
+            GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+        };
+        // SAFETY: plain calls on this process's timer and this thread.
+        unsafe {
+            windows::Win32::Media::timeBeginPeriod(1);
+            if let Err(error) = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) {
+                tracing::debug!(%error, "the capture thread keeps its priority");
+            }
+        }
+        Self
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Precise {
+    fn drop(&mut self) {
+        // SAFETY: ends the period `begin` started.
+        unsafe {
+            windows::Win32::Media::timeEndPeriod(1);
+        }
+    }
 }
 
 /// Where each frame goes: the UI's preview, then Discord once the stream
@@ -557,13 +594,23 @@ fn log_encoder(encoder: &Encoder) {
 }
 
 /// The kbit/s to aim for, as Discord's client does: its cap for frames of
-/// `height` lines, or what its server estimates the path carries when
-/// that's less, but at least the 500 kbit/s it gives a screen.
-fn kbps(height: u32, fps: u32, estimate: Option<u64>) -> u32 {
+/// `height` lines at `fps`, or the connection's lower `target` while packets
+/// are lost on the way, but at least the 500 kbit/s it gives a screen.
+fn kbps(height: u32, fps: u32, target: Option<u64>) -> u32 {
     let cap = stream_connection::max_bitrate(height, fps) / 1000;
-    estimate.map_or(cap, |estimate| {
-        (estimate / 1000).clamp(500, u64::from(cap)) as u32
+    target.map_or(cap, |target| {
+        (target / 1000).clamp(500, u64::from(cap)) as u32
     })
+}
+
+/// Whether a frame of `size` is near enough the encoder's `encoding` to be
+/// scaled to it rather than open the encoder again: within 4% each way, as
+/// a window that gains or loses its border or a row gives. Opening again
+/// costs a keyframe and a stall, and a window flipping between two such
+/// sizes had the encoder open every few seconds.
+fn near(size: (u32, u32), encoding: (u32, u32)) -> bool {
+    let close = |a: u32, b: u32| a.abs_diff(b) * 25 <= b;
+    close(size.0, encoding.0) && close(size.1, encoding.1)
 }
 
 impl Sink {
@@ -611,6 +658,19 @@ impl Sink {
 
     /// Encodes `picture` and sends it, once the stream has a server.
     fn send_frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
+        // A frame a few pixels off the stream's size is scaled to it, unless
+        // a new quality asked for another size.
+        let mut rescaled = None;
+        let picture = match self.video.as_ref().map(|video| video.encoder.size()) {
+            Some(encoding)
+                if !self.reopen
+                    && (picture.width(), picture.height()) != encoding
+                    && near((picture.width(), picture.height()), encoding) =>
+            {
+                rescaled.insert(picture.scale(encoding.0 as i32, encoding.1 as i32))
+            }
+            _ => picture,
+        };
         let (width, height) = (picture.width(), picture.height());
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;
@@ -647,6 +707,9 @@ impl Sink {
                     if resized {
                         video.sender.resize(width, height);
                     }
+                    if reopen {
+                        video.sender.set_fps(self.fps);
+                    }
                 }
                 // A GPU codec that opened at the start may not open again,
                 // or at another size: Discord then chooses another, which
@@ -666,12 +729,12 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, self.fps, video.sender.bandwidth_estimate());
+        let wanted = kbps(height, self.fps, Some(video.sender.target_bitrate()));
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
             match video.encoder.set_bitrate(wanted) {
-                Ok(()) => tracing::info!(kbps = wanted, "following Discord's bandwidth estimate"),
+                Ok(()) => tracing::debug!(kbps = wanted, "the encoder's bitrate"),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
                 }
@@ -1082,50 +1145,100 @@ fn capture_screen(
     let mut fps = sink.fps;
     let (mut max_width, mut max_height) = (max_width, max_height);
     let sink = Arc::new(Mutex::new(sink));
+    let mut source = source;
     // A screen on Windows goes through desktop duplication, which gives
-    // every frame the screen shows, and so does a window filling its screen,
-    // as a fullscreen game does: Windows' window capture gives at most about
-    // 60 frames a second, and choppy ones at that. Other windows, cameras,
-    // and screens it can't duplicate go through WebRTC's capturer.
-    #[cfg(windows)]
-    let source = {
-        let mut source = source;
-        loop {
-            let id = match source {
-                Source::Display(id) => Some(id),
-                Source::Screen => None,
-                Source::Window(window) => match crate::duplication::filled_screen(window) {
-                    Some(screen) => {
-                        tracing::info!("the window fills its screen; sharing it through duplication");
-                        Some(screen)
-                    }
-                    None => break source,
-                },
-                _ => break source,
+    // every frame the screen shows, and so does a window filling its screen
+    // while it's in front, as a game being played does: Windows' window
+    // capture gives at most about 60 frames a second, and choppy ones at
+    // that. Other windows, cameras, and screens it can't duplicate go
+    // through WebRTC's capturer. A shared window moves between the two as it
+    // comes to the front and leaves it, so the stream never shows what's in
+    // front of the window, and a game alt-tabbed away from when sharing
+    // started still gets duplication once it's back.
+    #[allow(unused_mut)]
+    let mut duplicating = cfg!(windows);
+    loop {
+        #[cfg(windows)]
+        if duplicating {
+            let window = match source {
+                Source::Window(window) => Some(window),
+                _ => None,
             };
-            match capture_duplicated(id, &sink, &mut max_width, &mut max_height, stop, report) {
-                Ok(None) => return Ok(()),
-                Ok(Some(next)) => source = next,
-                Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
-                    tracing::warn!(error = format!("{error:#}"), "sharing through WebRTC's capturer");
-                    break source;
+            let screen = match source {
+                Source::Display(id) => Some(Some(id)),
+                Source::Screen => Some(None),
+                Source::Window(window) => crate::duplication::fronted_screen(window).map(Some),
+                _ => None,
+            };
+            if let Some(id) = screen {
+                if window.is_some() {
+                    tracing::info!("the window fills its screen in front; sharing it through duplication");
                 }
-                Err(error) => return Err(error),
+                match capture_duplicated(id, window, &sink, &mut max_width, &mut max_height, stop, report) {
+                    Ok(None) => return Ok(()),
+                    Ok(Some(next)) => {
+                        source = next;
+                        continue;
+                    }
+                    Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
+                        tracing::warn!(error = format!("{error:#}"), "sharing through WebRTC's capturer");
+                        duplicating = false;
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         }
-    };
+        let limits = (&mut fps, &mut max_width, &mut max_height);
+        match capture_captured(source, &sink, limits, duplicating, stop, report)? {
+            Some(next) => source = next,
+            None => return Ok(()),
+        }
+    }
+}
+
+/// How often a shared window is checked for filling its screen in front,
+/// so it moves between duplication and window capture.
+#[cfg(windows)]
+const FRONT_CHECK: Duration = Duration::from_millis(250);
+
+/// Shares `source` through WebRTC's capturer, or a camera, until stopped.
+/// On Windows, gives back a shared window that came to fill its screen in
+/// front, to duplicate, when `duplicating` works.
+fn capture_captured(
+    source: Source,
+    sink: &Arc<Mutex<Sink>>,
+    (fps, max_width, max_height): (&mut u32, &mut u32, &mut u32),
+    duplicating: bool,
+    stop: &AtomicBool,
+    report: &mut dyn FnMut(Report),
+) -> Result<Option<Source>> {
+    let _ = duplicating;
+    #[cfg(windows)]
+    let mut front_checked = Instant::now();
+    let sink = sink.clone();
     // What's shared, and what's to be once it gives a picture, so a change of
     // quality starts it again at the new size.
     let mut current = source.clone();
     let mut next_source: Option<Source> = None;
-    let mut capture = Capture::start(source, &sink, max_width, max_height)?;
+    let mut capture = Capture::start(source, &sink, *max_width, *max_height)?;
     // A screen, window or camera to share in its place, until it gives a
     // picture.
     let mut switching: Option<Capture> = None;
     let mut started = Instant::now();
     let mut frame = 0u64;
     let mut reported = None;
-    while next_frame(started, frame, fps, stop) {
+    while next_frame(started, frame, *fps, stop) {
+        #[cfg(windows)]
+        if duplicating
+            && switching.is_none()
+            && front_checked.elapsed() >= FRONT_CHECK
+            && let Source::Window(window) = current
+        {
+            front_checked = Instant::now();
+            if crate::duplication::fronted_screen(window).is_some() {
+                return Ok(Some(current));
+            }
+        }
         run_glib();
         capture.capture_frame();
         if let Some(next) = &mut switching {
@@ -1175,9 +1288,9 @@ fn capture_screen(
         // A new quality shares the same source again at its size and rate.
         let switch = match requality {
             Some(((width, height), rate)) => {
-                (max_width, max_height) = (width, height);
-                if rate != fps {
-                    (fps, started, frame) = (rate, Instant::now(), 0);
+                (*max_width, *max_height) = (width, height);
+                if rate != *fps {
+                    (*fps, started, frame) = (rate, Instant::now(), 0);
                 }
                 switch.or_else(|| Some(next_source.clone().unwrap_or_else(|| current.clone())))
             }
@@ -1187,7 +1300,7 @@ fn capture_screen(
             next_source = Some(source.clone());
             // A switch asked for while another waits replaces it.
             switching = None;
-            match Capture::start(source, &sink, max_width, max_height) {
+            match Capture::start(source, &sink, *max_width, *max_height) {
                 Ok(next) => switching = Some(next),
                 Err(error) => tracing::warn!(
                     error = format!("{error:#}"),
@@ -1196,7 +1309,7 @@ fn capture_screen(
             }
         }
     }
-    Ok(())
+    Ok(None)
 }
 
 /// When nothing on the screen changes, the last frame goes again this
@@ -1211,6 +1324,7 @@ const IDLE_REPEAT: Duration = Duration::from_millis(100);
 #[cfg(windows)]
 fn capture_duplicated(
     id: Option<u64>,
+    window: Option<u64>,
     sink: &Arc<Mutex<Sink>>,
     max_width: &mut u32,
     max_height: &mut u32,
@@ -1229,7 +1343,20 @@ fn capture_duplicated(
     let mut pending = false;
     let mut picture = I420Buffer::new(2, 2);
     let mut reported = None;
+    let mut front_checked = Instant::now();
     while !stop.load(Ordering::Relaxed) {
+        // A shared window that left the front, or stopped filling its
+        // screen, goes back to window capture before the screen shows
+        // what's in front of it.
+        if let Some(window) = window
+            && front_checked.elapsed() >= FRONT_CHECK
+        {
+            front_checked = Instant::now();
+            if crate::duplication::fronted_screen(window).is_none() {
+                tracing::info!("the window left the front; sharing it through window capture");
+                return Ok(Some(Source::Window(window)));
+            }
+        }
         let now = Instant::now();
         let wait = match (pending, last_sent) {
             (true, Some(sent)) => (sent + interval).saturating_duration_since(now + early),
@@ -1864,13 +1991,21 @@ mod tests {
     }
 
     #[test]
+    fn scales_a_frame_a_few_pixels_off_instead_of_opening_again() {
+        assert!(near((1568, 1078), (1568, 1080)), "a window's row");
+        assert!(near((1920, 1080), (1920, 1040)), "a taskbar's height");
+        assert!(!near((1280, 720), (1920, 1080)), "another quality");
+        assert!(!near((1080, 1920), (1920, 1080)), "another shape");
+    }
+
+    #[test]
     fn aims_for_discords_bitrates() {
         assert_eq!(kbps(720, 30, None), 3500);
         assert_eq!(kbps(1080, 60, None), 9000);
         assert_eq!(kbps(1080, 240, None), 36000, "more for more frames");
         assert_eq!(kbps(1440, 360, None), 40000, "up to 40 Mbit/s");
         assert_eq!(kbps(1440, 60, None), 20000, "1440p keeps its detail");
-        assert_eq!(kbps(1080, 60, Some(4_000_000)), 4000, "what the path carries");
+        assert_eq!(kbps(1080, 60, Some(4_000_000)), 4000, "lowered for loss");
         assert_eq!(kbps(720, 30, Some(9_000_000)), 3500, "never past the cap");
         assert_eq!(kbps(1080, 60, Some(100_000)), 500, "nor below a screen's floor");
     }

@@ -349,15 +349,21 @@ impl Application {
             voice::Command::Speaker(id) => self.state.voice.speaker = Some(id),
             voice::Command::Camera(id) => self.state.voice.camera = Some(id),
             voice::Command::Mute(muted) => {
+                self.state.unmute_on_undeafen = false;
                 if !muted {
                     self.state.voice.deafened = false;
                 }
                 self.state.voice.muted = muted;
             }
             voice::Command::Deafen(deafened) => {
-                self.state.voice.deafened = deafened;
-                if deafened {
+                if deafened && !self.state.voice.deafened {
+                    self.state.unmute_on_undeafen = !self.state.voice.muted;
                     self.state.voice.muted = true;
+                }
+                self.state.voice.deafened = deafened;
+                // Undeafening gives back the microphone deafening took.
+                if !deafened && std::mem::take(&mut self.state.unmute_on_undeafen) {
+                    self.state.voice.muted = false;
                 }
             }
             _ => {}

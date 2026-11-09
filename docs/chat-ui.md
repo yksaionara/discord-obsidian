@@ -507,7 +507,12 @@ The window follows Discord's arrangement:
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu; the input menu shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
-  the call.
+  the call. In Discord's style the two are one floating card, as in
+  Discord's client: the call on top, a line, then the account, under one
+  outline, the call's icons on the avatar's axis. The Game Activity Toggle
+  add-on (Settings, Add-ons; on unless turned off) puts a controller after
+  deafen, with Discord linked, that turns "Share the game you play" on and
+  off; it's struck through in red while the game is hidden, as muting is.
 - A conversation with a 48px header: the conversation's icon and name, and
   for a Discord server channel its topic on one line after a rule, which a
   click shows in full. Its buttons sit on the right, as in Discord: a DM's

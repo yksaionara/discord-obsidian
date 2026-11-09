@@ -76,6 +76,25 @@ pub fn filled_screen(window: u64) -> Option<u64> {
     }
 }
 
+/// The screen the window `window` fills while it's the one in front, as
+/// [`filled_screen`] gives it: only then does duplicating the screen show
+/// the window and nothing else. A borderless game alt-tabbed away from
+/// still fills its screen, behind the windows now in front.
+pub fn fronted_screen(window: u64) -> Option<u64> {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, GetForegroundWindow},
+    };
+    // SAFETY: reads which window is in front; a window that's gone gives a
+    // null root, which matches no other.
+    let in_front = unsafe {
+        let hwnd = HWND(window as usize as *mut core::ffi::c_void);
+        let front = GetForegroundWindow();
+        !front.is_invalid() && GetAncestor(front, GA_ROOT) == GetAncestor(hwnd, GA_ROOT)
+    };
+    if in_front { filled_screen(window) } else { None }
+}
+
 /// What [`Duplication::next`] found.
 pub enum Next {
     /// A new picture, or the last one with the pointer moved.
@@ -200,6 +219,15 @@ impl Duplication {
             .map_err(|error| Unavailable(format!("no Direct3D device: {error}")))?;
             let device: ID3D11Device = device.context("no Direct3D device")?;
             let context = context.context("no Direct3D context")?;
+            // Each frame's copy waits on the GPU, which a game keeps busy:
+            // ahead of the game's work, as OBS puts its own, the copy
+            // doesn't hold the stream back. It's a small copy, and Windows
+            // may refuse; the copy then waits its turn.
+            if let Ok(dxgi) = device.cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>()
+                && let Err(error) = dxgi.SetGPUThreadPriority(7)
+            {
+                tracing::debug!(%error, "the screen's copies keep the GPU's usual priority");
+            }
             let duplication = output
                 .DuplicateOutput(&device)
                 .map_err(|error| Unavailable(format!("could not duplicate the screen: {error}")))?;
@@ -576,5 +604,6 @@ mod tests_filled {
         let window = if shell.is_invalid() { desktop } else { shell };
         assert!(filled_screen(window.0 as usize as u64).is_some());
         assert_eq!(filled_screen(0), None);
+        assert_eq!(super::fronted_screen(0), None, "nothing is in front");
     }
 }

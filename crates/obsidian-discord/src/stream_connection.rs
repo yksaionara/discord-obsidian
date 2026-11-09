@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc as channel,
     },
     time::Duration,
@@ -37,11 +37,118 @@ const LOG_EVERY: Duration = Duration::from_secs(5);
 const RESENDS: usize = 128;
 /// The most video SSRCs a watched stream puts frames together for.
 const MAX_SSRCS: usize = 4;
-/// A frame's packets past the first `BURST` go out `PACE` a millisecond,
-/// about 37 Mbit/s: a 1080p keyframe sent at once can overflow buffers on
-/// the way.
+/// A frame's first `BURST` packets go at once and the rest at [`pace`]'s
+/// rate: a 1080p keyframe sent at once can overflow buffers on the way.
 const BURST: usize = 8;
-const PACE: usize = 4;
+/// The slowest packets are paced, about 3 packets a millisecond.
+const PACE_FLOOR: u64 = 40_000_000;
+
+/// The bit/s a frame's packets are paced at for a stream aiming at `target`
+/// bit/s: two and a half times it, libwebrtc's pacing factor, so a keyframe
+/// leaves in a few frames' time, and never below [`PACE_FLOOR`].
+fn pace(target: u64) -> u64 {
+    (target * 5 / 2).max(PACE_FLOOR)
+}
+
+/// How long `bytes` take at `rate` bit/s.
+fn airtime(bytes: usize, rate: u64) -> Duration {
+    Duration::from_nanos(bytes as u64 * 8 * 1_000_000_000 / rate.max(1))
+}
+
+/// The fewest bit/s the rate control lowers a stream to: Discord's client's
+/// floor for a screen.
+pub const MIN_BITRATE: u64 = 500_000;
+
+/// How a stream's bitrate follows the packets lost on the way, as
+/// libwebrtc's loss-based estimate does in Discord's client: it starts at
+/// the cap for the stream's quality, grows 8% a second while under 2% of
+/// packets are lost, holds between 2% and 10%, and above that drops by half
+/// the fraction lost.
+///
+/// Discord's server also sends an estimate (REMB), but it only grows past
+/// what it receives once the sender probes with padding, as libwebrtc does.
+/// Without probing, following it held 1080p streams at 1.5 Mbit/s on a
+/// path that carried far more, so Discord Obsidian goes by loss alone.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RateControl {
+    bitrate: u64,
+}
+
+impl RateControl {
+    pub fn new(cap: u64) -> Self {
+        Self { bitrate: cap }
+    }
+
+    pub fn bitrate(&self) -> u64 {
+        self.bitrate
+    }
+
+    /// Takes a second's `loss`, a fraction of the packets sent, and gives the
+    /// bit/s to aim for from now on, at most `cap`.
+    pub fn update(&mut self, loss: Option<f64>, cap: u64) -> u64 {
+        let rate = self.bitrate as f64;
+        let next = match loss {
+            Some(loss) if loss > 0.10 => rate * (1.0 - 0.5 * loss.min(1.0)),
+            Some(loss) if loss >= 0.02 => rate,
+            // Too few packets to tell, or hardly any lost.
+            _ => rate * 1.08 + 1000.0,
+        };
+        self.bitrate = (next.round() as u64).clamp(MIN_BITRATE.min(cap), cap);
+        self.bitrate
+    }
+
+    /// Keeps the bitrate within a new `cap`, as when the size or rate changes.
+    pub fn cap(&mut self, cap: u64) {
+        self.bitrate = self.bitrate.min(cap);
+    }
+}
+
+/// The packets lost on the way in a second: from the server's receiver
+/// reports on the video it got from Discord Obsidian, and from viewers'
+/// NACKs, each lost packet once however many asked for it.
+#[derive(Default)]
+struct Loss {
+    /// The server's last report: cumulative packets lost and the highest
+    /// sequence number received, extended.
+    reported: Option<(u32, u32)>,
+    expected: u64,
+    lost: u64,
+    sent: u64,
+    nacked: std::collections::HashSet<u16>,
+}
+
+/// Fewer packets than this in a second tell nothing about loss.
+const LOSS_SAMPLE: u64 = 20;
+
+impl Loss {
+    fn report(&mut self, lost: u32, highest: u32) {
+        if let Some((before_lost, before_highest)) = self.reported {
+            let expected = highest.wrapping_sub(before_highest);
+            // Out of order, or the server started counting again.
+            if expected < 1 << 20 {
+                self.expected += u64::from(expected);
+                self.lost += u64::from(lost.saturating_sub(before_lost).min(expected));
+            }
+        }
+        self.reported = Some((lost, highest));
+    }
+
+    /// The fraction of packets lost since the last call, the larger of the
+    /// two measures, and starts counting again.
+    fn take(&mut self) -> Option<f64> {
+        let reported = (self.expected >= LOSS_SAMPLE).then(|| self.lost as f64 / self.expected as f64);
+        let nacked = (self.sent >= LOSS_SAMPLE)
+            .then(|| (self.nacked.len() as f64 / self.sent as f64).min(1.0));
+        self.expected = 0;
+        self.lost = 0;
+        self.sent = 0;
+        self.nacked.clear();
+        match (reported, nacked) {
+            (Some(reported), Some(nacked)) => Some(reported.max(nacked)),
+            (reported, nacked) => reported.or(nacked),
+        }
+    }
+}
 
 /// The most bit/s a stream of `height` lines may take, as Discord's client
 /// decides it: 3.5 Mbit/s up to 720p, 9 Mbit/s to 1080p, and 20 Mbit/s
@@ -113,9 +220,10 @@ struct Shared {
     /// streamer for one.
     keyframe: AtomicBool,
     size: Mutex<(u32, u32)>,
-    /// Sending: the bit/s Discord's server last estimated the path carries,
-    /// or 0 before it said.
-    estimate: AtomicU64,
+    /// Sending: the frame rate op 12 announces.
+    fps: AtomicU32,
+    /// Sending: the bit/s [`RateControl`] aims for, given the loss.
+    target: AtomicU64,
     /// Sending: the codecs offered, most wanted first, and whether that
     /// changed since Discord was told. Receiving: the codecs decoded.
     offers: Mutex<Vec<Codec>>,
@@ -136,7 +244,8 @@ impl Shared {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
-            estimate: AtomicU64::new(0),
+            fps: AtomicU32::new(0),
+            target: AtomicU64::new(0),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
             chosen: Mutex::new(None),
@@ -207,13 +316,19 @@ impl StreamSender {
         let (user, channel, _) = ids(&server)?;
         let shared = Shared::new((width, height));
         *lock(&shared.offers) = offers;
-        // A few frames of slack; beyond that the network can't keep up.
-        let (frames, receiver) = mpsc::channel(4);
+        shared.fps.store(fps, Ordering::Relaxed);
+        shared
+            .target
+            .store(u64::from(max_bitrate(height, fps)), Ordering::Relaxed);
+        // About a tenth of a second of frames, and at least four: a keyframe
+        // takes a few frames' time to send. Beyond that the network can't
+        // keep up.
+        let (frames, receiver) = mpsc::channel(frame_queue(fps));
         // 160 ms of sound.
         let (sounds, heard) = mpsc::channel(8);
         spawn("obsidian-stream-send", shared.clone(), move |shared| {
             Box::pin(
-                async move { send(&server, user, channel, fps, &shared, receiver, heard).await },
+                async move { send(&server, user, channel, &shared, receiver, heard).await },
             )
         })?;
         Ok(Self {
@@ -241,16 +356,22 @@ impl StreamSender {
         *lock(&self.shared.size) = (width, height);
     }
 
+    /// Announces a new frame rate with the next frame, which also changes
+    /// the stream's cap.
+    pub fn set_fps(&self, fps: u32) {
+        self.shared.fps.store(fps, Ordering::Relaxed);
+    }
+
     /// Whether the next frame should be a keyframe: at the start, after
     /// dropped frames, or when a viewer asked for one.
     pub fn take_keyframe_request(&self) -> bool {
         self.shared.keyframe.swap(false, Ordering::Relaxed)
     }
 
-    /// The bit/s Discord's server last estimated the path carries, once it
-    /// said.
-    pub fn bandwidth_estimate(&self) -> Option<u64> {
-        Some(self.shared.estimate.load(Ordering::Relaxed)).filter(|&estimate| estimate > 0)
+    /// The bit/s to encode at: the cap for the stream's size and rate,
+    /// lowered while packets are lost on the way ([`RateControl`]).
+    pub fn target_bitrate(&self) -> u64 {
+        self.shared.target.load(Ordering::Relaxed)
     }
 
     pub fn link(&self) -> Link {
@@ -473,7 +594,6 @@ async fn send(
     server: &StreamServer,
     user: u64,
     channel: u64,
-    fps: u32,
     shared: &Shared,
     mut frames: mpsc::Receiver<Frame>,
     mut sounds: mpsc::Receiver<Sound>,
@@ -481,12 +601,16 @@ async fn send(
     let mut connection = open(server, user, channel, Role::Send, shared).await?;
     let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
     let mut size = *lock(&shared.size);
+    let mut fps = shared.fps.load(Ordering::Relaxed);
     send_json(
         &mut connection.ws,
         12,
         video_attributes(ssrc, video, rtx, size, fps),
     )
     .await?;
+    let mut rate = RateControl::new(u64::from(max_bitrate(size.1, fps)));
+    let mut loss = Loss::default();
+    let mut rated = tokio::time::interval_at(Instant::now() + RATE_EVERY, RATE_EVERY);
     send_json(
         &mut connection.ws,
         5,
@@ -527,10 +651,12 @@ async fn send(
                     let _ = connection.ws.close(None).await;
                     return Ok(());
                 };
-                let wanted = *lock(&shared.size);
-                if wanted != size {
-                    size = wanted;
+                let wanted = (*lock(&shared.size), shared.fps.load(Ordering::Relaxed));
+                if wanted != (size, fps) {
+                    (size, fps) = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
+                    rate.cap(u64::from(max_bitrate(size.1, fps)));
+                    shared.target.store(rate.bitrate(), Ordering::Relaxed);
                 }
                 let encrypting = connection.dave.encrypting();
                 if encrypted != Some(encrypting) {
@@ -557,10 +683,20 @@ async fn send(
                 };
                 sent.frames += 1;
                 sent.keyframes += u32::from(frame.keyframe);
+                // Paced on a schedule in absolute time: a timer that wakes
+                // late, as one does at Windows' default 15.6 ms tick, sends
+                // the packets due meanwhile at once instead of holding the
+                // stream to a few frames a second.
+                let paced = pace(rate.bitrate());
+                let mut due = Instant::now();
                 for (index, mut packet) in packetizer.packets(&payload, frame.timestamp, frame.keyframe).into_iter().enumerate() {
-                    if index >= BURST && index % PACE == 0 {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    if index >= BURST {
+                        due += airtime(packet.len(), paced);
+                        if due > Instant::now() + Duration::from_millis(1) {
+                            tokio::time::sleep_until(due).await;
+                        }
                     }
+                    loss.sent += 1;
                     history.remember(&packet);
                     let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
                     packets = packets.wrapping_add(1);
@@ -661,9 +797,16 @@ async fn send(
                     shared.keyframe.store(true, Ordering::Relaxed);
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video) {
-                    shared.estimate.store(estimate, Ordering::Relaxed);
+                    sent.estimate = estimate;
                 }
-                for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
+                for (reported, lost, highest) in rtp::report_blocks(&rtcp) {
+                    if reported == video {
+                        loss.report(lost, highest);
+                    }
+                }
+                let nacked = rtp::nacked(&rtcp, video);
+                loss.nacked.extend(nacked.iter().copied());
+                for lost in nacked.into_iter().take(RESENDS) {
                     let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
                         sent.too_late += 1;
                         continue;
@@ -676,12 +819,36 @@ async fn send(
                     sent.resent += 1;
                 }
             }
+            _ = rated.tick() => {
+                let lost = loss.take();
+                let before = rate.bitrate();
+                let after = rate.update(lost, u64::from(max_bitrate(size.1, fps)));
+                shared.target.store(after, Ordering::Relaxed);
+                // A change of a tenth or more, not every step of 8%.
+                if before.abs_diff(after) > before / 10 {
+                    tracing::info!(
+                        kbps = after / 1000,
+                        loss_percent = lost.map(|lost| (lost * 1000.0).round() / 10.0),
+                        "stream bitrate"
+                    );
+                }
+            }
             _ = log.tick() => {
-                tracing::debug!(?sent, packets, octets, "stream sent");
+                tracing::debug!(?sent, packets, octets, target = rate.bitrate(), "stream sent");
                 sent = Sent::default();
             }
         }
     }
+}
+
+/// How often the rate control looks at the loss, about as often as the
+/// server's receiver reports come.
+const RATE_EVERY: Duration = Duration::from_secs(1);
+
+/// How many encoded frames may wait to be sent at `fps`: about a tenth of a
+/// second's, and at least four.
+fn frame_queue(fps: u32) -> usize {
+    (fps as usize / 10).clamp(4, 36)
 }
 
 /// What a streamer sent and heard back since it last logged.
@@ -705,6 +872,9 @@ struct Sent {
     unopened: u32,
     /// RTP, which a streamer isn't sent.
     rtp_back: u32,
+    /// Discord's server's last estimate of the path (REMB) in bit/s, logged
+    /// only: see [`RateControl`].
+    estimate: u64,
 }
 
 /// What the server said about the streamer's video.
@@ -1026,6 +1196,56 @@ async fn receive_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bitrate_starts_at_the_cap_and_follows_the_loss() {
+        let cap = u64::from(max_bitrate(1080, 144));
+        let mut rate = RateControl::new(cap);
+        assert_eq!(rate.bitrate(), 21_600_000, "1080p144 starts at its cap");
+        assert_eq!(rate.update(None, cap), cap, "no reports leave it at the cap");
+        assert_eq!(rate.update(Some(0.0), cap), cap, "never past the cap");
+        assert_eq!(rate.update(Some(0.05), cap), cap, "some loss holds it");
+        assert_eq!(rate.update(Some(0.20), cap), cap * 9 / 10, "heavy loss lowers it");
+        let lowered = rate.bitrate();
+        assert_eq!(rate.update(Some(0.01), cap), lowered * 108 / 100 + 1000, "and it grows back");
+        for _ in 0..100 {
+            rate.update(Some(1.0), cap);
+        }
+        assert_eq!(rate.bitrate(), MIN_BITRATE, "a screen's floor");
+        rate = RateControl::new(cap);
+        rate.cap(9_000_000);
+        assert_eq!(rate.bitrate(), 9_000_000, "a smaller quality's cap");
+    }
+
+    #[test]
+    fn loss_comes_from_reports_and_nacks() {
+        let mut loss = Loss::default();
+        assert_eq!(loss.take(), None, "nothing to tell");
+        loss.report(0, 1000);
+        loss.report(10, 1100);
+        assert_eq!(loss.take(), Some(0.1), "10 of 100 lost");
+        loss.report(10, 1200);
+        loss.sent = 100;
+        loss.nacked.extend([1, 2, 3, 3, 3]);
+        assert_eq!(loss.take(), Some(0.03), "each NACKed packet once");
+        loss.report(10, 1205);
+        assert_eq!(loss.take(), None, "too few packets");
+        loss.report(10, 5);
+        loss.report(12, 105);
+        assert_eq!(loss.take(), Some(0.02), "a server counting again starts over");
+    }
+
+    #[test]
+    fn paces_keyframes_without_holding_the_frame_rate() {
+        assert_eq!(pace(1_000_000), PACE_FLOOR);
+        assert_eq!(pace(21_600_000), 54_000_000, "two and a half times the target");
+        // A 1080p144 keyframe of 150 KB leaves in about 22 ms.
+        let keyframe: Duration = (0..125).map(|_| airtime(1200, pace(21_600_000))).sum();
+        assert!(keyframe < Duration::from_millis(25), "{keyframe:?}");
+        assert_eq!(frame_queue(30), 4);
+        assert_eq!(frame_queue(144), 14);
+        assert_eq!(frame_queue(360), 36);
+    }
 
     #[test]
     fn learns_the_streamers_video() {

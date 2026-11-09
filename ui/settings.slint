@@ -1567,6 +1567,7 @@ export component AddonsSettings inherits VerticalLayout {
     in-out property <bool> logger-edits;
     in-out property <bool> logger-ignore-bots;
     in-out property <bool> logger-ghost-pings;
+    in-out property <bool> game-toggle;
     callback preferences-changed;
     spacing: 16px;
     SettingsTitle { text: "Add-ons"; }
@@ -1634,6 +1635,35 @@ export component AddonsSettings inherits VerticalLayout {
                     text: "It keeps only messages already loaded in channels you opened, in memory: nothing is saved, and a restart shows everything as Discord has it again.";
                     color: Theme.muted; font-size: 12px; wrap: word-wrap; horizontal-stretch: 1;
                 }
+            }
+        }
+    }
+    Rectangle {
+        background: Theme.sidebar; border-radius: 8px;
+        border-width: 1px; border-color: root.game-toggle ? Theme.live.transparentize(0.6) : Theme.line;
+        animate border-color { duration: Theme.quick; }
+        VerticalLayout {
+            padding: 16px; spacing: 14px;
+            HorizontalLayout {
+                spacing: 12px;
+                Rectangle {
+                    width: 40px; height: 40px; border-radius: 10px; background: Theme.live.transparentize(0.82);
+                    Image { width: 22px; height: 22px; source: @image-url("icons/gamepad.svg"); colorize: Theme.live; }
+                }
+                VerticalLayout {
+                    alignment: center; spacing: 2px; horizontal-stretch: 1;
+                    Text { text: "Game Activity Toggle"; color: Theme.text; font-size: 16px; font-weight: 700; }
+                    Text {
+                        text: "A controller beside mute and deafen shows or hides the game you're playing, in a click.";
+                        color: Theme.secondary; font-size: 13px; wrap: word-wrap;
+                    }
+                }
+            }
+            SettingsSwitch {
+                text: "Turn on Game Activity Toggle";
+                description: "The controller is struck through in red while your game is hidden. It changes the same setting as Game Activity's \"Share the game you play\".";
+                checked <=> root.game-toggle;
+                toggled => { root.preferences-changed(); }
             }
         }
     }

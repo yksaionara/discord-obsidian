@@ -1605,6 +1605,7 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         layout.message_logger = MessageLogger::chosen(&window);
         layout.message_logger.apply();
         layout.nameplates = Some(window.get_show_nameplates());
+        layout.game_toggle = Some(window.get_game_toggle_button());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);

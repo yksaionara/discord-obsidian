@@ -314,6 +314,8 @@ async fn connected(
         }
         Chosen::write(remembered, state);
         let mut microphone: Option<LocalAudioTrack> = None;
+        // Whether undeafening turns the microphone back on: it was on when deafening.
+        let mut unmute_on_undeafen = false;
         let mut roster = call.subscribe_participants();
         let mut events = call.subscribe_call_events();
         let mut speaking = HashSet::new();
@@ -435,6 +437,7 @@ async fn connected(
                     None | Some(Command::Leave) => break,
                     Some(Command::Join(_)) => state.error = Some("Leave your current voice channel before joining another.".into()),
                     Some(Command::Mute(muted)) => {
+                        unmute_on_undeafen = false;
                         // Unmuting while deafened means wanting to talk, which needs hearing too.
                         if !muted && state.deafened {
                             set_hearing(&call, true);
@@ -444,12 +447,20 @@ async fn connected(
                         match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(error.to_string()); } }
                     }
                     Some(Command::Deafen(deafened)) => {
-                        if deafened {
+                        if deafened && !state.deafened {
+                            unmute_on_undeafen = !state.muted;
                             set_muted(&call, &audio, &mut microphone, true).await?;
                             state.muted = true;
                         }
                         state.deafened = deafened;
                         set_hearing(&call, !deafened);
+                        // Undeafening gives back the microphone deafening took.
+                        if !deafened && std::mem::take(&mut unmute_on_undeafen) {
+                            match set_muted(&call, &audio, &mut microphone, false).await {
+                                Ok(()) => { state.muted = false; state.error = None; }
+                                Err(error) => state.error = Some(error.to_string()),
+                            }
+                        }
                     }
                     Some(Command::Devices) => {
                         collect_devices(&audio, state);

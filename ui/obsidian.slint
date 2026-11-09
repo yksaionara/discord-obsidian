@@ -1142,6 +1142,9 @@ export component ObsidianWindow inherits Window {
     in-out property <bool> logger-edits: true;
     in-out property <bool> logger-ignore-bots;
     in-out property <bool> logger-ghost-pings: true;
+    /// The Game Activity Toggle add-on: a button beside mute and deafen that
+    /// turns sharing the game being played on and off.
+    in-out property <bool> game-toggle-button: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
     /// When animations play: 0 while Discord Obsidian has the focus, 1 always, 2 never.
@@ -2454,8 +2457,10 @@ export component ObsidianWindow inherits Window {
                     }
                 }
                 // The dock spans the rail and the sidebar. Its avatar and voice icon sit on the
-                // rail's axis, 36px from the left; names and status start at 64px.
-                if root.voice-visible: VoiceDock {
+                // rail's axis, 36px from the left; names and status start at 64px. In
+                // Discord's style it's one floating card instead, below: the call over the
+                // account, a line between them.
+                if root.voice-visible && !ClientStyle.enabled: VoiceDock {
                     voice-status: root.voice-status; voice-time: root.voice-time; voice-detail: root.voice-detail; voice-name: root.voice-name;
                     voice-color: root.voice-color;
                     voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
@@ -2475,105 +2480,143 @@ export component ObsidianWindow inherits Window {
                 // Inset the account card while preserving the inherited controls.
                 VerticalLayout {
                     padding: ClientStyle.account-inset; padding-top: 0px;
-                    account-panel := Rectangle {
-                        // Anywhere on the card brightens its nameplate; each part lights only itself.
-                        property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
-                        height: ClientStyle.account-height; background: Theme.panel;
+                    dock-card := Rectangle {
+                        background: ClientStyle.enabled ? Theme.panel : transparent;
                         border-radius: ClientStyle.enabled ? 8px : 0px;
-                        // The nameplate fills the card, a pixel beyond it above and below.
-                        if AccountLook.nameplate-url != "": Nameplate {
-                            x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
-                            radius: ClientStyle.enabled ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
-                        }
-                        if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
-                        HorizontalLayout {
-                            // Discord's controls sit 3px further apart and 6px further from the edge.
-                            padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
-                            Rectangle {
-                                width: ClientStyle.enabled ? 50px : 58px;
-                                Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
-                                if root.account-presence != "": StatusDot {
-                                    x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                        clip: true;
+                        VerticalLayout {
+                            if root.voice-visible && ClientStyle.enabled: VoiceDock {
+                                card: true;
+                                voice-status: root.voice-status; voice-time: root.voice-time; voice-detail: root.voice-detail; voice-name: root.voice-name;
+                                voice-color: root.voice-color;
+                                voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
+                                voice-warning: root.voice-warning; voice-error: root.voice-error;
+                                can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
+                                share-watchers: root.share-viewers.length;
+                                can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
+                                can-soundboard: root.can-soundboard;
+                                leave-voice => { root.leave-voice(); }
+                                dismiss-voice-error => { root.dismiss-voice-error(); }
+                                toggle-camera => { root.toggle-camera(); }
+                                toggle-share => { root.toggle-share(); }
+                                open-share-menu(x, y) => { root.open-share-menu(x, y); }
+                                open-soundboard(x, y) => { root.open-soundboard(x, y); }
+                                open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                            }
+                            account-panel := Rectangle {
+                                // Anywhere on the card brightens its nameplate; each part lights only itself.
+                                property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
+                                height: ClientStyle.account-height; background: Theme.panel;
+                                // Under the call, the card's bottom; on its own, the whole card.
+                                border-radius: ClientStyle.enabled ? 8px : 0px;
+                                border-top-left-radius: ClientStyle.enabled && !root.voice-visible ? 8px : 0px;
+                                border-top-right-radius: ClientStyle.enabled && !root.voice-visible ? 8px : 0px;
+                                // The nameplate fills the card, a pixel beyond it above and below.
+                                if AccountLook.nameplate-url != "": Nameplate {
+                                    x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
+                                    radius: ClientStyle.enabled && !root.voice-visible ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
                                 }
-                                if root.account-presence == "": Rectangle {
-                                    x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
+                                if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
+                                HorizontalLayout {
+                                    // Discord's controls sit 3px further apart and 6px further from the edge.
+                                    padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
                                     Rectangle {
-                                        width: 8px; height: 8px; border-radius: 4px;
-                                        background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                                        width: ClientStyle.enabled ? 50px : 58px;
+                                        Avatar { x: ClientStyle.enabled ? 8px : 19px; y: (parent.height - self.height) / 2; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
+                                        if root.account-presence != "": StatusDot {
+                                            x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                                        }
+                                        if root.account-presence == "": Rectangle {
+                                            x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: 7px; background: Theme.panel;
+                                            Rectangle {
+                                                width: 8px; height: 8px; border-radius: 4px;
+                                                background: root.preview ? Theme.accent : root.online ? Theme.live : Theme.faint;
+                                            }
+                                        }
+                                        avatar-touch := TouchArea {
+                                            enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
+                                            clicked => { root.open-status-menu(); }
+                                        }
+                                    }
+                                    // With Discord linked, the avatar and name open the status menu.
+                                    Rectangle {
+                                        horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
+                                        // Discord's light, see-through fill, so the nameplate shows through.
+                                        background: account-touch.has-hover || avatar-touch.has-hover ? Theme.overlay.with-alpha(account-touch.pressed || avatar-touch.pressed ? 0.12 : 0.08) : transparent;
+                                        animate background { duration: Theme.quick; }
+                                        accessible-role: button;
+                                        accessible-enabled: root.discord-linked;
+                                        accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
+                                        accessible-action-default => { if root.discord-linked { root.open-status-menu(); } }
+                                        VerticalLayout {
+                                            alignment: center; padding-left: 6px; padding-right: 6px;
+                                            Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                                            // Under the pointer the status gives way to the username, as Discord's does.
+                                            if (account-touch.has-hover || avatar-touch.has-hover) && root.account-username != "": Text {
+                                                text: root.account-username; color: Theme.muted; font-size: 13px; overflow: elide;
+                                            }
+                                            if !((account-touch.has-hover || avatar-touch.has-hover) && root.account-username != ""): StatusText { text: root.account-status; emoji-url: root.account-status-emoji; icon: root.account-activity-icon; bullet: root.account-activity-bullet; }
+                                        }
+                                        account-touch := TouchArea {
+                                            enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
+                                            clicked => { root.open-status-menu(); }
+                                        }
+                                    }
+                                    mic := DeviceToggle {
+                                        icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                                        label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
+                                        alert: root.shown-muted;
+                                        // Discord's glyphs are white and a little larger than the default.
+                                        tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
+                                        menu-label: "Input options"; open: root.input-open;
+                                        enabled: root.voice-ready || !root.voice-active;
+                                        clicked => { root.toggle-mute(); }
+                                        menu => {
+                                            root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                            root.refresh-devices(); input-menu.show();
+                                        }
+                                    }
+                                    ear := DeviceToggle {
+                                        icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                                        label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
+                                        alert: root.shown-deafened;
+                                        glyph: ClientStyle.enabled ? 21px : 20px;
+                                        tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
+                                        menu-label: "Output options"; open: root.output-open;
+                                        enabled: root.voice-ready || !root.voice-active;
+                                        clicked => { root.toggle-deafen(); }
+                                        menu => {
+                                            root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
+                                            root.refresh-devices(); output-menu.show();
+                                        }
+                                    }
+                                    // The Game Activity Toggle add-on: shares the game being played, or
+                                    // stops, red and struck through while it's off, as muting is.
+                                    if root.game-toggle-button && root.discord-linked: IconButton {
+                                        icon: root.show-game ? @image-url("icons/gamepad.svg") : @image-url("icons/gamepad-off.svg");
+                                        label: root.show-game ? "Hide your game activity" : "Share your game activity";
+                                        alert: !root.show-game; radius: 4px;
+                                        glyph: ClientStyle.enabled ? 22px : 20px;
+                                        tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
+                                        clicked => { root.show-game-toggled(!root.show-game); }
+                                    }
+                                    if !root.preview && !root.online: IconButton {
+                                        icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
+                                        clicked => { root.retry-sync(); }
+                                    }
+                                    cog := IconButton {
+                                        icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
+                                        glyph: ClientStyle.enabled ? 24px : 20px;
+                                        tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
+                                        clicked => { root.settings-open = true; root.refresh-devices(); }
                                     }
                                 }
-                                avatar-touch := TouchArea {
-                                    enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
-                                    clicked => { root.open-status-menu(); }
-                                }
-                            }
-                            // With Discord linked, the avatar and name open the status menu.
-                            Rectangle {
-                                horizontal-stretch: 1; y: 6px; height: parent.height - 12px; border-radius: 6px;
-                                // Discord's light, see-through fill, so the nameplate shows through.
-                                background: account-touch.has-hover || avatar-touch.has-hover ? Theme.overlay.with-alpha(account-touch.pressed || avatar-touch.pressed ? 0.12 : 0.08) : transparent;
-                                animate background { duration: Theme.quick; }
-                                accessible-role: button;
-                                accessible-enabled: root.discord-linked;
-                                accessible-label: root.account-name + ", " + root.account-status + (root.discord-linked ? ". Set your status" : "");
-                                accessible-action-default => { if root.discord-linked { root.open-status-menu(); } }
-                                VerticalLayout {
-                                    alignment: center; padding-left: 6px; padding-right: 6px;
-                                    Text { text: root.account-name; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
-                                    // Under the pointer the status gives way to the username, as Discord's does.
-                                    if (account-touch.has-hover || avatar-touch.has-hover) && root.account-username != "": Text {
-                                        text: root.account-username; color: Theme.muted; font-size: 13px; overflow: elide;
-                                    }
-                                    if !((account-touch.has-hover || avatar-touch.has-hover) && root.account-username != ""): StatusText { text: root.account-status; emoji-url: root.account-status-emoji; icon: root.account-activity-icon; bullet: root.account-activity-bullet; }
-                                }
-                                account-touch := TouchArea {
-                                    enabled: root.discord-linked; mouse-cursor: MouseCursor.pointer;
-                                    clicked => { root.open-status-menu(); }
-                                }
-                            }
-                            mic := DeviceToggle {
-                                icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
-                                label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
-                                alert: root.shown-muted;
-                                // Discord's glyphs are white and a little larger than the default.
-                                tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
-                                menu-label: "Input options"; open: root.input-open;
-                                enabled: root.voice-ready || !root.voice-active;
-                                clicked => { root.toggle-mute(); }
-                                menu => {
-                                    root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
-                                    root.refresh-devices(); input-menu.show();
-                                }
-                            }
-                            ear := DeviceToggle {
-                                icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
-                                label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
-                                alert: root.shown-deafened;
-                                glyph: ClientStyle.enabled ? 21px : 20px;
-                                tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
-                                menu-label: "Output options"; open: root.output-open;
-                                enabled: root.voice-ready || !root.voice-active;
-                                clicked => { root.toggle-deafen(); }
-                                menu => {
-                                    root.menu-x = self.absolute-position.x; root.menu-y = self.absolute-position.y + (self.height - 32px) / 2;
-                                    root.refresh-devices(); output-menu.show();
-                                }
-                            }
-                            if !root.preview && !root.online: IconButton {
-                                icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
-                                clicked => { root.retry-sync(); }
-                            }
-                            cog := IconButton {
-                                icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
-                                glyph: ClientStyle.enabled ? 24px : 20px;
-                                tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
-                                clicked => { root.settings-open = true; root.refresh-devices(); }
                             }
                         }
-                        // Discord's thin outline around the card.
+                        // Discord's thin outline, around the call and the account as one.
                         if ClientStyle.enabled: Rectangle {
                             width: parent.width; height: parent.height; border-radius: 8px;
-                            border-width: 1px; border-color: Theme.overlay.with-alpha(0.02); background: transparent;
+                            border-width: 1px; border-color: Theme.line.with-alpha(0.7); background: transparent;
                         }
                     }
                 }
@@ -3931,6 +3974,7 @@ export component ObsidianWindow inherits Window {
             logger-on <=> root.logger-on; logger-deletions <=> root.logger-deletions;
             logger-edits <=> root.logger-edits; logger-ignore-bots <=> root.logger-ignore-bots;
             logger-ghost-pings <=> root.logger-ghost-pings;
+            game-toggle <=> root.game-toggle-button;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 8: GameActivitySettings {

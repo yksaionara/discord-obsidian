@@ -101,9 +101,15 @@ their own, and a keyframe's first packet marked as starting a coded video
 sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
 frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
-frame's first 8 packets, 4 go out
-each millisecond: a 1080p keyframe of 200 sent at once can overflow buffers on
-the way. Discord Obsidian keeps the last 2048 video packets, and when a viewer reports
+frame's first 8 packets, the rest are paced at two and a half times the
+target bitrate, libwebrtc's pacing factor, and at least 40 Mbit/s: a 1080p
+keyframe of 200 sent at once can overflow buffers on the way. The pacer
+keeps its schedule in absolute time, so a timer that wakes late sends what
+fell due meanwhile at once rather than slowing the stream; sleeping 1 ms
+every 4 packets held 1080p144 below 30 fps on Windows, where each sleep took
+15.6 ms. About a tenth of a second of frames may wait to be sent, at least
+4 and at most 36; a frame that doesn't fit is dropped and the next is a
+keyframe. Discord Obsidian keeps the last 2048 video packets, and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
 the original sequence number before the payload (RFC 4588), and the repaired
@@ -116,23 +122,44 @@ and any frame rate typed in, from 1 to 360 fps, or picked from 30, 60, 144,
 240 and 360. On Windows a screen is captured through DXGI Desktop Duplication
 (`crates/obsidian-core/src/duplication.rs`), which gives every frame the
 screen presents, up to its refresh rate; WGC, which WebRTC's capturer uses,
-gives about 60. Frames go out at the chosen rate at most, and only when the
+gives about 60. So is a shared window while it fills its screen and is the
+window in front, as a game being played is (`duplication::fronted_screen`,
+checked every 250 ms): when it leaves the front, as on alt-tab, or stops
+filling its screen, sharing moves to WebRTC's window capture before the
+screen shows anything else, and back once the window returns. A game that
+wasn't in front when sharing started gets duplication once it is. Frames go
+out at the chosen rate at most, and only when the
 screen changed, with the last one again every 100 ms while nothing does. The
-pointer, which duplication leaves out, is drawn onto each frame. Windows,
-cameras, and screens duplication can't open go through WebRTC's capturer.
+pointer, which duplication leaves out, is drawn onto each frame. Other
+windows, cameras, and screens duplication can't open go through WebRTC's
+capturer. A frame within 4% of the stream's size each way, as a window
+gaining or losing a row gives, is scaled to it instead of opening the
+encoder again with a keyframe. While sharing, the worker asks Windows for
+1 ms timers (`timeBeginPeriod`), which it otherwise rounds to 15.6 ms in
+each process whatever a game sets, runs its capture thread above normal
+priority, and puts duplication's GPU copies ahead of other work
+(`SetGPUThreadPriority`), so a game keeping the processor and GPU busy
+doesn't make the stream stutter.
 The window's own preview of the stream updates at most 30 times a second.
 NVENC encodes with preset p4 up to 240 fps and p3 above. Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Discord Obsidian remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. Larger screens, and those of another shape, are scaled down to fit. Discord Obsidian
 sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
-9 Mbit/s up to 1080p and 12 Mbit/s above, growing past 60 fps with the rate
+9 Mbit/s up to 1080p and 20 Mbit/s above, growing past 60 fps with the rate
 to four times that at 240 fps and above, at most 40 Mbit/s, the cap op 12
 announces, with the frame rate as its
-`max_framerate`. Like Discord's client it also follows the server's bandwidth
-estimate (REMB): when that drops below the cap, the encoder aims for the
-estimate instead, though never below 500 kbit/s, and it changes only when the
-two differ by more than a tenth. Discord's client allows accounts without Nitro
+`max_framerate`; a change of quality announces the new rate. The stream
+starts at the cap and follows the packets lost on the way, as libwebrtc's
+loss-based estimate does in Discord's client (`stream_connection::RateControl`):
+each second it takes the larger of the loss the server's receiver reports
+give for the video and the share of packets viewers' NACKs name, each once,
+and grows 8% while under 2% is lost, holds up to 10%, and above that drops by
+half the fraction lost, never below 500 kbit/s. The encoder follows when the
+two differ by more than a tenth. The server's bandwidth estimate (REMB) is
+logged but not followed: it only grows past what it receives once the
+sender probes with padding, as libwebrtc does, and without probing it held
+1080p144 streams at 1.5 Mbit/s for as long as they ran. Discord's client allows accounts without Nitro
 720p30, but trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those; the preview is the same picture scaled down to 720p.
@@ -185,8 +212,9 @@ also those named in video attributes (op 12) or in the stream key.
 With `OBSIDIAN_LOG=debug`, Discord Obsidian logs every 5 s while sharing what it sent and the
 RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
-(`lsr`), its bitrate estimate (REMB), and keyframe requests, and each change
-of bitrate. The voice connection logs the voice server's RTCP too, to compare
+(`lsr`), its bitrate estimate (REMB), keyframe requests, and the bitrate
+aimed for. Each change of a tenth or more in the bitrate is logged at info
+(`stream bitrate`), with the loss that moved it. The voice connection logs the voice server's RTCP too, to compare
 with a sender Discord accepts. Messages the stream server sends are logged
 too, except those carrying keys.
 
