@@ -1,3 +1,5 @@
-- Fixed screen shares freezing for viewers: frames can no longer burst far past your upload (the encoder's buffer is an eighth of a second instead of a full second, and packets are paced to your bitrate), keyframes come at most once a second, and when the network falls behind a frame is skipped instead of breaking the video.
-- The bitrate no longer runs into the same packet loss every few seconds: it remembers where loss started and creeps up slowly near it.
-- Hardware encoding for every GPU on Windows: Intel GPUs (Arc and the graphics built into Intel processors) and any other GPU now encode streams on the GPU through Windows Media Foundation, in H264, H265 and AV1 where the GPU supports them. NVIDIA and AMD keep their own encoders, and the processor encodes only when no GPU can.
+- Screen sharing now uses the same kind of congestion control as Discord's own app: it watches for the network starting to queue up and backs off before packets are lost, so streams stop freezing. Packets are paced gently like Discord's, and keyframes only go out when a viewer asks (at most every half second) instead of every 3 seconds.
+- Sharing a game window (Valorant and other borderless games) no longer shows a black screen: windows are now captured with Windows Graphics Capture on the GPU that runs the game, like Discord does.
+- New: after restarting in a call, a green banner offers to reconnect you to your last voice channel, like Discord.
+- New: when you're playing a game, a bar above your user panel shows it with a button to stream it.
+- New: Nitro, Shop and Quests links under Friends, "Find or start a conversation" search, and a New Group DM button on the Friends page, like Discord.

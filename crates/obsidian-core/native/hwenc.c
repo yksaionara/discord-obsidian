@@ -113,8 +113,11 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
   codec->height = (int)height;
   codec->time_base = (AVRational){1, (int)fps};
   codec->framerate = (AVRational){(int)fps, 1};
-  /* A new viewer waits at most this long for a picture. */
-  codec->gop_size = (int)fps * 3;
+  /* Keyframes when a viewer asks, as Discord's client sends them, not on a
+   * timer: each is the largest frame there is, and one every 3 seconds froze
+   * viewers on a busy upload. A new viewer asks for one. This only bounds
+   * how long a stream goes without one, at a minute. */
+  codec->gop_size = (int)fps * 60;
   codec->max_b_frames = 0;
   codec->pix_fmt = vaapi ? AV_PIX_FMT_VAAPI : amf || mf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
   /* libyuv converts captured pixels with BT.601's limited range. */

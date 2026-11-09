@@ -49,7 +49,9 @@ struct obsidian_h264 *obsidian_h264_new(unsigned width, unsigned height, unsigne
   param->b_vfr_input = 0;
   param->i_threads = (int)threads;
   /* A new viewer waits at most this long for a picture. */
-  param->i_keyint_max = (int)fps * 3;
+  /* Keyframes when a viewer asks, as native/hwenc.c, and at most a minute
+   * apart otherwise. */
+  param->i_keyint_max = (int)fps * 60;
   param->b_repeat_headers = 1;
   param->b_annexb = 1;
   param->rc.i_rc_method = X264_RC_ABR;

@@ -8230,8 +8230,9 @@ fn obsidian_dm_heading_keeps_friend_and_new_message_actions() {
     let message = Rc::new(Cell::new(false));
     let seen = message.clone();
     window.on_open_new_dm(move || seen.set(true));
+    // Under Friends, Nitro, Shop, Quests and Requests: 34 px each.
     for x in [328., 356.] {
-        let position = slint::LogicalPosition::new(x, 182.);
+        let position = slint::LogicalPosition::new(x, 284.);
         window.window().dispatch_event(WindowEvent::PointerPressed {
             position,
             button: PointerEventButton::Left,

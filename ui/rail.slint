@@ -1044,12 +1044,30 @@ component DmScreenLinks inherits VerticalLayout {
     in property <string> requests-badge;
     callback open-friends;
     callback open-requests;
+    /// Nitro, Shop and Quests: Discord's own pages, in the browser.
+    callback open-link(string);
     padding-top: 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
         text: "Friends";
         icon: @image-url("icons/users.svg");
         selected: root.friends-open;
         clicked => { root.open-friends(); }
+    }
+    // Under Friends as in Discord's client, which shows them in itself.
+    ChannelRow {
+        text: "Nitro"; label: "Nitro, in the browser";
+        icon: @image-url("icons/nitro.svg");
+        clicked => { root.open-link("https://discord.com/nitro"); }
+    }
+    ChannelRow {
+        text: "Shop"; label: "Shop, in the browser";
+        icon: @image-url("icons/shop.svg");
+        clicked => { root.open-link("https://discord.com/shop"); }
+    }
+    ChannelRow {
+        text: "Quests"; label: "Quests, in the browser";
+        icon: @image-url("icons/trophy.svg");
+        clicked => { root.open-link("https://discord.com/quest-home"); }
     }
     ChannelRow {
         text: "Requests";
@@ -1098,6 +1116,7 @@ export component RoomList inherits Rectangle {
     callback open-chat(string);
     callback open-add-friend;
     callback open-new-dm;
+    callback open-link(string);
     callback open-friends;
     callback open-requests;
     /// A Community server's list opens Browse Channels, which is on screen
@@ -1195,6 +1214,7 @@ export component RoomList inherits Rectangle {
                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                 open-friends => { root.open-friends(); }
                 open-requests => { root.open-requests(); }
+                open-link(link) => { root.open-link(link); }
             }
             if ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
                 discord-linked: root.discord-linked;
@@ -1218,6 +1238,7 @@ export component RoomList inherits Rectangle {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                     open-friends => { root.open-friends(); }
                     open-requests => { root.open-requests(); }
+                    open-link(link) => { root.open-link(link); }
                 }
                 if index == 0 && ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
                     discord-linked: root.discord-linked;

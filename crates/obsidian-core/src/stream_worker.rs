@@ -1178,6 +1178,10 @@ fn capture_screen(
     // started still gets duplication once it's back.
     #[allow(unused_mut)]
     let mut duplicating = cfg!(windows);
+    // A window not filling its screen in front goes through Windows' window
+    // capture, on the GPU drawing it, until that fails on this system.
+    #[allow(unused_mut)]
+    let mut window_capturing = cfg!(windows);
     loop {
         #[cfg(windows)]
         if duplicating {
@@ -1207,6 +1211,21 @@ fn capture_screen(
                     }
                     Err(error) => return Err(error),
                 }
+            }
+        }
+        #[cfg(windows)]
+        if window_capturing && let Source::Window(window) = source {
+            match capture_window(window, duplicating, &sink, &mut max_width, &mut max_height, stop, report) {
+                Ok(None) => return Ok(()),
+                Ok(Some(next)) => {
+                    source = next;
+                    continue;
+                }
+                Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
+                    tracing::warn!(error = format!("{error:#}"), "sharing the window through WebRTC's capturer");
+                    window_capturing = false;
+                }
+                Err(error) => return Err(error),
             }
         }
         let limits = (&mut fps, &mut max_width, &mut max_height);
@@ -1352,9 +1371,107 @@ fn capture_duplicated(
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) -> Result<Option<Source>> {
-    use crate::duplication::{Duplication, Next};
+    let mut duplication = crate::duplication::Duplication::open(id)?;
+    // A shared window that left the front, or stopped filling its screen,
+    // goes back to window capture before the screen shows what's in front
+    // of it.
+    let leave = move || {
+        let window = window?;
+        crate::duplication::fronted_screen(window).is_none().then(|| {
+            tracing::info!("the window left the front; sharing it through window capture");
+            Source::Window(window)
+        })
+    };
+    capture_frames(&mut duplication, &leave, sink, max_width, max_height, stop, report)
+}
+
+/// Shares the window `window` through Windows' window capture until
+/// stopped, until another source is asked for, or, when `duplicating`, until
+/// it fills its screen in front, when duplication gives more frames: each
+/// returned. Fails with [`crate::duplication::Unavailable`] when Windows
+/// can't capture it.
+#[cfg(windows)]
+fn capture_window(
+    window: u64,
+    duplicating: bool,
+    sink: &Arc<Mutex<Sink>>,
+    max_width: &mut u32,
+    max_height: &mut u32,
+    stop: &AtomicBool,
+    report: &mut dyn FnMut(Report),
+) -> Result<Option<Source>> {
+    let mut capture = crate::window_capture::WindowCapture::open(window)?;
+    tracing::info!("sharing the window through window capture");
+    let leave = move || {
+        (duplicating && crate::duplication::fronted_screen(window).is_some())
+            .then_some(Source::Window(window))
+    };
+    capture_frames(&mut capture, &leave, sink, max_width, max_height, stop, report)
+}
+
+/// A screen's or window's frames as they're drawn, for [`capture_frames`].
+#[cfg(windows)]
+trait FrameSource {
+    fn next(&mut self, timeout_ms: u32) -> Result<crate::duplication::Next>;
+    /// Starts again after [`crate::duplication::Next::Lost`].
+    fn reopen(&mut self) -> Result<()>;
+    fn has_picture(&self) -> bool;
+    fn picture_into(&self, into: &mut I420Buffer);
+}
+
+#[cfg(windows)]
+impl FrameSource for crate::duplication::Duplication {
+    fn next(&mut self, timeout_ms: u32) -> Result<crate::duplication::Next> {
+        crate::duplication::Duplication::next(self, timeout_ms)
+    }
+    fn reopen(&mut self) -> Result<()> {
+        crate::duplication::Duplication::reopen(self)
+    }
+    fn has_picture(&self) -> bool {
+        crate::duplication::Duplication::has_picture(self)
+    }
+    fn picture_into(&self, into: &mut I420Buffer) {
+        crate::duplication::Duplication::picture_into(self, into)
+    }
+}
+
+#[cfg(windows)]
+impl FrameSource for crate::window_capture::WindowCapture {
+    fn next(&mut self, timeout_ms: u32) -> Result<crate::duplication::Next> {
+        crate::window_capture::WindowCapture::next(self, timeout_ms)
+    }
+    fn reopen(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn has_picture(&self) -> bool {
+        crate::window_capture::WindowCapture::has_picture(self)
+    }
+    fn picture_into(&self, into: &mut I420Buffer) {
+        crate::window_capture::WindowCapture::picture_into(self, into)
+    }
+}
+
+/// How long a shared picture stays black before the log says so: a game
+/// whose capture gives black frames, which nothing else would show.
+#[cfg(windows)]
+const BLACK_WARNING: Duration = Duration::from_secs(5);
+
+/// Sends `frames`' pictures at the stream's rate at most, and the last one
+/// again every [`IDLE_REPEAT`] while nothing changes, until stopped, until
+/// another source is asked for, or until `leave`, checked every
+/// [`FRONT_CHECK`], names where to go instead: each returned.
+#[cfg(windows)]
+fn capture_frames(
+    frames: &mut dyn FrameSource,
+    leave: &dyn Fn() -> Option<Source>,
+    sink: &Arc<Mutex<Sink>>,
+    max_width: &mut u32,
+    max_height: &mut u32,
+    stop: &AtomicBool,
+    report: &mut dyn FnMut(Report),
+) -> Result<Option<Source>> {
+    use crate::duplication::Next;
     let lock = || sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let mut duplication = Duplication::open(id)?;
     let fps = lock().fps.max(1);
     let mut interval = Duration::from_secs_f64(1.0 / f64::from(fps));
     // A frame up to a quarter early still goes, so jitter in when the screen
@@ -1365,17 +1482,14 @@ fn capture_duplicated(
     let mut picture = I420Buffer::new(2, 2);
     let mut reported = None;
     let mut front_checked = Instant::now();
+    // Since when every picture sent was black, and whether the log said so.
+    let mut black_since: Option<Instant> = None;
+    let mut said_black = false;
     while !stop.load(Ordering::Relaxed) {
-        // A shared window that left the front, or stopped filling its
-        // screen, goes back to window capture before the screen shows
-        // what's in front of it.
-        if let Some(window) = window
-            && front_checked.elapsed() >= FRONT_CHECK
-        {
+        if front_checked.elapsed() >= FRONT_CHECK {
             front_checked = Instant::now();
-            if crate::duplication::fronted_screen(window).is_none() {
-                tracing::info!("the window left the front; sharing it through window capture");
-                return Ok(Some(Source::Window(window)));
+            if let Some(next) = leave() {
+                return Ok(Some(next));
             }
         }
         let now = Instant::now();
@@ -1385,14 +1499,14 @@ fn capture_duplicated(
             (false, Some(sent)) => (sent + IDLE_REPEAT).saturating_duration_since(now),
             (false, None) => IDLE_REPEAT,
         };
-        match duplication.next(wait.as_millis().min(100) as u32)? {
+        match frames.next(wait.as_millis().min(100) as u32)? {
             Next::Frame => pending = true,
             Next::Timeout => {}
             Next::Lost => {
                 // A mode change, or the secure desktop: open it again
                 // once it's back.
                 std::thread::sleep(Duration::from_millis(50));
-                if let Err(error) = duplication.reopen() {
+                if let Err(error) = frames.reopen() {
                     tracing::debug!(error = format!("{error:#}"), "the screen isn't back yet");
                 }
                 pending = true;
@@ -1402,8 +1516,23 @@ fn capture_duplicated(
         let now = Instant::now();
         let due = last_sent.map_or(now, |sent| sent + interval);
         let idle = last_sent.is_some_and(|sent| now >= sent + IDLE_REPEAT);
-        if duplication.has_picture() && ((pending && now + early >= due) || idle) {
-            duplication.picture_into(&mut picture);
+        if frames.has_picture() && ((pending && now + early >= due) || idle) {
+            frames.picture_into(&mut picture);
+            if !said_black && pending {
+                if is_black(&picture) {
+                    let since = *black_since.get_or_insert(now);
+                    if now.duration_since(since) >= BLACK_WARNING {
+                        said_black = true;
+                        tracing::warn!(
+                            width = picture.width(),
+                            height = picture.height(),
+                            "what's shared has been black for 5 seconds"
+                        );
+                    }
+                } else {
+                    black_since = None;
+                }
+            }
             let (width, height) = (picture.width(), picture.height());
             let size = fit(width, height, *max_width, *max_height);
             let mut scaled = (size != (width, height))
@@ -2351,6 +2480,60 @@ mod tests {
 
     /// Lists what there is to share, and shares the first screen and the
     /// first window for a moment each.
+    /// Shares the listed window whose title holds OBSIDIAN_SHARE_WINDOW for
+    /// two seconds and says how much of its picture isn't black, as a game
+    /// that captures black would show: `OBSIDIAN_SHARE_WINDOW=VALORANT cargo
+    /// test -p obsidian-core shares_a_named_window -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs a desktop and OBSIDIAN_SHARE_WINDOW"]
+    fn shares_a_named_window() {
+        let wanted = std::env::var("OBSIDIAN_SHARE_WINDOW").expect("OBSIDIAN_SHARE_WINDOW");
+        let listed = shareable();
+        let found = listed
+            .iter()
+            .find(|listed| matches!(listed.source, Source::Window(_)) && listed.title.contains(&wanted))
+            .unwrap_or_else(|| panic!("no window titled {wanted}"));
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let job = Job::Share {
+            source: found.source.clone(),
+            frames: frames.path().unwrap(),
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_HEIGHT,
+            fps: 60,
+            effort: Effort::Light,
+            hardware: false,
+            sound: false,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let (sender, reports) = std::sync::mpsc::channel();
+        let serving = std::thread::spawn(move || {
+            serve(Box::new(BufReader::new(input)), &mut |report| {
+                let _ = sender.send(report);
+            });
+        });
+        assert_eq!(reports.recv().unwrap(), Report::Ready);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let (mut last, mut pictures) = (None, 0);
+        while Instant::now() < deadline {
+            let taken = frames.take(|width, height, pixels| {
+                let lit = pixels.chunks_exact(4).filter(|pixel| pixel[..3].iter().any(|&c| c > 24));
+                (width, height, lit.count() as f32 / (pixels.len() / 4).max(1) as f32)
+            });
+            pictures += usize::from(taken.is_some());
+            last = taken.or(last);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        writeln!(feed, "stop").unwrap();
+        serving.join().unwrap();
+        let (width, height, lit) = last.expect("no frame arrived");
+        eprintln!(
+            "{:?}: {width}x{height}, {pictures} previews, {:.0}% of it isn't black",
+            found.title,
+            lit * 100.0
+        );
+    }
+
     #[test]
     #[ignore = "needs a desktop where Discord Obsidian lists what to share"]
     fn shares_a_listed_screen_and_window() {

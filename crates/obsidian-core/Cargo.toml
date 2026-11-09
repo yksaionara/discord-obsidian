@@ -102,6 +102,12 @@ libpulse-simple-binding = { version = "2", default-features = false }
 # Discord Obsidian's own sound goes through WASAPI. Slint's wgpu already builds this
 # version of the crate for Windows.
 windows = { version = "0.62", features = [
+    # Window capture for Go Live: src/window_capture.rs.
+    "Foundation",
+    "Graphics_Capture",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",

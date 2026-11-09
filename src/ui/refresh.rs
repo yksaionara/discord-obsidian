@@ -3550,6 +3550,7 @@ impl Adapter {
             .then(|| state.voice.room.clone())
             .flatten();
         self.time_call(window, timed.as_deref());
+        self.offer_reconnect(window);
         let state = &self.app.state;
         let room = state.selected_room();
         let voice = &state.voice;
@@ -5065,4 +5066,27 @@ fn sound_rows(
         }
     }
     rows
+}
+
+impl super::Adapter {
+    /// Remembers the call while connected and offers it back after a restart,
+    /// as Discord's "You were in a voice channel" notice does.
+    fn offer_reconnect(&mut self, window: &ObsidianWindow) {
+        let state = &self.app.state;
+        let connected = matches!(state.voice.phase, Phase::Connected)
+            .then(|| state.voice.room.clone())
+            .flatten();
+        let active = state.voice.active();
+        let known = self.reconnect.as_ref().is_some_and(|room| {
+            state.rooms.iter().any(|known| &known.id == room && known.voice)
+        });
+        if connected.is_some() && connected != self.layout.last_voice {
+            self.layout.last_voice = connected;
+            self.layout.write(&self.root);
+        }
+        if active {
+            self.reconnect = None;
+        }
+        window.set_reconnect_shown(known && !active);
+    }
 }

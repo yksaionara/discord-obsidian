@@ -29,6 +29,8 @@ mod declick;
 pub mod decode;
 #[cfg(windows)]
 mod duplication;
+#[cfg(windows)]
+mod window_capture;
 #[cfg(feature = "discord")]
 mod dereverb;
 pub mod discord;

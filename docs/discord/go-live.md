@@ -87,8 +87,10 @@ discovers its address, then uses `aead_aes256_gcm_rtpsize` transport
 encryption. Discord Obsidian offers H264, and AV1 then H265 before it where the GPU
 encodes them ([Encoding on the GPU](#encoding-on-the-gpu)), and announces its
 size with op 12, again whenever someone connects. H264 frames come from x264 (`vendor/x264-src`,
-built from source) through `native/h264.c`, with a keyframe at least every 3 s
-and whenever RTCP asks for one; [Choosing the H264
+built from source) through `native/h264.c`, with a keyframe whenever RTCP
+asks for one, as Discord's client sends them, and otherwise at most a minute
+apart: one every 3 seconds, the largest frame each time, froze viewers on a
+busy upload; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Discord Obsidian also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. H264 goes as whole NAL units or FU-A fragments, H265 as whole
@@ -101,20 +103,25 @@ their own, and a keyframe's first packet marked as starting a coded video
 sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
 frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
-frame's first 8 packets, the rest are paced at twice the target bitrate:
-a 1080p keyframe of 200 sent at once can overflow buffers on the way. With
-the encoders' eighth of a second buffer, the largest frame leaves in about
-60 ms. Pacing at two and a half times the target and at least 40 Mbit/s sent
-keyframes at four times a 10 Mbit/s upload, which dropped most of them. The pacer
-keeps its schedule in absolute time, so a timer that wakes late sends what
+frame's first 8 packets, while nothing waits to be sent, the rest are paced
+at a quarter more than the target bitrate, as Discord's client sends: a
+1080p keyframe of 200 sent at once can overflow buffers on the way.
+Captured from Discord's client, a 20 KB keyframe of a 1.5 Mbit/s stream went
+out over 86 ms, and no tenth of a second carried more than 2 Mbit/s. With
+the encoders' eighth of a second buffer, the largest frame leaves in 100 ms.
+Pacing at two and a half times the target and at least 40 Mbit/s sent
+keyframes at four times a 10 Mbit/s upload, which dropped most of them. The
+pacer keeps one schedule across frames, so a frame queued behind a keyframe
+waits its turn, and keeps it in absolute time, so a timer that wakes late sends what
 fell due meanwhile at once rather than slowing the stream; sleeping 1 ms
 every 4 packets held 1080p144 below 30 fps on Windows, where each sleep took
 15.6 ms. About a tenth of a second of frames may wait to be sent, at least
 4 and at most 36. While more than half that waits, the worker skips
 encoding frames, which leaves what viewers decode whole; a frame that
 doesn't fit even so is dropped and the next is a keyframe. Keyframes come
-at most once a second, however many viewers ask: under loss, viewers asking
-for one after each lost one kept the path full of the largest frames. Media connections ask for 4 MiB UDP buffers each way, and a send
+at most every half second, however many viewers ask, as Discord's client was
+captured answering picture loss indications: under loss, viewers asking for
+one after each lost one kept the path full of the largest frames. Media connections ask for 4 MiB UDP buffers each way, and a send
 the system has no room for drops the packet, as a congested path would:
 Windows fails such a send (WSAENOBUFS) where other systems wait, and ending
 the connection on it dropped streams and calls. Discord Obsidian keeps the last 2048 video packets, and when a viewer reports
@@ -135,14 +142,24 @@ screen presents, up to its refresh rate; WGC, which WebRTC's capturer uses,
 gives about 60. So is a shared window while it fills its screen and is the
 window in front, as a game being played is (`duplication::fronted_screen`,
 checked every 250 ms): when it leaves the front, as on alt-tab, or stops
-filling its screen, sharing moves to WebRTC's window capture before the
-screen shows anything else, and back once the window returns. A game that
-wasn't in front when sharing started gets duplication once it is. Frames go
+filling its screen, sharing moves to window capture before the screen shows
+anything else, and back once the window returns. A game that wasn't in
+front when sharing started gets duplication once it is. Window capture is
+Windows Graphics Capture driven by Discord Obsidian (`window_capture.rs`),
+as Discord's client captures a window: what the window draws, games
+included, with other windows over it, at up to the window's rate on
+Windows 11 24H2 (`MinUpdateInterval`), without the yellow border, and with
+the pointer. Its Direct3D device is made on the adapter driving the
+window's screen. WebRTC's window capturer made its own on the system's first
+adapter, which on a machine with a virtual display driver, as game
+streaming hosts install, isn't the GPU drawing the game, and games such as
+Valorant shared black. A picture still black after 5 seconds is logged
+("what's shared has been black for 5 seconds"). Frames go
 out at the chosen rate at most, and only when the
 screen changed, with the last one again every 100 ms while nothing does. The
-pointer, which duplication leaves out, is drawn onto each frame. Other
-windows, cameras, and screens duplication can't open go through WebRTC's
-capturer. A frame within 4% of the stream's size each way, as a window
+pointer, which duplication leaves out, is drawn onto each frame. Cameras,
+screens duplication can't open, and windows Windows can't capture go
+through WebRTC's capturer. A frame within 4% of the stream's size each way, as a window
 gaining or losing a row gives, is scaled to it instead of opening the
 encoder again with a keyframe. While sharing, the worker asks Windows for
 1 ms timers (`timeBeginPeriod`), which it otherwise rounds to 15.6 ms in
@@ -171,11 +188,33 @@ fraction lost, never below 500 kbit/s. It remembers the bitrate heavy loss
 came at, and within 15% of it grows 1% a second instead, until a minute
 passes without loss: growing at full speed ran into the same loss every
 8 seconds, each time freezing viewers. Starting at a 1080p360 stream's
-36 Mbit/s cap lost three packets in four on a home connection. The encoder follows when the
-two differ by more than a tenth. The server's bandwidth estimate (REMB) is
-logged but not followed: it only grows past what it receives once the
-sender probes with padding, as libwebrtc does, and without probing it held
-1080p144 streams at 1.5 Mbit/s for as long as they ran. Discord's client allows accounts without Nitro
+36 Mbit/s cap lost three packets in four on a home connection.
+
+Discord's server also sends transport-wide congestion control feedback
+(RTCP 205, format 15), five to ten times a second, as it does to Discord's
+client, which a capture of it shows following: when each packet with a
+transport-wide sequence number arrived, by the server's clock. From it
+Discord Obsidian runs the delay-based estimate Discord's client runs,
+libwebrtc's GCC (`congestion.rs`): packets sent within 5 ms make a group;
+how much further apart consecutive groups arrived than they were sent is the
+queueing delay they gained; a trendline over the last 20 groups' delay,
+against a threshold that adapts to the path, says when a queue builds. Then
+the rate drops to 85% of what the server acknowledged receiving, holds while
+the queue drains, and otherwise grows 8% a second, or 2% within a tenth of
+the capacity the last overuse showed, and past that capacity only as fast as
+what's acknowledged shows it gets through. So the stream backs off as a queue
+starts to build, before packets are lost, where the loss-based estimate only
+learns of a full path from loss. The stream aims for the lower of the two,
+as libwebrtc does, and for the loss-based one alone until feedback comes,
+which is logged ("following the server's transport-wide feedback"). The
+encoder follows when the target and its bitrate differ by more than a tenth.
+
+The server's own estimate (REMB) is logged but not followed, which is where
+Discord Obsidian chooses to differ from Discord's client: it only grows past
+what it receives once the sender probes with padding, and without probing it
+held 1080p144 streams at 1.5 Mbit/s for as long as they ran. Discord's client,
+captured streaming a moving 1440p screen to the same server, also sent a
+flat 1.5 Mbit/s. Discord's client allows accounts without Nitro
 720p30, but trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those; the preview is the same picture scaled down to 720p.
@@ -230,7 +269,9 @@ RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
 (`lsr`), its bitrate estimate (REMB), keyframe requests, and the bitrate
 aimed for. Each change of a tenth or more in the bitrate is logged at info
-(`stream bitrate`), with the loss that moved it. The voice connection logs the voice server's RTCP too, to compare
+(`stream bitrate`), with each estimate (`delay_kbps`, `loss_kbps`), what the
+delay last said and the bitrate the server acknowledged, the loss, and each
+measure of it: what the server reports reached it from here (`upload_loss_percent`), and the share of packets viewers asked for again (`viewer_nack_percent`), which counts what was lost on the way to them too. The voice connection logs the voice server's RTCP too, to compare
 with a sender Discord accepts. Messages the stream server sends are logged
 too, except those carrying keys.
 
@@ -344,8 +385,8 @@ and the Arch package lists it as optional.
 
 The settings match x264's where they can: low-latency tuning (NVENC's p4
 preset, `ll`; AMF's `lowlatency` usage and balanced preset), no B-frames, a
-frame out for each frame in, Main profile, keyframes every 3 seconds and when
-asked, and variable bitrate capped at the target over an eighth of a second, which
+frame out for each frame in, Main profile, keyframes when asked and at most
+a minute apart otherwise, and variable bitrate capped at the target over an eighth of a second, which
 leaves a calm screen below the cap rather than padding it. NVENC, AMF and
 VA-API change their bitrate as they run, without the IDR frame FFmpeg would
 insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer

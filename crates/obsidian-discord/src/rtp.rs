@@ -104,6 +104,17 @@ pub fn opus_packet(ssrc: u32, sequence: u16, timestamp: u32, marker: bool, opus:
     packet
 }
 
+/// The transport-wide sequence number in a packet [`Packetizer`] made,
+/// before it's sealed: the extension's body is encrypted with the payload.
+pub fn transport_sequence(packet: &[u8]) -> Option<u16> {
+    (packet.len() >= HEADER + 7
+        && packet[0] & 0x10 != 0
+        && packet[0] & 0x0f == 0
+        && packet[HEADER..HEADER + 2] == [0xbe, 0xde]
+        && packet[HEADER + 4] >> 4 == TRANSPORT_SEQUENCE)
+        .then(|| u16::from_be_bytes([packet[HEADER + 5], packet[HEADER + 6]]))
+}
+
 /// Cuts encoded frames into RTP packets for one SSRC.
 pub struct Packetizer {
     ssrc: u32,
@@ -1531,6 +1542,16 @@ mod tests {
         assert_eq!(report_blocks(&report), [(77, 12, 1000)]);
         assert_eq!(report_blocks(&both), [(77, 12, 1000), (78, 0, 40)]);
         assert!(report_blocks(&picture_loss(1, 77)).is_empty());
+    }
+
+    #[test]
+    fn reads_the_transport_sequence_before_sealing() {
+        let mut packetizer = Packetizer::new(7, Codec::H264);
+        let packets = packetizer.packets(&[0, 0, 0, 1, 0x65, 1, 2, 3], 0, true);
+        let again = packetizer.retransmit(&packets[0], 8).unwrap();
+        assert_eq!(transport_sequence(&packets[0]), Some(1));
+        assert_eq!(transport_sequence(&again), Some(2), "a resend has its own");
+        assert_eq!(transport_sequence(&opus_packet(1, 2, 3, false, &[1])), None);
     }
 
     #[test]

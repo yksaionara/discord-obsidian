@@ -41,7 +41,7 @@ import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "obsidian/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
+import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls, Logged } from "messages.slint";
@@ -345,6 +345,17 @@ export component ObsidianWindow inherits Window {
     in property <string> account-status-emoji;
     in property <string> storage;
     in property <string> notice;
+    /// Discord's "You were in a voice channel last time you left Discord"
+    /// notice, after a restart in a call; Reconnect joins it again.
+    in property <bool> reconnect-shown;
+    callback reconnect-voice;
+    callback dismiss-reconnect;
+    property <length> banner-height: root.workspace && root.reconnect-shown ? 36px : 0px;
+    /// The game bar over the account panel, as Discord's client shows what
+    /// you play, while not streaming it.
+    property <bool> game-bar-shown: ClientStyle.enabled && root.game-activity-name != "" && !root.sharing;
+    /// Something sits above the account panel in the dock's card.
+    property <bool> dock-above: root.voice-visible || root.game-bar-shown;
     in-out property <string> graphics-notice;
     in property <string> room-name;
     /// A Discord thread's channel: its name, and its room id to go back to.
@@ -2284,6 +2295,36 @@ export component ObsidianWindow inherits Window {
         }
     }
 
+    // Discord's green notice under the title bar after a restart in a call.
+    if root.banner-height > 0: Rectangle {
+        x: 0px; y: root.title-height; width: root.width; height: root.banner-height;
+        background: Theme.live.darker(0.35);
+        accessible-role: groupbox; accessible-label: "You were in a voice channel last time you left Discord";
+        HorizontalLayout {
+            alignment: center; spacing: 12px;
+            Text {
+                text: "You were in a voice channel last time you left Discord.";
+                color: #ffffff; font-size: 14px; font-weight: 500; vertical-alignment: center;
+            }
+            Middle {
+                Rectangle {
+                    width: reconnect-text.preferred-width + 20px; height: 24px;
+                    border-width: 1px; border-color: #ffffff; border-radius: 3px;
+                    background: reconnect-touch.has-hover ? #ffffff26 : transparent;
+                    accessible-role: button; accessible-label: "Reconnect";
+                    accessible-action-default => { root.reconnect-voice(); }
+                    reconnect-text := Text { text: "Reconnect"; color: #ffffff; font-size: 14px; font-weight: 500; }
+                    reconnect-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.reconnect-voice(); } }
+                }
+            }
+        }
+        IconButton {
+            x: parent.width - self.width - 8px; y: (parent.height - self.height) / 2;
+            icon: @image-url("icons/x.svg"); label: "Dismiss"; size: 28px; glyph: 16px; tint: #ffffff; radius: 4px;
+            clicked => { root.dismiss-reconnect(); }
+        }
+    }
+
     // Sign in; see SignInScreen.
     SignInScreen {
         y: root.title-height; height: root.height - root.title-height;
@@ -2302,7 +2343,7 @@ export component ObsidianWindow inherits Window {
     }
 
     HorizontalLayout {
-        y: root.title-height; height: root.height - root.title-height;
+        y: root.title-height + root.banner-height; height: root.height - root.title-height - root.banner-height;
         visible: root.workspace;
         spacing: 0px;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
@@ -2375,7 +2416,7 @@ export component ObsidianWindow inherits Window {
                                 if ClientStyle.enabled && root.dms-selected: TextField {
                                     x: 8px; y: 8px; width: parent.width - 16px; height: 32px;
                                     text-size: 13px; pad: 10px; fill: Theme.field; ring: false;
-                                    placeholder: "Find a conversation"; text <=> root.filter; label: "Find a conversation";
+                                    placeholder: "Find or start a conversation"; text <=> root.filter; label: "Find or start a conversation";
                                     edited => { root.filter-edited(); }
                                 }
                                 if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
@@ -2423,6 +2464,7 @@ export component ObsidianWindow inherits Window {
                                 open-chat(id) => { root.open-chat(id); }
                                 open-friends => { root.open-friends(); }
                                 open-requests => { root.open-requests(); }
+                                open-link(link) => { root.open-link(link); }
                                 open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                                 open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
                                 show-voice-person(room, id) => { root.show-voice-person(room, id); }
@@ -2503,20 +2545,25 @@ export component ObsidianWindow inherits Window {
                                 open-soundboard(x, y) => { root.open-soundboard(x, y); }
                                 open-call-link(x, y, width, height) => { root.open-call-link(x, y, width, height); }
                             }
+                            if root.game-bar-shown: GameBar {
+                                game: root.game-activity-name; divided: root.voice-visible;
+                                can-stream: root.voice-active && (root.can-share || root.sharing);
+                                stream(x, y) => { root.open-share-menu(x, y); }
+                            }
                             account-panel := Rectangle {
                                 // Anywhere on the card brightens its nameplate; each part lights only itself.
                                 property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
                                 height: ClientStyle.account-height; background: Theme.panel;
                                 // Under the call, the card's bottom; on its own, the whole card.
                                 border-radius: ClientStyle.enabled ? 8px : 0px;
-                                border-top-left-radius: ClientStyle.enabled && !root.voice-visible ? 8px : 0px;
-                                border-top-right-radius: ClientStyle.enabled && !root.voice-visible ? 8px : 0px;
+                                border-top-left-radius: ClientStyle.enabled && !root.dock-above ? 8px : 0px;
+                                border-top-right-radius: ClientStyle.enabled && !root.dock-above ? 8px : 0px;
                                 // The nameplate fills the card, a pixel beyond it above and below.
                                 if AccountLook.nameplate-url != "": Nameplate {
                                     x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
-                                    radius: ClientStyle.enabled && !root.voice-visible ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
+                                    radius: ClientStyle.enabled && !root.dock-above ? 8px : 0px; account: true; hovered: account-panel.hot; animate: account-panel.hot; picture-url: AccountLook.nameplate-url; palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
                                 }
-                                if root.voice-visible: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
+                                if root.dock-above: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
                                 HorizontalLayout {
                                     // Discord's controls sit 3px further apart and 6px further from the edge.
                                     padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
@@ -2724,6 +2771,14 @@ export component ObsidianWindow inherits Window {
                             ActionButton { text: "Add Friend"; small: true; primary: true; clicked => { root.open-add-friend(); } }
                         }
                         if root.friends-open: Rectangle { horizontal-stretch: 1; }
+                        // Discord's New Group DM, at the header's right.
+                        if root.friends-open && !root.preview: Middle {
+                            IconButton {
+                                icon: @image-url("icons/message-circle-plus.svg"); label: "New Group DM";
+                                tip-side: 2; radius: 4px;
+                                clicked => { root.open-new-dm(); }
+                            }
+                        }
                         if root.dm-friend == 1 || root.dm-friend == 3: Middle {
                             ActionButton {
                                 icon: @image-url("icons/user-plus.svg");

@@ -480,6 +480,37 @@ export component VoiceDock inherits Rectangle {
     }
 }
 
+// The game this account plays, between the call and the account panel in
+// Discord's floating card, as Discord's client shows it, with a button
+// that streams it once in a call.
+export component GameBar inherits Rectangle {
+    in property <string> game;
+    /// A line above it, under the call.
+    in property <bool> divided;
+    in property <bool> can-stream;
+    callback stream(length, length);
+    height: 44px;
+    accessible-role: groupbox; accessible-label: "Playing " + root.game;
+    if root.divided: Rectangle { x: 12px; y: 0px; width: parent.width - 24px; height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        padding-left: 12px; padding-right: 10px; spacing: 10px;
+        Rectangle {
+            width: 24px;
+            Image { width: 22px; height: 22px; source: @image-url("icons/gamepad.svg"); colorize: Theme.live; }
+        }
+        Text {
+            text: root.game; color: Theme.text; font-size: 14px; font-weight: 700;
+            overflow: elide; vertical-alignment: center; horizontal-stretch: 1;
+        }
+        IconButton {
+            icon: @image-url("icons/screen-share.svg");
+            label: root.can-stream ? "Stream " + root.game : "Join a voice channel to stream " + root.game;
+            enabled: root.can-stream; radius: 4px;
+            clicked => { root.stream(self.absolute-position.x, self.absolute-position.y); }
+        }
+    }
+}
+
 // A DM's call this account isn't in: who is, and a way to join it, or to
 // answer it when it rings.
 export component CallInvite inherits VerticalLayout {

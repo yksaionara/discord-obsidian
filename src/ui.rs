@@ -1224,6 +1224,9 @@ struct Layout {
     /// The Game Activity Toggle add-on's button beside mute and deafen; on
     /// unless turned off.
     game_toggle: Option<bool>,
+    /// The voice channel this account was connected to, until it left: offered
+    /// back after a restart, as Discord's notice does.
+    last_voice: Option<String>,
     /// When animations play.
     animate: Animate,
     /// Joining a call turns the microphone on; on unless turned off.
@@ -1889,6 +1892,8 @@ struct Adapter {
     /// The voice channel of the call the rail last showed, so a voice event
     /// builds the rail again only when the call moves.
     rail_call: Option<String>,
+    /// The call to offer joining again after a restart, until joined or dismissed.
+    reconnect: Option<String>,
     /// A hash of what the friends picker's rows were built from, so they're
     /// built again only once that changes.
     picker_shown: Option<u64>,
@@ -2145,6 +2150,8 @@ impl Adapter {
         app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
         app.dispatch(Action::SetServerOrder(layout.server_order.clone()));
+        // The call left in last time, offered back once its channel is known.
+        let reconnect = layout.last_voice.clone();
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {
                 events: None,
@@ -2173,6 +2180,7 @@ impl Adapter {
                 places: Vec::new(),
                 arranging: None,
                 rail_call: None,
+                reconnect,
                 picker_shown: None,
                 threads_shown: None,
                 forum_shown: None,

@@ -447,7 +447,44 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     bind!(on_enlarge_profile, Action::EnlargeProfile);
     bind!(on_close_profile, Action::CloseProfile);
     bind!(on_ignore_request, Action::AnswerRequest(false));
-    bind!(on_leave_voice, Action::Voice(voice::Command::Leave));
+    {
+        // Leaving on purpose forgets the call, so a restart doesn't offer it.
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_leave_voice(move || {
+            if let Some(window) = weak.upgrade() {
+                let mut adapter = adapter.borrow_mut();
+                adapter.layout.last_voice = None;
+                adapter.layout.write(&adapter.root);
+                adapter.action(&window, Action::Voice(voice::Command::Leave));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_reconnect_voice(move || {
+            if let Some(window) = weak.upgrade() {
+                let room = adapter.borrow_mut().reconnect.take();
+                if let Some(room) = room {
+                    adapter.borrow_mut().action(&window, Action::RequestJoinVoice(room));
+                }
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_dismiss_reconnect(move || {
+            if let Some(window) = weak.upgrade() {
+                let mut adapter = adapter.borrow_mut();
+                adapter.reconnect = None;
+                adapter.layout.last_voice = None;
+                adapter.layout.write(&adapter.root);
+                window.set_reconnect_shown(false);
+            }
+        });
+    }
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_message_from_profile(move |user, text| {

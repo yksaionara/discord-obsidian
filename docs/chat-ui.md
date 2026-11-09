@@ -508,7 +508,17 @@ The window follows Discord's arrangement:
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu; the input menu shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
-  the call. In Discord's style the two are one floating card, as in
+  the call. While a game is detected and not being streamed, a bar names it
+  above the account panel, as Discord's client shows what you play, with a
+  button that opens the share menu once in a call. After a restart in a
+  call, a green notice under the title bar says "You were in a voice
+  channel last time you left Discord." with Reconnect, which joins that
+  channel again once it's known; leaving the call, or dismissing the
+  notice, forgets it (`last_voice` in `layout.json`). On the DM home, Nitro,
+  Shop and Quests follow Friends, as in Discord's client, and open
+  Discord's pages in the browser; the search above reads "Find or start a
+  conversation", and the Friends header ends with New Group DM.
+  In Discord's style the two are one floating card, as in
   Discord's client: the call on top, a line, then the account, under one
   outline, the call's icons on the avatar's axis. The Game Activity Toggle
   add-on (Settings, Add-ons; on unless turned off) puts a controller after
