@@ -57,7 +57,8 @@ static void keep_error(void *context, int level, const char *format, va_list arg
 static void set_rate(AVCodecContext *codec, unsigned kbps) {
   codec->bit_rate = (int64_t)kbps * 1000;
   codec->rc_max_rate = (int64_t)kbps * 1000;
-  codec->rc_buffer_size = (int)(kbps * 500);
+  /* A second of bits: room for a busy frame or a keyframe to stay sharp. */
+  codec->rc_buffer_size = (int)(kbps * 1000);
 }
 
 static void close_encoder(struct yapfast_hwenc *h) {
@@ -150,14 +151,19 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     }
     h->poll = 1;
   } else {
-    /* p4, Discord's own quality, up to 240 fps; p3 above, so a frame still
+    /* p6 with a quarter-size first pass up to 60 fps (6 ms a 1440p AV1
+       frame on an RTX 5070 Ti, of the 16 it has); p5 up to 120; p4, Discord's own quality, up to 240; p3 above, so a frame still
        encodes within its 2.8 ms at 360. On an RTX 5070 Ti at 1568x1080, AV1
        takes 1.9 ms a frame at p4 and 1.8 at p3 (p1, 1.4, blurred text).
        YAPFAST_NVENC_PRESET overrides it, for measuring. */
     const char *preset = getenv("YAPFAST_NVENC_PRESET");
-    av_opt_set(options, "preset", preset ? preset : fps > 240 ? "p3" : "p4", 0);
+    av_opt_set(options, "preset", preset ? preset : fps > 240 ? "p3" : fps > 120 ? "p4" : fps > 60 ? "p5" : "p6", 0);
     av_opt_set(options, "tune", "ll", 0);
     av_opt_set(options, "rc", "vbr", 0);
+    if (fps <= 60) av_opt_set(options, "multipass", "qres", 0);
+    /* More bits where the eye sees blocks: flat skies, dark corners. */
+    av_opt_set_int(options, "spatial-aq", 1, 0);
+    av_opt_set_int(options, "aq-strength", 8, 0);
     av_opt_set_int(options, "zerolatency", 1, 0);
     av_opt_set_int(options, "delay", 0, 0);
     av_opt_set_int(options, "forced-idr", 1, 0);

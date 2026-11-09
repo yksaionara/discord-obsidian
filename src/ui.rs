@@ -114,6 +114,10 @@ pub fn run(
         // An update downloaded last time installs now, before any window:
         // its installer closes this process and starts the new version.
         yapfast_core::update::set_version(env!("CARGO_PKG_VERSION"));
+        #[cfg(feature = "discord")]
+        if !preview {
+            yapfast_core::discord_sounds::set_folder(&root);
+        }
         #[cfg(windows)]
         if !preview
             && let Some(pending) = yapfast_core::update::pending(&root)
@@ -1295,6 +1299,9 @@ struct Layout {
     /// The instrument Yapfast's sounds play on, and how loud they are as a slider's
     /// percentage from 0% to 200%; [`DEFAULT_SOUND_VOLUME`] unless changed.
     sound_set: SoundSet,
+    /// Whether Discord's sounds have been chosen once for a layout from
+    /// before they were offered, which had Yapfast's own.
+    discord_sounds: bool,
     sound_volume: Option<u8>,
     /// Each sound has its own volume too, against that one; [`Self::each_sound`]
     /// holds them.
@@ -1447,6 +1454,12 @@ impl Layout {
             layout.each_sound.insert(Sound::Mention, 0);
         }
         theme::tidy(&mut layout.custom_themes);
+        // Discord's sounds became the default; everyone gets them once, and
+        // may choose another set after.
+        if !layout.discord_sounds {
+            layout.discord_sounds = true;
+            layout.sound_set = SoundSet::Discord;
+        }
         layout
     }
 
@@ -1574,6 +1587,7 @@ impl Layout {
         window.set_notifications(self.notifications.unwrap_or(true));
         window.set_notification_text(self.notification_text.unwrap_or(true));
         window.set_sound_set(choice(&SoundSet::ALL, self.sound_set));
+        sounds::choose(self.sound_set);
         window.set_sound_volume(self.sound_volume.unwrap_or(DEFAULT_SOUND_VOLUME).into());
         window.set_adjust_each_sound(self.adjust_each_sound);
         window.set_gpu_rendering(self.gpu_rendering);

@@ -45,6 +45,8 @@ mod hotkeys;
 #[cfg(feature = "desktop")]
 mod report;
 #[cfg(feature = "desktop")]
+mod window_icon;
+#[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
 mod twemoji;

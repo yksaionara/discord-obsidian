@@ -21,7 +21,7 @@ pub(super) fn call_sounds(before: &voice::State, after: &voice::State) -> Vec<Ef
         if after.phase == Phase::Connected && (!here(before) || before.room != after.room) {
             Some(Sound::Join)
         } else if here(before) && !here(after) {
-            Some(Sound::Leave)
+            Some(Sound::Disconnect)
         } else if before.phase == Phase::Connected && after.phase == Phase::Connected {
             let (before, after) = (others(before), others(after));
             if !after.is_subset(&before) {

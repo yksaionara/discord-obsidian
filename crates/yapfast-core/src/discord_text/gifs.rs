@@ -650,23 +650,25 @@ fn thumbnail(url: &str, download: &std::path::Path, width: u32) -> Option<PathBu
     }
 }
 
-/// A message's picture as a GIF to keep among the favourites, as Discord's
-/// client offers it on any picture that moves: by the address it was linked
-/// by, a GIF's page or the picture's own, or an attached file's address.
+/// A message's picture or video as a GIF to keep among the favourites, so
+/// any of them can be sent again from the GIF picker: by the address it was
+/// linked by, a GIF's page or the picture's own, or an attached file's
+/// address. A favourite is sent as that address, as the picture it was.
 pub(crate) fn favorite_gif(attachment: &yapfast_discord::message::Attachment) -> Option<Gif> {
-    // Messages kept before Yapfast knew what moves have the name to go by.
-    let moves = attachment.animated
-        || attachment.link_url.is_some()
-        || attachment.name.to_lowercase().ends_with(".gif");
-    if !attachment.image || !moves {
+    let video = !attachment.image && attachment.video_url.is_some();
+    if !attachment.image && !video {
         return None;
     }
     let (width, height) = attachment.dimensions.unwrap_or_default();
     let url = attachment.link_url.as_deref().unwrap_or(&attachment.url);
+    let src = match &attachment.video_url {
+        Some(video_url) if video => video_url.as_str(),
+        _ => &attachment.url,
+    };
     Some(Gif {
         id: None,
         url: favorite_key(url),
-        src: favorite_key(&attachment.url),
+        src: favorite_key(src),
         gif_src: String::new(),
         width,
         height,
@@ -821,8 +823,8 @@ mod tests {
             [
                 // An animated WebP, by its address without the signature.
                 Some("https://cdn.discordapp.com/attachments/2/4/spin.webp".to_owned()),
-                // A still picture has no star.
-                None,
+                // A still picture is a favourite too.
+                Some("https://cdn.discordapp.com/attachments/2/5/still.png".to_owned()),
                 Some(link.to_owned()),
             ]
         );

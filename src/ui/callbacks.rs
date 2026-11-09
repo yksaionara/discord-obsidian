@@ -1552,6 +1552,17 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         if let Some(window) = weak.upgrade() {
             let report = crate::report::build(&state.borrow().root);
             window.invoke_copy_text(report.into());
+            // Said for a moment where zoom says its level.
+            const COPIED: &str = "Error report copied";
+            window.set_zoom_note(COPIED.into());
+            let weak = window.as_weak();
+            slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+                if let Some(window) = weak.upgrade()
+                    && window.get_zoom_note() == COPIED
+                {
+                    window.set_zoom_note("".into());
+                }
+            });
         }
     });
     let state = adapter.clone();
@@ -1619,6 +1630,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.notification_text = Some(window.get_notification_text());
         layout.flash_taskbar = Some(window.get_flash_taskbar());
         layout.sound_set = chosen(&SoundSet::ALL, window.get_sound_set());
+        yapfast_core::sounds::choose(layout.sound_set);
         layout.sound_volume = Some(window.get_sound_volume().clamp(0, 200) as u8);
         layout.adjust_each_sound = window.get_adjust_each_sound();
         layout.gpu_rendering = window.get_gpu_rendering();
@@ -2301,11 +2313,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     #[cfg(feature = "discord")]
     window.on_list_share_sources(move || {
         use yapfast_core::stream_worker::{Report, Source, Worker};
-        // A picture fills a card in the share menu, in pixels.
+        // A picture fills a tile of the share dialog, two to a row, in
+        // pixels; they're let go as it closes.
         let scale = weak
             .upgrade()
             .map_or(1.0, |window| window.window().scale_factor());
-        let (width, height) = ((160.0 * scale).ceil() as u32, (90.0 * scale).ceil() as u32);
+        let (width, height) = ((448.0 * scale).ceil() as u32, (252.0 * scale).ceil() as u32);
         // Listing starts a capturer for screens and one for windows, and
         // looks at each camera, so it runs beside the window, and the menu
         // opens when it's done.
@@ -2328,12 +2341,40 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     _ => None,
                 })
                 .collect();
+            let window_ids: Vec<u64> = windows
+                .iter()
+                .filter_map(|listed| match listed.source {
+                    Source::Window(id) => Some(id),
+                    _ => None,
+                })
+                .collect();
+            // Each window's app icon, as Discord's dialog shows by its name.
+            let icon_size = (18.0 * scale).ceil() as u32;
+            let icons: Vec<Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>>> = windows
+                .iter()
+                .map(|listed| match listed.source {
+                    Source::Window(id) => crate::window_icon::icon(id, icon_size).map(|rgba| {
+                        slint::SharedPixelBuffer::clone_from_slice(&rgba, icon_size, icon_size)
+                    }),
+                    _ => None,
+                })
+                .collect();
             let opened = weak.upgrade_in_event_loop(move |window| {
                 let rows: Vec<ShareScreen> = screens
                     .iter()
                     .map(|listed| ShareScreen {
                         title: listed.title.as_str().into(),
                         picture: Default::default(),
+                        icon: Default::default(),
+                    })
+                    .collect();
+                let window_rows: Vec<ShareScreen> = windows
+                    .iter()
+                    .zip(icons)
+                    .map(|(listed, icon)| ShareScreen {
+                        title: listed.title.as_str().into(),
+                        picture: Default::default(),
+                        icon: icon.map(slint::Image::from_rgba8).unwrap_or_default(),
                     })
                     .collect();
                 let titles = |listed: &[yapfast_core::stream_worker::Shareable]| {
@@ -2344,7 +2385,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     ModelRc::new(VecModel::from(titles))
                 };
                 window.set_share_screens(Rc::new(VecModel::from(rows)).into());
-                window.set_share_windows(titles(&windows));
+                window.set_share_windows(Rc::new(VecModel::from(window_rows)).into());
                 window.set_share_cameras(titles(&cameras));
                 // Where the system's dialog picks a screen or window, the
                 // menu's first choice asks it, before the cameras.
@@ -2361,12 +2402,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 });
                 window.invoke_show_share_menu();
             });
-            if opened.is_err() || ids.is_empty() {
+            if opened.is_err() || (ids.is_empty() && window_ids.is_empty()) {
                 return;
             }
             // The pictures come from a worker, so capturing the screens takes
             // memory only until they're in.
-            let (_worker, mut reports) = match Worker::glance(ids, width, height) {
+            let (_worker, mut reports) = match Worker::glance(ids, window_ids, width, height) {
                 Ok(started) => started,
                 Err(error) => {
                     tracing::warn!("no pictures of the screens to share: {error:#}");
@@ -2377,6 +2418,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 match report {
                     Report::Screen {
                         id,
+                        window: is_window,
                         width,
                         height,
                         rgba,
@@ -2386,17 +2428,26 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                                 &rgba, width, height,
                             );
                         let _ = weak.upgrade_in_event_loop(move |window| {
+                            let source = if is_window {
+                                Source::Window(id)
+                            } else {
+                                Source::Display(id)
+                            };
                             let at = SHAREABLE.with_borrow(|shareable| {
-                                shareable
-                                    .iter()
-                                    .position(|source| *source == Source::Display(id))
+                                shareable.iter().position(|listed| *listed == source)
                             });
                             let screens = window.get_share_screens();
+                            // Windows come after the screens.
+                            let (rows, at) = if is_window {
+                                (window.get_share_windows(), at.and_then(|at| at.checked_sub(screens.row_count())))
+                            } else {
+                                (screens, at)
+                            };
                             if let Some(at) = at
-                                && let Some(mut row) = screens.row_data(at)
+                                && let Some(mut row) = rows.row_data(at)
                             {
                                 row.picture = slint::Image::from_rgba8(pixels);
-                                screens.set_row_data(at, row);
+                                rows.set_row_data(at, row);
                             }
                         });
                     }
@@ -2423,7 +2474,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    window.on_go_live(move |source, resolution, fps, high_quality| {
+    window.on_go_live(move |source, resolution, fps, high_quality, audio| {
         if let Some(window) = weak.upgrade() {
             #[cfg(feature = "discord")]
             {
@@ -2435,21 +2486,28 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
             #[cfg(not(feature = "discord"))]
             let _ = source;
-            let resolution = match resolution {
-                0 => voice::Resolution::P480,
-                1 => voice::Resolution::P720,
-                3 => voice::Resolution::P1440,
-                4 => voice::Resolution::Source,
-                _ => voice::Resolution::P1080,
-            };
-            let quality = voice::StreamQuality {
-                resolution,
-                fps: (fps.max(1) as u32).min(voice::MAX_FPS),
-                high_quality,
-            };
+            let quality = stream_quality(resolution, fps, high_quality, audio);
             state
                 .borrow_mut()
                 .action(&window, Action::Voice(voice::Command::GoLive(quality)));
+        }
+    });
+    // The dialog's pictures go with it.
+    let weak = window.as_weak();
+    window.on_share_dialog_closed(move || {
+        if let Some(window) = weak.upgrade() {
+            window.set_share_screens(ModelRc::default());
+            window.set_share_windows(ModelRc::default());
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_requality(move |resolution, fps, high_quality, audio| {
+        if let Some(window) = weak.upgrade() {
+            let quality = stream_quality(resolution, fps, high_quality, audio);
+            state
+                .borrow_mut()
+                .action(&window, Action::Voice(voice::Command::Requality(quality)));
         }
     });
     let state = adapter.clone();
@@ -3215,5 +3273,22 @@ mod tests {
         assert!(busy > Duration::from_millis(40) && busy <= REPORT_SPACING);
         last.set(Some(Instant::now() - REPORT_SPACING));
         assert_eq!(report_delay(&last), Duration::ZERO);
+    }
+}
+
+/// A stream's quality as the share dialog and the live menu pick it:
+/// resolutions by their place in the list of modes.
+fn stream_quality(resolution: i32, fps: i32, high_quality: bool, audio: bool) -> voice::StreamQuality {
+    voice::StreamQuality {
+        resolution: match resolution {
+            0 => voice::Resolution::P480,
+            1 => voice::Resolution::P720,
+            3 => voice::Resolution::P1440,
+            4 => voice::Resolution::Source,
+            _ => voice::Resolution::P1080,
+        },
+        fps: (fps.max(1) as u32).min(voice::MAX_FPS),
+        high_quality,
+        audio,
     }
 }

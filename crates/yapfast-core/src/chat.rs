@@ -2139,7 +2139,9 @@ impl FavoriteGif {
     /// `gif` as a favourite after those `kept`, as Discord's client adds
     /// one: a video keeps its `.gif` instead, which every client shows.
     pub fn of(gif: &Gif, kept: &[Self]) -> Self {
-        let video_src = gif.src.ends_with(".mp4") || gif.src.ends_with(".webm");
+        let video_src = [".mp4", ".webm", ".mov", ".m4v"]
+            .iter()
+            .any(|extension| gif.src.to_lowercase().ends_with(extension));
         let src = if video_src && !gif.gif_src.is_empty() && gif.gif_src != gif.src {
             gif.gif_src.clone()
         } else {

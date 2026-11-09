@@ -42,11 +42,23 @@ On Linux, libwebrtc's capturer asks the screen sharing portal what to share.
 The portal answers over D-Bus through GLib, so the worker runs GLib's main
 context while it waits for the dialog and for frames. Yapfast tells Discord it's
 live only once frames flow, so a cancelled dialog shares nothing. Windows has
-no such dialog, so the share menu lists the screens and windows libwebrtc's
-capturers find (`stream_worker::shareable`), and the worker captures the one
-picked by its id; see the
-[Windows guide](../windows-beta.md#go-live-on-windows).
-While live, the voice dock's share button switches what's shared without
+no such dialog, so Yapfast's share dialog, laid out as Discord's, lists the
+screens and windows libwebrtc's capturers find (`stream_worker::shareable`)
+under Applications and Entire Screen tabs, and cameras under Devices, and the
+worker captures the one picked by its id; see the
+[Windows guide](../windows-beta.md#go-live-on-windows). A glance worker
+(`Job::Glance`) pictures each screen and window, 448 by 252 points, and each
+window's app icon comes from the window itself (`src/window_icon.rs`); the
+pictures go when the dialog closes. A click on one goes live at once, at the
+quality its foot shows, which the gear changes: presets, resolution, frame
+rate, the encoder's effort, and whether other apps' sound goes too.
+While live, the share button opens Discord's menu instead: Stop Streaming,
+Change Stream, Stream Quality, Share Stream Audio and Report Problem. Stream
+Quality and Share Stream Audio change the stream as it goes
+(`Control::Quality`, `Control::Sound`): the worker captures the same source
+again at the new size, its encoder opens again at the new rate, and the
+stream's sound capture stops or starts, all on the same connection.
+Change Stream switches what's shared without
 ending the stream: the worker starts a second capturer (on Linux, through the
 dialog again) and keeps sending the first one's frames. When the second one
 gives a frame, it replaces the first. If the dialog is cancelled, the first
@@ -54,9 +66,9 @@ one goes on. The encoder takes the new size on the same connection.
 `YAPFAST_STREAM_TEST_PATTERN=1` shares moving colour bars instead of a screen.
 
 A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
-Linux, its DirectShow filter on Windows). The share menu lists the cameras
-[the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
-screens and windows; on Linux, where the portal picks a screen or window, a
+Linux, its DirectShow filter on Windows). The share dialog lists the cameras
+[the call's camera](voice.md#camera-video) lists, under Devices, counted after
+the screens and windows; on Linux, where the portal picks a screen or window, a
 "Screen or window" choice comes first, and switching with no camera listed
 goes straight to the dialog. The worker films the camera through the same
 capture module (`camera::Camera::open_at`), asking for the stream's

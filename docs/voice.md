@@ -150,8 +150,18 @@ the one it watches, plays the call's join or leave an octave higher, quicker
 and quieter, as Discord's client sounds a stream's viewers; a call sound at the
 same moment wins, and a stream starting or ending makes no viewer sound.
 
-`sounds.rs` makes each sound as it plays. The six sets are New Kalimba, the
-default, Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F
+The default set, Discord, plays Discord's own files (`discord_sounds.rs`):
+user_join and user_leave for others, disconnect when this account leaves,
+mute, unmute, deafen, undeafen, message1 for messages and mentions alike,
+stream_started, stream_ended, stream_user_joined and stream_user_left, and
+call_ringing and call_calling for a DM call's rings. None are bundled: a few
+seconds after the set is chosen, a thread fetches any not yet in the data
+folder's `sounds/discord` from discord.com/assets, the files Discord's web
+client loads, and each plays decoded from its file and dropped after. Until
+a file is there, New Kalimba's sound plays instead. A layout from before the
+set existed is switched to it once (`discord_sounds` in `layout.json`).
+
+`sounds.rs` makes the other sets' sounds as they play. They are New Kalimba, Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F
 major pentatonic so any two sound well together. Felt piano, Soft marimba,
 Mellow Rhodes and Glow are synthesized; New Kalimba and Flute play the same
 notes on one recorded note each, made with ElevenLabs' sound generator and kept

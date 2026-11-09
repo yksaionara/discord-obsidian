@@ -1154,7 +1154,7 @@ export component MessageGallery inherits HorizontalLayout {
                     }
                 }
                 // Inside the touch area, so the pointer on it still hovers the GIF.
-                if cell.gif != "" && !cell.spoiler && !root.preview && root.delivery == "": FavoriteStar {
+                if !cell.video && cell.gif != "" && !cell.spoiler && !root.preview && root.delivery == "": FavoriteStar {
                     x: 8px; y: 8px;
                     on: GifFavorites.is-favorite(cell.gif, GifFavorites.revision);
                     shown: cell-touch.has-hover;
@@ -1164,6 +1164,14 @@ export component MessageGallery inherits HorizontalLayout {
             if cell.video && !cell.spoiler && !cell.loading && !root.preview: VideoCell {
                 width: parent.width; height: parent.height; item: root.item; cell: cell;
                 menu(x, y) => { root.media-menu(root.item, cell.index, true, x, y); }
+            }
+            // A video's controls cover the picture, so its star shows while
+            // the message is hovered, above them.
+            if cell.video && cell.gif != "" && !cell.spoiler && !cell.loading && !root.preview && root.delivery == "": FavoriteStar {
+                x: 8px; y: 8px;
+                on: GifFavorites.is-favorite(cell.gif, GifFavorites.revision);
+                shown: root.active-item == root.item;
+                clicked => { GifFavorites.toggle(root.item, cell.index); }
             }
             if root.active-item == root.item && !root.preview && root.delivery == "" && !cell.spoiler: Rectangle {
                 x: parent.width - self.width - 8px; y: 8px; width: 32px; height: 32px; border-radius: 6px; background: #000000b3;

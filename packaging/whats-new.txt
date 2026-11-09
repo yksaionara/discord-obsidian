@@ -1,7 +1,7 @@
-- Mute and deafen shortcuts that work in games: Settings > Voice.
-- Share presets: Games, Max, Text and Light in one click.
-- Turn anyone up to 500% (right-click them in a call).
-- Shift+click Read all to mark DMs read too.
-- Click the version at the bottom of the server list to copy an error report.
-- Full screen on a stream now covers the taskbar.
-- Updates now install by themselves when you're not in a call.
+- Discord's own sounds: joining, leaving, mute, deafen, messages, streams and ringing.
+- New screen share picker like Discord's: big previews, Applications and Entire Screen tabs, one click to go live.
+- While streaming, the green button opens Stop Streaming, Change Stream, Stream Quality and Share Stream Audio.
+- Change stream quality and audio without stopping the stream.
+- The gear in the picker holds presets, resolution, fps and quality.
+- Sharper, smoother streams: fullscreen games share at every frame, 1440p gets twice the bitrate, and the encoder works harder for detail.
+- Favourite any picture or video with its star, not just GIFs: it shows up in your favourite GIFs and sends like normal.

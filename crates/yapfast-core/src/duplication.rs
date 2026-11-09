@@ -38,6 +38,44 @@ use windows::{
     core::Interface,
 };
 
+/// The screen the window `window` fills, as the monitor handle
+/// [`Duplication::open`] takes: a fullscreen or borderless game's. None for
+/// a window smaller than its screen, a minimised one, or one that's gone.
+pub fn filled_screen(window: u64) -> Option<u64> {
+    use windows::Win32::{
+        Foundation::{HWND, RECT},
+        Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromWindow},
+        UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindowVisible},
+    };
+    // SAFETY: reads where a window and its screen are; a window that's gone
+    // fails each call.
+    unsafe {
+        let hwnd = HWND(window as usize as *mut core::ffi::c_void);
+        if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        let mut rect = RECT::default();
+        GetWindowRect(hwnd, &mut rect).ok()?;
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+        if monitor.is_invalid() {
+            return None;
+        }
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+            return None;
+        }
+        let screen = info.rcMonitor;
+        (rect.left <= screen.left
+            && rect.top <= screen.top
+            && rect.right >= screen.right
+            && rect.bottom >= screen.bottom)
+            .then_some(monitor.0 as usize as u64)
+    }
+}
+
 /// What [`Duplication::next`] found.
 pub enum Next {
     /// A new picture, or the last one with the pointer moved.
@@ -523,5 +561,20 @@ mod tests {
         let mut picture = I420Buffer::new(2, 2);
         duplication.picture_into(&mut picture);
         eprintln!("{}x{}: {frames} frames in 2 s", duplication.width, duplication.height);
+    }
+}
+
+#[cfg(test)]
+mod tests_filled {
+    use super::filled_screen;
+    use windows::Win32::UI::WindowsAndMessaging::{GetDesktopWindow, GetShellWindow};
+
+    #[test]
+    fn the_desktop_fills_a_screen_and_nothing_fills_none() {
+        // SAFETY: the shell's own windows, which always exist.
+        let (desktop, shell) = unsafe { (GetDesktopWindow(), GetShellWindow()) };
+        let window = if shell.is_invalid() { desktop } else { shell };
+        assert!(filled_screen(window.0 as usize as u64).is_some());
+        assert_eq!(filled_screen(0), None);
     }
 }

@@ -74,6 +74,8 @@ pub mod runtime;
 #[cfg(feature = "matrix")]
 pub mod session;
 #[cfg(feature = "discord")]
+pub mod discord_sounds;
+#[cfg(feature = "discord")]
 pub mod soundboard;
 pub mod sounds;
 pub mod spoiler;

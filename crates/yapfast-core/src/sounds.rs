@@ -17,8 +17,11 @@ const TAU: f32 = std::f32::consts::TAU;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SoundSet {
-    /// A recorded kalimba's pluck.
+    /// Discord's own sounds; see [`crate::discord_sounds`]. Until they've
+    /// arrived, New Kalimba plays.
     #[default]
+    Discord,
+    /// A recorded kalimba's pluck.
     NewKalimba,
     /// A muffled piano.
     Felt,
@@ -34,7 +37,8 @@ pub enum SoundSet {
 
 impl SoundSet {
     /// In the order Settings lists them, which `layout.json` doesn't depend on.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
+        Self::Discord,
         Self::NewKalimba,
         Self::Felt,
         Self::Marimba,
@@ -104,8 +108,10 @@ impl Sample {
 pub enum Sound {
     /// Someone, this account included, joined the call this account is in.
     Join,
-    /// Someone left that call, or this account did.
+    /// Someone else left that call.
     Leave,
+    /// This account left the call.
+    Disconnect,
     Mute,
     Unmute,
     Deafen,
@@ -126,9 +132,10 @@ pub enum Sound {
 }
 
 impl Sound {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Join,
         Self::Leave,
+        Self::Disconnect,
         Self::Mute,
         Self::Unmute,
         Self::Deafen,
@@ -156,7 +163,7 @@ fn score(sound: Sound) -> (&'static [(f32, f32, f32)], f32, f32) {
     match sound {
         // Rising as someone arrives, falling as they go.
         Sound::Join => (&[(0.0, C4, 0.8), (0.14, F4, 1.0)], 1.0, 0.0),
-        Sound::Leave => (&[(0.0, F4, 0.9), (0.16, C4, 0.75)], 1.0, -1.5),
+        Sound::Leave | Sound::Disconnect => (&[(0.0, F4, 0.9), (0.16, C4, 0.75)], 1.0, -1.5),
         // Quick flicks, quieter, since they're heard most.
         Sound::Mute => (&[(0.0, A4, 0.8), (0.08, F4, 0.7)], 0.45, -4.0),
         Sound::Unmute => (&[(0.0, F4, 0.7), (0.08, A4, 0.8)], 0.45, -4.0),
@@ -237,7 +244,7 @@ fn voice(set: SoundSet, hz: f32, time: f32, velocity: f32, fade: f32) -> f32 {
                 * decay(0.2 * longer * fade)
                 * attack(time, 0.006)
         }
-        SoundSet::NewKalimba => KALIMBA.voice(hz, time, fade),
+        SoundSet::NewKalimba | SoundSet::Discord => KALIMBA.voice(hz, time, fade),
         SoundSet::Flute => FLUTE.voice(hz, time, fade),
         SoundSet::Glow => {
             let longer = (440.0 / hz).powf(0.3);
@@ -305,6 +312,8 @@ const PEAK: f32 = 0.25;
 /// `sound` in `set`, as interleaved stereo at 48 kHz peaking at [`PEAK`] less
 /// its own quieting, before any volume. It ends once 40 dB below its peak.
 pub fn render(set: SoundSet, sound: Sound) -> Vec<f32> {
+    // Discord's files aren't made here; its stand-in is.
+    let set = if set == SoundSet::Discord { SoundSet::NewKalimba } else { set };
     let (notes, fade, loudness) = score(sound);
     let last = notes.iter().fold(0.0f32, |last, note| last.max(note.0));
     let mut dry = vec![0.0f32; ((last + 2.0) * RATE as f32) as usize];
@@ -406,7 +415,13 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     let started = std::thread::Builder::new()
         .name("yapfast-sound".into())
         .spawn(move || {
-            let mut samples = render(set, sound);
+            #[cfg(feature = "discord")]
+            let discord = (set == SoundSet::Discord)
+                .then(|| crate::discord_sounds::samples(sound))
+                .flatten();
+            #[cfg(not(feature = "discord"))]
+            let discord = None;
+            let mut samples = discord.unwrap_or_else(|| render(set, sound));
             samples.iter_mut().for_each(|sample| *sample *= volume);
             if let Err(error) = play_samples(&samples, speaker.as_deref()) {
                 tracing::warn!(
@@ -419,6 +434,23 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     if let Err(error) = started {
         tracing::warn!(%error, "could not start a sound");
     }
+}
+
+/// Whether Discord's set is chosen, for the ringing that follows it.
+static DISCORD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Notes the set chosen; with Discord's, fetches its files not yet here.
+pub fn choose(set: SoundSet) {
+    DISCORD.store(set == SoundSet::Discord, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(feature = "discord")]
+    if set == SoundSet::Discord {
+        crate::discord_sounds::fetch_missing();
+    }
+}
+
+/// Whether Discord's set is chosen.
+pub fn discord_chosen() -> bool {
+    DISCORD.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Plays interleaved stereo samples to the end.

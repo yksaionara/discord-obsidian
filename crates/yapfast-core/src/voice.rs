@@ -114,6 +114,14 @@ pub struct StreamQuality {
     /// the CPU.
     #[serde(default)]
     pub high_quality: bool,
+    /// Other applications' sound goes with a shared screen, as Discord's
+    /// Share Stream Audio.
+    #[serde(default = "sound_on")]
+    pub audio: bool,
+}
+
+fn sound_on() -> bool {
+    true
 }
 
 impl Default for StreamQuality {
@@ -122,6 +130,7 @@ impl Default for StreamQuality {
             resolution: Resolution::P1080,
             fps: 30,
             high_quality: false,
+            audio: true,
         }
     }
 }
@@ -366,6 +375,8 @@ pub enum Command {
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; on Linux, what the system's dialog picks.
     SwitchLive,
+    /// Share at this quality from now on, without stopping the stream.
+    Requality(StreamQuality),
     StopLive,
     /// Play the soundboard sound with this id for everyone in the call.
     Soundboard(String),
@@ -732,6 +743,7 @@ mod tests {
                 resolution: Resolution::P1440,
                 fps: 144,
                 high_quality: true,
+                audio: true,
             },
             ..Default::default()
         };

@@ -83,8 +83,20 @@ impl Ringer {
                     2,
                     Some(Duration::from_millis(100)),
                 );
+                // Discord's own ring when its sounds are chosen and here.
+                let discord = crate::sounds::discord_chosen()
+                    .then(|| {
+                        crate::discord_sounds::named(match tone {
+                            Tone::Incoming => crate::discord_sounds::RINGING,
+                            Tone::Outgoing => crate::discord_sounds::CALLING,
+                        })
+                    })
+                    .flatten();
+                let stereo = discord.unwrap_or_else(|| {
+                    pattern(tone).into_iter().flat_map(|sample| [sample, sample]).collect()
+                });
                 match output {
-                    Ok(output) => play(&pattern(tone), output, &stopped),
+                    Ok(output) => play(&stereo, output, &stopped),
                     Err(error) => tracing::warn!(
                         error = format!("{error:#}"),
                         "could not open the speakers to ring"
@@ -105,16 +117,17 @@ impl Drop for Ringer {
 /// 20 ms at a time.
 const CHUNK: usize = RATE as usize / 50;
 
+/// Plays interleaved stereo over and over until `stop`.
 fn play(pattern: &[f32], mut output: Output<i16>, stop: &AtomicBool) {
     let mut stereo = [0i16; CHUNK * 2];
-    for chunk in pattern.chunks(CHUNK).cycle() {
+    for chunk in pattern.chunks(CHUNK * 2).cycle() {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        for (pair, sample) in stereo.chunks_exact_mut(2).zip(chunk) {
-            pair.fill((sample * f32::from(i16::MAX)) as i16);
+        for (out, sample) in stereo.iter_mut().zip(chunk) {
+            *out = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
         }
-        if let Err(error) = output.write(&stereo[..chunk.len() * 2]) {
+        if let Err(error) = output.write(&stereo[..chunk.len()]) {
             tracing::warn!(error = format!("{error:#}"), "stopped ringing");
             break;
         }

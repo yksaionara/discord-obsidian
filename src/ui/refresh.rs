@@ -3589,6 +3589,7 @@ impl Adapter {
         });
         window.set_share_fps(voice.quality.fps as i32);
         window.set_share_high_quality(voice.quality.high_quality);
+        window.set_share_audio(voice.quality.audio);
         window.set_share_live(
             voice
                 .sharing

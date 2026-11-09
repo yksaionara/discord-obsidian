@@ -2270,7 +2270,7 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
     app.dispatch(Action::RequestJoinVoice("party-voice".into()));
     assert_eq!(
         sounds(&app.dispatch(Action::ConfirmVoiceSwitch)),
-        [Sound::Leave, Sound::Join]
+        [Sound::Disconnect, Sound::Join]
     );
     assert_eq!(app.state.voice.room.as_deref(), Some("party-voice"));
     assert_eq!(
@@ -2483,7 +2483,7 @@ fn calls_sound_as_people_come_and_go_but_not_while_reconnecting_or_ringing() {
     assert_eq!(heard(call(Phase::Connected, &[])), [Sound::Leave]);
     assert_eq!(heard(call(Phase::Reconnecting, &[])), []);
     assert_eq!(heard(call(Phase::Connected, &[("sam", true)])), []);
-    assert_eq!(heard(call(Phase::Leaving, &[])), [Sound::Leave]);
+    assert_eq!(heard(call(Phase::Leaving, &[])), [Sound::Disconnect]);
     assert_eq!(heard(voice::State::default()), []);
 
     // Muting sounds as it's asked for, rather than once the call confirms it.

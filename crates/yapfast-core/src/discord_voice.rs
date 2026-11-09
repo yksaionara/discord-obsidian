@@ -628,6 +628,15 @@ pub(crate) async fn call(
                                 tracing::warn!(error = format!("{error:#}"), "could not switch what's shared");
                             }
                         }
+                        Some(Command::Requality(quality)) => {
+                            if let Some(going) = share.as_mut() {
+                                state.quality = quality;
+                                Chosen::write(remembered, state);
+                                if let Err(error) = going.worker.requality(quality) {
+                                    tracing::warn!(error = format!("{error:#}"), "could not change the stream's quality");
+                                }
+                            }
+                        }
                         Some(Command::StopLive) => {
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);

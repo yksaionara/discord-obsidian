@@ -839,7 +839,7 @@ fn push_to_talk_keeps_its_mode_key_and_release_delay() {
 fn each_sounds_own_volume_counts_only_while_adjusting_each() {
     i_slint_backend_testing::init_no_event_loop();
     let defaults: Layout = serde_json::from_str("{}").unwrap();
-    assert_eq!(defaults.sound_set, SoundSet::NewKalimba);
+    assert_eq!(defaults.sound_set, SoundSet::Discord);
     assert_eq!(defaults.sound_gain(Sound::Join), 1.0);
     let mut layout = Layout {
         sound_set: SoundSet::Rhodes,
@@ -854,13 +854,13 @@ fn each_sounds_own_volume_counts_only_while_adjusting_each() {
 
     let window = classic_window();
     layout.apply(&window);
-    assert_eq!(window.get_sound_set(), 3);
+    assert_eq!(window.get_sound_set(), 4);
     assert_eq!(window.get_sound_volume(), 50);
     assert!(window.get_adjust_each_sound());
     let each: Vec<i32> = window.get_each_sound().iter().collect();
     assert_eq!(
         each,
-        [100, 100, 50, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+        [100, 100, 100, 50, 100, 100, 100, 100, 100, 100, 100, 100, 100]
     );
     let saved = serde_json::to_value(&layout).unwrap();
     assert_eq!(saved["sound_set"], "rhodes");
@@ -1062,12 +1062,12 @@ fn sound_settings_are_remembered() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    window.set_sound_set(4);
+    window.set_sound_set(5);
     window.set_sound_volume(40);
     window.set_adjust_each_sound(true);
     window.invoke_preferences_changed();
-    window.invoke_each_sound_changed(2, 30);
-    window.invoke_each_sound_changed(6, 0);
+    window.invoke_each_sound_changed(3, 30);
+    window.invoke_each_sound_changed(7, 0);
     let read = Layout::read(directory.path());
     assert_eq!(read.sound_set, SoundSet::Glow);
     assert_eq!(read.sound_volume, Some(40));
@@ -1075,9 +1075,9 @@ fn sound_settings_are_remembered() {
     assert_eq!(read.each_sound(Sound::Mute), 30);
     assert_eq!(read.sound_gain(Sound::Message), 0.0);
     let each: Vec<i32> = window.get_each_sound().iter().collect();
-    assert_eq!(each[2], 30);
+    assert_eq!(each[3], 30);
     // Back at 100%, a sound's own volume is forgotten.
-    window.invoke_each_sound_changed(2, 100);
+    window.invoke_each_sound_changed(3, 100);
     assert!(
         !Layout::read(directory.path())
             .each_sound

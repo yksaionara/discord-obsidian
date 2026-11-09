@@ -41,7 +41,7 @@ import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
+import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
@@ -858,6 +858,7 @@ export component YapfastWindow inherits Window {
     /// harder for a sharper picture.
     in property <int> share-resolution: 2;
     in property <int> share-fps: 30;
+    in property <bool> share-audio: true;
     in property <bool> share-high-quality;
     in property <string> share-status;
     /// The newest preview of what's shared, refreshed by stream-tick while sharing.
@@ -1301,8 +1302,14 @@ export component YapfastWindow inherits Window {
     /// this index, or the screen when they list none, at this resolution, as
     /// in share-resolution, frame rate, and quality, as in share-high-quality.
     /// Where the system's dialog picks a screen or window (!share-lists), a
-    /// choice of it comes before the cameras.
-    callback go-live(int, int, int, bool);
+    /// choice of it comes before the cameras. The last says whether other
+    /// apps' sound goes with it.
+    callback go-live(int, int, int, bool, bool);
+    /// While streaming, share at this resolution, frame rate, quality and
+    /// with or without sound from now on.
+    callback requality(int, int, bool, bool);
+    /// The share dialog closed: its pictures can go.
+    callback share-dialog-closed;
     /// While sharing, share what the share menu lists at this index in place
     /// of what's shared, as go-live counts them.
     callback switch-live(int);
@@ -1311,7 +1318,7 @@ export component YapfastWindow inherits Window {
     /// they're in, with the first picked. The screens' pictures come after.
     in property <bool> share-lists;
     in property <[ShareScreen]> share-screens;
-    in property <[string]> share-windows;
+    in property <[ShareScreen]> share-windows;
     in property <[string]> share-cameras;
     callback list-share-sources();
     /// Opens the share menu once its lists are in. Switching where the
@@ -1320,7 +1327,9 @@ export component YapfastWindow inherits Window {
         if root.pick-switch && !root.share-lists && root.share-cameras.length == 0 {
             root.switch-live(0);
         } else {
-            share-menu.show();
+            // Applications first, as Discord's, unless there are none.
+            if root.share-tab == 0 && root.share-windows.length == 0 { root.share-tab = 1; }
+            root.share-dialog-open = true;
         }
     }
     callback stream-tick;
@@ -1741,16 +1750,29 @@ export component YapfastWindow inherits Window {
     property <int> pick-resolution;
     property <int> pick-fps;
     property <bool> pick-high-quality;
-    // The menu switches what's shared, as it was when it opened.
+    property <bool> pick-audio: true;
+    // The dialog switches what's shared, as it was when it opened.
     property <bool> pick-switch;
+    property <bool> share-dialog-open;
+    property <int> share-tab;
+    // The share button: while streaming, the menu to stop, change or tune
+    // the stream, as Discord's; otherwise the dialog to pick what to share.
     function open-share-menu(x: length, y: length) {
         root.menu-x = x; root.menu-y = y;
+        if root.sharing {
+            live-menu.show();
+        } else {
+            root.open-share-dialog(false);
+        }
+    }
+    function open-share-dialog(switching: bool) {
         root.pick-source = 0;
         root.pick-resolution = root.share-resolution;
         root.pick-fps = root.share-fps;
         root.pick-high-quality = root.share-high-quality;
-        root.pick-switch = root.sharing;
-        // Shown once the list is in, so it opens at its full height.
+        root.pick-audio = root.share-audio;
+        root.pick-switch = switching;
+        // Shown once the lists are in.
         root.list-share-sources();
     }
     function open-soundboard(x: length, y: length) {
@@ -1771,25 +1793,18 @@ export component YapfastWindow inherits Window {
             close => { soundboard-menu.close(); }
         }
     }
-    share-menu := PopupWindow {
+    live-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
-        // Wider for the screens' pictures.
-        width: root.share-screens.length > 0 ? 336px : 280px;
+        width: live.content-width; height: live.content-height;
         close-policy: PopupClosePolicy.close-on-click-outside;
-        ShareMenu {
-            screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
-            dialog: !root.share-lists; switching: root.pick-switch;
-            pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
-            pick-high-quality <=> root.pick-high-quality;
-            go-live(source, resolution, fps, high-quality) => {
-                if root.pick-switch {
-                    root.switch-live(source);
-                } else {
-                    root.go-live(source, resolution, fps, high-quality);
-                }
-                share-menu.close();
-            }
+        live := LiveMenu {
+            resolution: root.share-resolution; fps: root.share-fps;
+            high-quality: root.share-high-quality; audio: root.share-audio;
+            stop => { live-menu.close(); if root.sharing { root.toggle-share(); } }
+            change => { live-menu.close(); root.open-share-dialog(true); }
+            requality(resolution, fps, high, audio) => { root.requality(resolution, fps, high, audio); }
+            report => { live-menu.close(); root.copy-report(); }
         }
     }
     // The emoji picker opens below the control that asked for it, flipping above
@@ -2871,6 +2886,7 @@ export component YapfastWindow inherits Window {
                                     full-screen(on) => { root.stage-full = on; }
                                     watch-stream(id) => { root.watch-stream(id); }
                                     stop-watching => { root.stop-watching(); }
+                                    stop-sharing => { if root.sharing { root.toggle-share(); } }
                                     open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
                                     tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
                                         root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
@@ -3748,6 +3764,7 @@ export component YapfastWindow inherits Window {
                 focused: root.call-focus;
                 full-screen(on) => { root.stage-full = on; }
                 stop-watching => { root.stop-watching(); }
+                stop-sharing => { if root.sharing { root.toggle-share(); } }
                 open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
                 tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
                     root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
@@ -4401,6 +4418,26 @@ export component YapfastWindow inherits Window {
         close => { root.close-leaving-link(); }
     }
     // The zoom level, for a moment after it changes.
+    share-dialog-motion := PopupMotion { open: root.share-dialog-open; }
+    changed share-dialog-open => { if !root.share-dialog-open { root.share-dialog-closed(); } }
+    if share-dialog-motion.shown: ShareDialog {
+        y: root.title-height; width: root.width; height: root.height - root.title-height;
+        amount: share-dialog-motion.amount;
+        screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
+        dialog: !root.share-lists; switching: root.pick-switch;
+        tab <=> root.share-tab;
+        pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
+        pick-high-quality <=> root.pick-high-quality; pick-audio <=> root.pick-audio;
+        close => { root.share-dialog-open = false; }
+        go-live(source) => {
+            root.share-dialog-open = false;
+            if root.pick-switch {
+                root.switch-live(source);
+            } else {
+                root.go-live(source, root.pick-resolution, root.pick-fps, root.pick-high-quality, root.pick-audio);
+            }
+        }
+    }
     // What's new, in the corner after an update, until it's dismissed.
     if root.whats-new != "" && root.workspace && !root.stage-full: Rectangle {
         width: min(360px, root.width - 32px); height: whats-new-content.preferred-height;
