@@ -18,7 +18,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 /// The GitHub repository whose releases this build updates from.
-pub const REPOSITORY: &str = "yksaionara/dc";
+pub const REPOSITORY: &str = "yksaionara/discord-obsidian";
 /// The installer's file name in each release.
 pub const INSTALLER: &str = "Discord-Setup.exe";
 /// This build's version: the app's, which it sets once at startup with

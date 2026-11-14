@@ -5,10 +5,10 @@
 <h1 align="center">Discord Obsidian</h1>
 
 <p align="center">
-  <a href="https://github.com/obsidian/obsidian/releases/latest"><img src="https://img.shields.io/github/v/release/obsidian/obsidian?label=beta&color=f0b232" alt="The latest release, a beta"></a>
+  <a href="https://github.com/yksaionara/discord-obsidian/releases/latest"><img src="https://img.shields.io/github/v/release/yksaionara/discord-obsidian?label=beta&color=f0b232" alt="The latest release, a beta"></a>
   <a href="#get-started"><img src="https://img.shields.io/badge/Windows%20%7C%20Linux-0078D4" alt="Windows and Linux"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/obsidian/obsidian?color=blue" alt="License: GPL 3.0"></a>
-  <a href="https://obsidian.com/discord-invite"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord Obsidian Discord server"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL 3.0"></a>
+  <img src="https://img.shields.io/badge/made%20with-Claude-d97757" alt="Made with Claude">
 </p>
 
 <p align="center">
@@ -25,13 +25,46 @@
   &nbsp;·&nbsp;
   <a href="#linux"><b>Download for Linux</b></a>
   &nbsp;·&nbsp;
-  <a href="https://obsidian.com">obsidian.com</a>
+  <a href="https://github.com/yksaionara/discord-obsidian/releases/latest"><b>All releases</b></a>
 </p>
 
 <p align="center">
   <img src="docs/images/obsidian.png" alt="Discord Obsidian showing a group DM, with the server list on the left, the conversation in the middle and its members on the right"><br>
   <sub>A test account on a fake Discord server. Nobody in there said any of this, or endorses Discord Obsidian (sadly).</sub>
 </p>
+
+> [!NOTE]
+> **This is a beta.** Expect rough edges, and please
+> [report what breaks](https://github.com/yksaionara/discord-obsidian/issues). Installed copies update themselves
+> from this repository's releases.
+>
+> This fork is built with [Claude](https://claude.ai) (Anthropic's AI), and
+> it's based on [yapfast](https://github.com/yapfast/yapfast) by wiredtenshi
+> and its contributors, under the same GPL-3.0 licence. The sections from
+> "Why?" down are the original project's, in its author's words.
+
+## What's new in this fork
+
+- **Make your own theme without colour codes.** Settings → Appearance → New
+  theme: pick a background and an accent from ready swatches or a colour
+  wheel, and every other colour is worked out for you. Fine-tune any single
+  colour by what it paints ("Server list", "Chat background") if you like.
+- **Smoother animations** for menus, popups and buttons, with
+  **Reduce motion** in Appearance to turn them all off. They cost nothing
+  while nothing moves.
+- **Game Mode** (Settings → Game activity, on by default). While a game
+  runs, only calls, mentions and DMs make a sound or a notification, GIFs and
+  animations pause, and the app hands memory back to Windows for your game.
+- **Desktop notifications on Windows**, held back by Focus Assist and
+  full-screen games, and clicking one opens the conversation.
+- **Go Live at 1080p 144 and 240 fps.** Sharing a 1568×1080 screen on an
+  RTX 5070 Ti, the stream held 240.0 fps (AV1, and H264 for viewers without
+  AV1) and 144.0 fps, measured at the receiving end of the built-in test
+  server. Real Discord and your upload speed decide what viewers get.
+- **A cleaner home:** no Nitro, Shop or Quests. A nicer **Mark all as read**
+  button, and a calmer **Sending** indicator.
+- A new icon, and a little something hidden in Settings for those who search
+  for a certain city.
 
 ## Why?
 
@@ -196,9 +229,7 @@ order I'm working on it.
 
 It's a beta, and it's what I use for Discord every day, so it had better
 be usable. Still, there are rough edges; when you hit one,
-[open an issue](https://github.com/obsidian/obsidian/issues) and I'll fix it, or
-come hang out on the [Discord Obsidian Discord server](https://obsidian.com/discord-invite)
-and tell me there.
+[open an issue](https://github.com/yksaionara/discord-obsidian/issues).
 
 ### Not for you?
 
@@ -231,7 +262,9 @@ servers just to snoop on your DMs, and no thanks :D).
   Discord Obsidian never sees your password.
 - The login token stays in your system's credential store, and only ever goes
   to Discord. Unlinking signs that session out and deletes it.
-- It sends no analytics or crash reports, and doesn't check for updates.
+- It sends no analytics or crash reports. On Windows it asks GitHub for this
+  repository's latest release every 30 minutes, and installs a newer one
+  when you click Update or at its next start.
 - Pictures and GIFs load from wherever they're hosted, such as Discord or
   Tenor.
 
@@ -241,16 +274,16 @@ Don't want to take my word for it? Fair, the code's all right here.
 
 ### Windows 10 and 11
 
-1. Download `Discord Obsidian-…-windows-x64-setup.exe` from the
-   [latest release](https://github.com/obsidian/obsidian/releases/latest).
+1. Download `Discord-Setup.exe` from the
+   [latest release](https://github.com/yksaionara/discord-obsidian/releases/latest).
 2. Run it. It installs just for you, with no administrator prompt. The
    installer isn't signed yet, so SmartScreen may get nervous: choose **More
    info**, then **Run anyway**.
 3. Discord Obsidian shows a QR code. On your phone, open Discord, go to **Settings →
    Scan QR Code**, and point the camera at it.
 
-Rather skip the installer? The release has a portable ZIP too: extract it and
-double-click `Discord Obsidian.exe`.
+It keeps itself up to date: when a new release is out, an **Update** pill
+shows at the top of the server list.
 
 Discord Obsidian starts with Windows and waits in the tray, so messages and calls still
 reach you. Untick that in the installer, or turn it off later in **Settings →
@@ -260,7 +293,9 @@ Advanced**.
 
 It runs great on both X11 and Wayland, screen sharing too (Hyprland here).
 Every release has two packages, on the
-[latest release](https://github.com/obsidian/obsidian/releases/latest):
+[original project's releases](https://github.com/yapfast/yapfast/releases/latest)
+(this fork ships Windows builds only for now; on Linux,
+[build it yourself](#build-it-yourself)):
 
 - **AppImage**, `Discord Obsidian-…-x86_64.AppImage`, for any distro with glibc 2.39 or
   newer, like Ubuntu 24.04, Fedora 40 or Debian 13. Make it executable
@@ -281,7 +316,7 @@ It's one command (pretty sure, anyway :D), and you get the same Discord-only
 app the releases ship, in your launcher:
 
 ```sh
-nix profile add github:obsidian/obsidian#obsidian
+nix profile add github:yksaionara/discord-obsidian#obsidian
 ```
 
 It compiles from source, so give it a few minutes. An older glibc and no Nix?
@@ -301,7 +336,7 @@ test it on.
 
 Want what's on `main` right now, without waiting for a release or building it
 yourself? Every now and then I put out a nightly build of the Discord-only app.
-They're on the [releases page](https://github.com/obsidian/obsidian/releases),
+They're on the [original project's releases page](https://github.com/yapfast/yapfast/releases),
 marked **Pre-release**, newest first, each with a list of what changed:
 
 - **Windows:** the portable ZIP. Extract it and double-click `Discord Obsidian.exe`.

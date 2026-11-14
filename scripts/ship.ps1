@@ -9,7 +9,7 @@
 param(
     [string]$Version,
     [string]$Notes = "",
-    [string]$Repository = "yksaionara/dc",
+    [string]$Repository = "yksaionara/discord-obsidian",
     [string]$Remote = "ours",
     # Extra lines for the end of the commit message, such as Co-Authored-By.
     [string]$Trailer = ""

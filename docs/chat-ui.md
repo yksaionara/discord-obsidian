@@ -633,7 +633,7 @@ message text need a check on real Windows.
 
 ## Updates
 
-On Windows the app updates from the GitHub releases of `yksaionara/dc`
+On Windows the app updates from the GitHub releases of `yksaionara/discord-obsidian`
 (`crates/obsidian-core/src/update.rs`). Twenty seconds after starting, and
 every 30 minutes after, a thread asks GitHub for the latest release; one newer
 than the app has its `Discord-Setup.exe` downloaded into the data folder's
