@@ -1,5 +1,7 @@
-- Screen sharing now uses the same kind of congestion control as Discord's own app: it watches for the network starting to queue up and backs off before packets are lost, so streams stop freezing. Packets are paced gently like Discord's, and keyframes only go out when a viewer asks (at most every half second) instead of every 3 seconds.
-- Sharing a game window (Valorant and other borderless games) no longer shows a black screen: windows are now captured with Windows Graphics Capture on the GPU that runs the game, like Discord does.
-- New: after restarting in a call, a green banner offers to reconnect you to your last voice channel, like Discord.
-- New: when you're playing a game, a bar above your user panel shows it with a button to stream it.
-- New: Nitro, Shop and Quests links under Friends, "Find or start a conversation" search, and a New Group DM button on the Friends page, like Discord.
+- New: make your own theme without colour codes. Settings > Appearance > New theme: pick a background and an accent from swatches or a colour wheel, and the rest is worked out for you.
+- New: Game Mode (Settings > Game activity). While a game runs, only calls, mentions and DMs make a sound or notification, animations pause, and memory goes back to your game.
+- New: desktop notifications on Windows. Click one to open the conversation.
+- Smoother animations for menus, popups and buttons, and Reduce motion in Appearance to turn them off.
+- Screen sharing uses half the memory on NVIDIA cards, and holds 1080p at 144 and 240 fps.
+- Nitro, Shop and Quests are gone from the home page. Nicer Mark all as read and Sending looks, and a new icon.
+- Updates now come from github.com/yksaionara/discord-obsidian.
