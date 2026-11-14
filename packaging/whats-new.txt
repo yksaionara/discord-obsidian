@@ -1,7 +1,3 @@
-- New: make your own theme without colour codes. Settings > Appearance > New theme: pick a background and an accent from swatches or a colour wheel, and the rest is worked out for you.
-- New: Game Mode (Settings > Game activity). While a game runs, only calls, mentions and DMs make a sound or notification, animations pause, and memory goes back to your game.
-- New: desktop notifications on Windows. Click one to open the conversation.
-- Smoother animations for menus, popups and buttons, and Reduce motion in Appearance to turn them off.
-- Screen sharing uses half the memory on NVIDIA cards, and holds 1080p at 144 and 240 fps.
-- Nitro, Shop and Quests are gone from the home page. Nicer Mark all as read and Sending looks, and a new icon.
-- Updates now come from github.com/yksaionara/discord-obsidian.
+- New: mic test. Settings > Voice & video > Let's check plays your voice back as Discord calls send it, after noise suppression and the input sensitivity, with a level bar that turns green when you'd be heard.
+- New: your mouse's back and forward side buttons go back and forward between conversations, like the arrows in the title bar.
+- New: Who's Watching. While you stream, the voice panel shows who's watching under Your
