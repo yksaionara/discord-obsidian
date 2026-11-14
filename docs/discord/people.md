@@ -711,6 +711,18 @@ services don't count. The game started last shows and stays while it runs.
 One that ended clears after two scans without it, up to 30 s. Only the
 game's name, its application id and when it started go to Discord.
 
+### Game Mode
+
+While a game is detected, Game Mode (Settings → Game activity, on unless
+turned off; `game_mode` in `layout.json`) keeps Discord Obsidian out of the
+game's way (`src/ui/game_mode.rs`): only calls, mentions and DMs sound or
+notify, animated pictures and emoji hold still, the window's transitions take
+no time, and on entering it the heap is compacted and the working set emptied
+(`shell::release_memory`), as closing the window does. Against the fake
+Discord the working set went from 81 MiB to 36 MiB on entering it. It ends
+when the game does, and Game activity says while it's on. It works whether or
+not the account shares the game.
+
 Rich Presence comes first, then the custom games, Discord's list and Steam.
 A custom game is an executable and the name to show after Playing: a file
 name matches the executable in any folder, a full path only there, and

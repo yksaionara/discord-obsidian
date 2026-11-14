@@ -436,7 +436,12 @@ an error.
   joins, pins and call notices don't. Nothing notifies while the account's
   status is Do Not Disturb. They show while Discord Obsidian
   isn't in front, titled with who wrote where, and clicking one opens the
-  conversation. On Linux they go to the freedesktop notification service.
+  conversation. On Linux they go to the freedesktop notification service; on
+  Windows they come from the tray's icon (`Shell_NotifyIconW` with
+  `NIF_INFO`), which Windows shows as a toast and keeps in its notification
+  centre, silent, since Discord Obsidian sounds itself, and held back while
+  Focus Assist is on or a full-screen game runs. In [Game Mode](people.md#game-mode)
+  only mentions, DMs and calls notify or sound.
   Each also plays Discord Obsidian's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
 - Mentions in messages are links on a light fill, in the role's colour or the

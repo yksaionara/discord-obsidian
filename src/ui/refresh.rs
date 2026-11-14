@@ -279,6 +279,7 @@ impl Adapter {
     }
 
     pub(super) fn refresh(&mut self, window: &ObsidianWindow) {
+        self.watch_game_mode(window);
         refresh_avatar_sources(&self.app.state);
         window
             .global::<PictureStore>()

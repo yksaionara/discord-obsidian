@@ -1666,9 +1666,10 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         ANIMATE.set(layout.animate);
         show_motion(&window);
         layout.reduce_motion = window.get_reduce_motion();
+        layout.game_mode = Some(window.get_game_mode());
         window
             .global::<obsidian_ui::Theme>()
-            .set_reduce_motion(layout.reduce_motion);
+            .set_reduce_motion(layout.reduce_motion || window.get_gaming());
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
         layout.level_voice = Some(window.get_level_voice());

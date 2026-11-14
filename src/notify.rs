@@ -1,6 +1,6 @@
 //! Desktop notifications. On Linux they go to the freedesktop notification service,
-//! which GNOME, KDE and the other desktops run; clicking one opens its conversation.
-//! Elsewhere Discord Obsidian doesn't show them yet.
+//! which GNOME, KDE and the other desktops run; on Windows they come from the
+//! tray's icon, as toasts. Clicking one opens its conversation.
 
 use obsidian_core::chat::Alert;
 
@@ -8,7 +8,7 @@ use obsidian_core::chat::Alert;
 #[derive(Clone, Copy)]
 pub struct Style {
     /// Say what the message says, rather than only who wrote.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     pub text: bool,
 }
 
@@ -34,7 +34,12 @@ impl Notifier {
             }
             Self { requests }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            crate::tray::on_notification_opened(opened);
+            Self {}
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = opened;
             Self {}
@@ -44,14 +49,20 @@ impl Notifier {
     pub fn show(&self, alert: Alert, style: Style) {
         #[cfg(target_os = "linux")]
         let _ = self.requests.send((alert, style));
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            let body = body(&alert, style);
+            let shown = crate::tray::notify(&alert.title, &body, alert.room);
+            tracing::debug!(shown, "desktop notification");
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         let _ = (alert, style);
     }
 }
 
 /// The body of a notification: the message, or for privacy only that there is one.
 /// A call's says only that it's ringing.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 fn body(alert: &Alert, style: Style) -> String {
     if style.text || alert.call {
         alert.body.clone()

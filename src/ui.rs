@@ -45,6 +45,7 @@ mod callbacks;
 mod channel_settings;
 mod emoji_animation;
 mod games;
+mod game_mode;
 mod gifs;
 mod gta;
 mod menus;
@@ -820,6 +821,9 @@ thread_local! {
     static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
+    /// Game Mode is on: a game runs and the setting allows it. Animations
+    /// hold still, and only mentions and DMs sound or notify.
+    static GAMING: Cell<bool> = const { Cell::new(false) };
     /// Opens a conversation from a clicked notification, in the current window.
     static OPEN: RefCell<Option<OpenRoom>> = const { RefCell::new(None) };
 }
@@ -1232,6 +1236,8 @@ struct Layout {
     animate: Animate,
     /// Appearance's "Reduce motion": the window's transitions take no time.
     reduce_motion: bool,
+    /// Game Mode, while a game runs; on unless turned off.
+    game_mode: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1370,11 +1376,12 @@ fn attention(window: &ObsidianWindow, wanted: bool) {
 
 /// Plays animations or holds them still, as the setting and the focus say.
 fn show_motion(window: &ObsidianWindow) {
-    let playing = match ANIMATE.get() {
-        Animate::Focused => FOCUSED.get(),
-        Animate::Always => true,
-        Animate::Never => false,
-    };
+    let playing = !GAMING.get()
+        && match ANIMATE.get() {
+            Animate::Focused => FOCUSED.get(),
+            Animate::Always => true,
+            Animate::Never => false,
+        };
     window.global::<Motion>().set_playing(playing);
     // Animated emoji hold still with everything else, at once rather than at
     // the next refresh.
@@ -1526,9 +1533,10 @@ impl Layout {
         ANIMATE.set(self.animate);
         show_motion(window);
         window.set_reduce_motion(self.reduce_motion);
+        window.set_game_mode(self.game_mode.unwrap_or(true));
         window
             .global::<obsidian_ui::Theme>()
-            .set_reduce_motion(self.reduce_motion);
+            .set_reduce_motion(self.reduce_motion || GAMING.get());
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
         window.set_level_voice(self.level_voice.unwrap_or(true));
@@ -2638,6 +2646,11 @@ impl Adapter {
                     }
                 }
                 Effect::Notify(alert) => {
+                    // In Game Mode only what's for this account gets through:
+                    // calls, mentions and DMs.
+                    if GAMING.get() && !alert.call && !alert.mention && !self.direct(&alert.room) {
+                        continue;
+                    }
                     // A message sounds unless it's in the conversation in front;
                     // a call rings instead.
                     let reading =

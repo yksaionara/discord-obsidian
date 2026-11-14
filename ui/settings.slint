@@ -1690,8 +1690,27 @@ export component GameActivitySettings inherits VerticalLayout {
     private property <string> text-draft;
     private property <bool> invalid-game;
     private property <int> editing-game: -1;
+    /// Game Mode's switch, and whether a game has it on now.
+    in-out property <bool> game-mode;
+    in property <bool> gaming;
+    callback game-mode-toggled();
     spacing: 16px;
     SettingsTitle { text: "Game activity"; }
+    SettingsSwitch {
+        text: "Game Mode";
+        description: "While you play, only calls, mentions and DMs make a sound or a notification, GIFs and animations hold still, and Discord gives memory back so your game has it. It turns on by itself when Discord sees a game, and off when you stop.";
+        checked <=> root.game-mode;
+        toggled => { root.game-mode-toggled(); }
+    }
+    if root.gaming && root.game-mode: Rectangle {
+        height: 36px; border-radius: 8px; background: Theme.live.with-alpha(0.14);
+        border-width: 1px; border-color: Theme.live.with-alpha(0.4);
+        HorizontalLayout {
+            padding-left: 12px; spacing: 8px;
+            Middle { Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.live; } }
+            Text { text: "Game Mode is on"; color: Theme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+        }
+    }
     SettingsSwitch {
         text: "Share the game you play";
         description: "This app looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.";

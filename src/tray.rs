@@ -82,6 +82,21 @@ use none as platform;
 #[cfg(windows)]
 use windows as platform;
 
+/// Shows a desktop notification from the tray's icon, which Windows shows as
+/// a toast and keeps in its notification centre. It stays quiet while Focus
+/// Assist is on or a full-screen game runs, and makes no sound of its own:
+/// Discord Obsidian plays its own. False when there's no icon to show it from.
+#[cfg(windows)]
+pub fn notify(title: &str, body: &str, room: String) -> bool {
+    windows::balloon(title, body, room)
+}
+
+/// What runs, on Slint's event loop, with a clicked notification's conversation.
+#[cfg(windows)]
+pub fn on_notification_opened(opened: fn(String)) {
+    windows::set_opener(opened);
+}
+
 #[cfg(target_os = "linux")]
 mod linux {
     use std::sync::{
@@ -263,14 +278,15 @@ mod windows {
             System::LibraryLoader::GetModuleHandleW,
             UI::{
                 Shell::{
-                    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+                    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_LARGE_ICON, NIIF_NOSOUND,
+                    NIIF_RESPECT_QUIET_TIME, NIIF_USER, NIM_ADD, NIM_DELETE, NIM_MODIFY,
                     NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW, Shell_NotifyIconW,
                 },
                 WindowsAndMessaging::{
                     AppendMenuW, CreateIcon, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
                     DestroyIcon, DestroyMenu, DestroyWindow, GetCursorPos, GetSystemMetrics, HICON,
                     MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassW, RegisterWindowMessageW,
-                    SM_CXSMICON, SetForegroundWindow, SetMenuDefaultItem, TPM_NONOTIFY,
+                    SM_CXICON, SM_CXSMICON, SetForegroundWindow, SetMenuDefaultItem, TPM_NONOTIFY,
                     TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU,
                     WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPED,
                 },
@@ -286,6 +302,8 @@ mod windows {
     /// Keyboard selection, which the shell sends as `NIN_SELECT` and `NIN_KEYSELECT`.
     const NIN_SELECT: u32 = WM_USER;
     const NIN_KEYSELECT: u32 = WM_USER + 1;
+    /// A click on the notification the icon showed.
+    const NIN_BALLOONUSERCLICK: u32 = WM_USER + 5;
     const OPEN: usize = 1;
     const DISCONNECT: usize = 2;
     const QUIT: usize = 3;
@@ -295,6 +313,45 @@ mod windows {
         /// thread, whose message loop winit runs.
         static ICON: RefCell<Option<Icon>> = const { RefCell::new(None) };
         static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
+        /// The conversation of the notification shown last, which a click opens.
+        static PENDING: RefCell<Option<String>> = const { RefCell::new(None) };
+        static OPENER: Cell<Option<fn(String)>> = const { Cell::new(None) };
+    }
+
+    pub fn set_opener(opened: fn(String)) {
+        OPENER.set(Some(opened));
+    }
+
+    /// Shows a notification from the icon: the title and body, cut to what
+    /// the shell takes, with the logo large beside them.
+    pub fn balloon(title: &str, body: &str, room: String) -> bool {
+        let data = ICON.with_borrow(|icon| {
+            icon.as_ref()
+                .filter(|icon| icon.added)
+                .map(|icon| (icon.data, icon.balloon))
+        });
+        let Some((mut data, balloon)) = data else {
+            return false;
+        };
+        // Only the notification changes; the icon and tip stay as they are.
+        data.uFlags = NIF_INFO;
+        let fill = |place: &mut [u16], text: &str| {
+            let room = place.len() - 1;
+            let mut units: Vec<u16> = text.encode_utf16().take(room).collect();
+            if text.encode_utf16().count() > room {
+                units.truncate(room - 1);
+                units.push('\u{2026}' as u16);
+            }
+            place.fill(0);
+            place[..units.len()].copy_from_slice(&units);
+        };
+        fill(&mut data.szInfoTitle, title);
+        fill(&mut data.szInfo, if body.is_empty() { " " } else { body });
+        data.dwInfoFlags = NIIF_USER | NIIF_NOSOUND | NIIF_RESPECT_QUIET_TIME
+            | if balloon.is_null() { 0 } else { NIIF_LARGE_ICON };
+        data.hBalloonIcon = balloon;
+        PENDING.set(Some(room));
+        notify(NIM_MODIFY, &data)
     }
 
     struct Icon {
@@ -303,6 +360,8 @@ mod windows {
         added: bool,
         /// Without the unread dot, and with it.
         icons: [HICON; 2],
+        /// The logo at the size a notification shows it.
+        balloon: HICON,
         shown: Shown,
         chosen: fn(Choice),
     }
@@ -348,6 +407,7 @@ mod windows {
                 TASKBAR_CREATED.set(RegisterWindowMessageW(w!("TaskbarCreated")));
                 let size = GetSystemMetrics(SM_CXSMICON).clamp(16, 256) as u32;
                 let icons = [icon(size, false), icon(size, true)];
+                let balloon = icon(GetSystemMetrics(SM_CXICON).clamp(32, 256) as u32, false);
                 let mut data = NOTIFYICONDATAW {
                     cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                     hWnd: window,
@@ -368,6 +428,7 @@ mod windows {
                     data,
                     added,
                     icons,
+                    balloon,
                     shown: Shown::default(),
                     chosen,
                 }));
@@ -396,9 +457,11 @@ mod windows {
         fn drop(&mut self) {
             if let Some(icon) = ICON.take() {
                 notify(NIM_DELETE, &icon.data);
-                for picture in icon.icons {
-                    // SAFETY: the pictures are this tray's, and no longer shown.
-                    unsafe { DestroyIcon(picture) };
+                for picture in icon.icons.into_iter().chain([icon.balloon]) {
+                    if !picture.is_null() {
+                        // SAFETY: the pictures are this tray's, and no longer shown.
+                        unsafe { DestroyIcon(picture) };
+                    }
                 }
             }
             // SAFETY: the window is this tray's, on this thread.
@@ -449,6 +512,12 @@ mod windows {
         if message == ICON_MESSAGE {
             match lparam as u32 {
                 WM_LBUTTONUP | NIN_SELECT | NIN_KEYSELECT => choose(Choice::Open),
+                NIN_BALLOONUSERCLICK => {
+                    if let (Some(room), Some(opened)) = (PENDING.take(), OPENER.get()) {
+                        // Not from inside the window procedure.
+                        let _ = slint::invoke_from_event_loop(move || opened(room));
+                    }
+                }
                 WM_RBUTTONUP | WM_CONTEXTMENU => menu(window),
                 _ => {}
             }

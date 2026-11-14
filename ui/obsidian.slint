@@ -1160,6 +1160,9 @@ export component ObsidianWindow inherits Window {
     in-out property <bool> show-nameplates: true;
     /// Appearance's "Reduce motion".
     in-out property <bool> reduce-motion;
+    /// Game Activity's Game Mode switch, and whether it's on now.
+    in-out property <bool> game-mode: true;
+    in property <bool> gaming;
     /// When animations play: 0 while Discord Obsidian has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
@@ -4049,6 +4052,8 @@ export component ObsidianWindow inherits Window {
             tick => { return root.gta-tick(); }
         }
         if root.settings-section == 8: GameActivitySettings {
+            game-mode <=> root.game-mode; gaming: root.gaming;
+            game-mode-toggled => { root.preferences-changed(); }
             shown: root.show-game; linked: root.discord-linked; executables: root.game-executables;
             toggled(shown) => { root.show-game-toggled(shown); }
             save(index, executable, text) => { return root.save-game-executable(index, executable, text); }
