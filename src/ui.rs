@@ -2011,9 +2011,17 @@ struct Adapter {
     call_focus: Option<tiles::Focus>,
     watched: Option<String>,
     /// Runs the microphone through Discord's processing while voice settings
-    /// show the voice gate's sensitivity.
+    /// show the voice gate's sensitivity, or test the microphone, which
+    /// plays it back too; see `refresh_gate_meter`.
     #[cfg(feature = "discord")]
     gate_meter: Option<obsidian_core::discord_audio::GateMeter>,
+    #[cfg(feature = "discord")]
+    gate_metered: bool,
+    #[cfg(feature = "discord")]
+    mic_testing: bool,
+    /// Whether the gate meter running plays back, as a mic test.
+    #[cfg(feature = "discord")]
+    gate_meter_plays: bool,
     /// Watches the push-to-talk key while push to talk is on and it's set,
     /// with or without the window.
     talk_key: Option<crate::push_to_talk::Watcher>,
@@ -2245,6 +2253,12 @@ impl Adapter {
                 watched: None,
                 #[cfg(feature = "discord")]
                 gate_meter: None,
+                #[cfg(feature = "discord")]
+                gate_metered: false,
+                #[cfg(feature = "discord")]
+                mic_testing: false,
+                #[cfg(feature = "discord")]
+                gate_meter_plays: false,
                 talk_key: None,
                 shortcuts: None,
                 thumbnails: HashMap::new(),

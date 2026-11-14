@@ -410,7 +410,8 @@ impl Drop for Capture {
 /// The Discord microphone's level as the voice gate hears it, after all the
 /// processing, and whether the gate would be open: for setting the
 /// sensitivity. It opens the microphone itself and sends nothing, so it works
-/// outside calls and beside one. Stops when dropped.
+/// outside calls and beside one. As a mic test it also plays what the gate
+/// lets through to the speakers, as a call would send it. Stops when dropped.
 pub struct GateMeter {
     shared: Arc<MeterShared>,
 }
@@ -427,6 +428,16 @@ impl GateMeter {
     /// Starts measuring `microphone`, a device id from
     /// [`crate::voice::State`], or the system default for `None`.
     pub fn start(microphone: Option<&str>) -> Self {
+        Self::spawn(microphone, None)
+    }
+
+    /// As [`GateMeter::start`], and plays what a call would send to
+    /// `speaker`, or the default speakers for `None`.
+    pub fn test(microphone: Option<&str>, speaker: Option<&str>) -> Self {
+        Self::spawn(microphone, Some(speaker.map(str::to_owned)))
+    }
+
+    fn spawn(microphone: Option<&str>, playback: Option<Option<String>>) -> Self {
         let shared = Arc::new(MeterShared {
             level: AtomicU32::new(f32::NEG_INFINITY.to_bits()),
             open: AtomicBool::new(false),
@@ -438,7 +449,7 @@ impl GateMeter {
         let spawned = std::thread::Builder::new()
             .name("obsidian-gate-meter".into())
             .spawn(move || {
-                if let Err(error) = measure(microphone.as_deref(), &worker) {
+                if let Err(error) = measure(microphone.as_deref(), playback, &worker) {
                     tracing::warn!(%error, "could not measure the Discord microphone");
                     worker.failed.store(true, Ordering::Relaxed);
                 }
@@ -473,6 +484,10 @@ impl Drop for GateMeter {
 
 /// Frames waiting for the speakers; more than this and new ones are dropped.
 const QUEUE: usize = 4;
+/// What the mic test keeps queued for the speakers, and the most blocks it
+/// keeps waiting for them: little, so it plays back promptly.
+const TEST_QUEUE: Duration = Duration::from_millis(30);
+const TEST_WAITING: usize = 2;
 /// What the speakers keep queued: three frames.
 const SPEAKER_QUEUE: Duration = Duration::from_millis(60);
 /// Roughly how late the microphone hears what the speakers played.
@@ -674,21 +689,65 @@ impl Processing {
 }
 
 /// Runs the microphone through a call's processing for [`GateMeter`]
-/// until it stops. The level falls 90 dB a second, as the input menu's
-/// does, and rises at once.
-fn measure(microphone: Option<&str>, shared: &MeterShared) -> Result<()> {
+/// until it stops, playing what it sends to `playback`'s speakers if asked.
+/// The level falls 90 dB a second, as the input menu's does, and rises at
+/// once.
+fn measure(
+    microphone: Option<&str>,
+    playback: Option<Option<String>>,
+    shared: &MeterShared,
+) -> Result<()> {
     let mut stream = open_microphone(microphone)?;
+    let mut speakers = playback
+        .map(|speaker| {
+            LastingOutput::<i16>::open(
+                speaker.as_deref(),
+                "Mic test",
+                SAMPLE_RATE,
+                CHANNELS,
+                Some(TEST_QUEUE),
+            )
+        })
+        .transpose()?;
     let mut processing = Processing::new(None);
     let mut block = [0i16; BLOCK];
+    let mut frame = [0i16; BLOCK * CHANNELS as usize];
+    // What the gate sent and isn't played yet. Opening sends the blocks it
+    // kept from before as well, which would add to the delay for good, so
+    // one block plays for each block heard, and more than two waiting
+    // drop the oldest.
+    let mut waiting = VecDeque::with_capacity(BEFORE_OPENING + 1);
     let mut shown = f32::NEG_INFINITY;
     while !shared.stop.load(Ordering::Relaxed) {
         stream.read(&mut block);
-        processing.block(&mut block);
+        let sent = processing.block(&mut block);
+        if speakers.is_some() {
+            waiting.extend(sent.iter().copied());
+        }
         shown = processing.level.max(shown - 0.9);
         shared.level.store(shown.to_bits(), Ordering::Relaxed);
         shared
             .open
             .store(processing.gate.is_open(), Ordering::Relaxed);
+        let Some(speakers) = &mut speakers else {
+            continue;
+        };
+        while waiting.len() > TEST_WAITING {
+            waiting.pop_front();
+        }
+        let volume = crate::volume::speakers() * 32768.0;
+        match waiting.pop_front() {
+            Some(sent) => {
+                for (pair, value) in frame.chunks_exact_mut(CHANNELS as usize).zip(sent) {
+                    pair.fill((value * volume).clamp(-32768.0, 32767.0) as i16);
+                }
+            }
+            None => frame.fill(0),
+        }
+        // The microphone hears the speakers too: echo cancellation takes
+        // the voice played back out of it, so it doesn't play again.
+        processing.played(&mut frame);
+        speakers.write(&frame);
     }
     Ok(())
 }

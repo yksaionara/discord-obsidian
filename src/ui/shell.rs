@@ -408,6 +408,8 @@ impl Adapter {
         #[cfg(feature = "discord")]
         {
             self.gate_meter = None;
+            self.gate_metered = false;
+            self.mic_testing = false;
         }
         self.camera_test = None;
         self.viewer_image = None;

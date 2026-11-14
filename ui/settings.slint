@@ -539,6 +539,9 @@ export component VoiceSettings inherits VerticalLayout {
     in property <bool> gate-sending;
     /// Why the gate's level can't be shown, if it can't.
     in property <string> gate-meter-note;
+    /// The mic test plays the microphone back as Discord calls send it,
+    /// showing the gate's level as it does.
+    in-out property <bool> mic-testing;
     /// How calls send the microphone: 0 voice activity, 1 push to talk.
     in-out property <int> input-mode;
     /// The push-to-talk key's name, empty while there's none, and whether
@@ -620,6 +623,40 @@ export component VoiceSettings inherits VerticalLayout {
         }
     }
     if root.microphones.length == 0 && root.speakers.length == 0: Label { text: "No audio devices found. Connect one, then refresh."; }
+    if root.discord: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "MIC TEST"; }
+        Label {
+            text: root.input-mode == 1 ? "Start a test and hold your push-to-talk key as you speak: you'll hear yourself as Discord calls send you. Wear headphones, or your speakers may echo."
+                : "Start a test and say something: you'll hear yourself as Discord calls send you, after noise suppression and the input sensitivity, at your volumes. Wear headphones, or your speakers may echo.";
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            ActionButton {
+                text: root.mic-testing ? "Stop testing" : "Let's check"; small: true;
+                primary: !root.mic-testing; enabled: root.microphones.length > 0 || root.mic-testing;
+                clicked => { root.mic-testing = !root.mic-testing; }
+            }
+            // The microphone as the gate hears it, over the slider's 80 dB:
+            // green while it would send, grey while it wouldn't.
+            VerticalLayout {
+                horizontal-stretch: 1; alignment: center;
+                bar := HorizontalLayout {
+                    height: 10px; spacing: 3px;
+                    property <float> shown: !root.mic-testing ? 0 : max(0, min(1, (root.gate-level + 80) / 80));
+                    accessible-role: progress-indicator;
+                    accessible-label: "Mic test level";
+                    accessible-value: round(self.shown * 100) + "%" + (root.mic-testing && !root.gate-sending ? ", not sending" : "");
+                    for segment in 32: Rectangle {
+                        border-radius: 2px;
+                        background: (segment + 0.5) / 32 > bar.shown ? Theme.line
+                            : root.gate-sending ? Theme.live : Theme.muted;
+                    }
+                }
+            }
+        }
+        if root.mic-testing && root.gate-meter-note != "": Label { text: root.gate-meter-note; }
+    }
     HorizontalLayout {
         spacing: 16px;
         VerticalLayout {

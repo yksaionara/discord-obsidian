@@ -2848,12 +2848,9 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                 if adapter.meter.is_some() {
                     adapter.meter = Some(InputMeter::start(Some(&id)));
                 }
-                #[cfg(feature = "discord")]
-                if adapter.gate_meter.is_some() {
-                    adapter.gate_meter =
-                        Some(obsidian_core::discord_audio::GateMeter::start(Some(&id)));
-                }
                 adapter.action(&window, Action::Voice(voice::Command::Microphone(id)));
+                #[cfg(feature = "discord")]
+                refresh_gate_meter(&mut adapter, true);
             }
         }
     });
@@ -2872,9 +2869,12 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                     .map(|device| device.id.clone())
             });
             if let Some(id) = id {
-                state
-                    .borrow_mut()
-                    .action(&window, Action::Voice(voice::Command::Speaker(id)));
+                let mut adapter = state.borrow_mut();
+                adapter.action(&window, Action::Voice(voice::Command::Speaker(id)));
+                #[cfg(feature = "discord")]
+                if adapter.mic_testing {
+                    refresh_gate_meter(&mut adapter, true);
+                }
             }
         }
     });
@@ -3080,9 +3080,14 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         let state = adapter.clone();
         window.on_gate_metering(move |on| {
             let mut adapter = state.borrow_mut();
-            let microphone = adapter.app.state.voice.microphone.clone();
-            adapter.gate_meter =
-                on.then(|| obsidian_core::discord_audio::GateMeter::start(microphone.as_deref()));
+            adapter.gate_metered = on;
+            refresh_gate_meter(&mut adapter, false);
+        });
+        let state = adapter.clone();
+        window.on_test_microphone(move |on| {
+            let mut adapter = state.borrow_mut();
+            adapter.mic_testing = on;
+            refresh_gate_meter(&mut adapter, false);
         });
         let state = adapter.clone();
         let weak = window.as_weak();
@@ -3102,6 +3107,33 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             }
         });
     }
+}
+
+/// Runs the gate meter while voice settings show its level or test the
+/// microphone, playing back for a test, on the chosen devices. One meter
+/// serves both, so the microphone goes through Discord's processing once.
+/// `devices_changed` starts it again on the devices chosen now.
+#[cfg(feature = "discord")]
+fn refresh_gate_meter(adapter: &mut Adapter, devices_changed: bool) {
+    use obsidian_core::discord_audio::GateMeter;
+    if !adapter.gate_metered && !adapter.mic_testing {
+        adapter.gate_meter = None;
+        return;
+    }
+    let plays = adapter.mic_testing;
+    if adapter.gate_meter.is_some() && adapter.gate_meter_plays == plays && !devices_changed {
+        return;
+    }
+    // The old one lets the devices go first.
+    adapter.gate_meter = None;
+    let voice = &adapter.app.state.voice;
+    let microphone = voice.microphone.as_deref();
+    adapter.gate_meter = Some(if plays {
+        GateMeter::test(microphone, voice.speaker.as_deref())
+    } else {
+        GateMeter::start(microphone)
+    });
+    adapter.gate_meter_plays = plays;
 }
 
 #[cfg(feature = "discord")]

@@ -1134,7 +1134,7 @@ export component ObsidianWindow inherits Window {
     // Closing settings stops linking Discord there.
     changed settings-open => {
         if !self.settings-open && self.link-phase != 0 { self.cancel-discord-link(); }
-        if !self.settings-open { self.camera-testing = false; }
+        if !self.settings-open { self.camera-testing = false; self.mic-testing = false; }
         if !self.settings-open && self.theme-editor { self.cancel-theme(); }
     }
     in-out property <int> settings-section;
@@ -1178,6 +1178,9 @@ export component ObsidianWindow inherits Window {
     in-out property <float> gate-level: -100;
     in-out property <bool> gate-sending;
     in-out property <string> gate-meter-note;
+    /// The mic test plays the microphone back, as Discord calls send it,
+    /// while voice settings show; the gate meter's level shows with it.
+    in-out property <bool> mic-testing;
     /// Push to talk: see VoiceSettings.
     in-out property <int> input-mode;
     in-out property <string> talk-key;
@@ -1427,6 +1430,8 @@ export component ObsidianWindow inherits Window {
     callback metering(bool);
     callback meter-tick;
     callback gate-metering(bool);
+    /// Play the microphone back to test it, or stop.
+    callback test-microphone(bool);
     callback select-camera(int);
     /// Film to try the camera, or stop.
     callback test-camera(bool);
@@ -1739,6 +1744,8 @@ export component ObsidianWindow inherits Window {
     Timer { interval: 50ms; running: root.input-open; triggered => { root.meter-tick(); } }
     // The Discord gate's meter runs while voice settings show it.
     property <bool> gate-metered: root.settings-open && root.settings-section == 1 && root.discord-linked && root.input-mode == 0;
+    property <bool> mic-test-running: root.settings-open && root.settings-section == 1 && root.discord-linked && root.mic-testing;
+    changed mic-test-running => { root.test-microphone(self.mic-test-running); }
     // Cameras stop making pictures for a grid that left the screen, and one
     // starts in the corner.
     changed grid-shown => { root.stream-tick(); }
@@ -1747,7 +1754,7 @@ export component ObsidianWindow inherits Window {
     property <bool> camera-filming: root.settings-open && root.settings-section == 1 && root.camera-testing;
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
-    Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
+    Timer { interval: 50ms; running: root.gate-metered || root.mic-test-running; triggered => { root.gate-meter-tick(); } }
     // While watching, often enough for a 360 fps stream: a tick without a
     // new picture only looks. Otherwise 30 a second.
     Timer { interval: root.watching ? 2ms : 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
@@ -3987,6 +3994,7 @@ export component ObsidianWindow inherits Window {
             unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
             noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
+            mic-testing <=> root.mic-testing;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
             talk-delay <=> root.talk-delay; talk-note: root.talk-note;
             mute-key: root.mute-key; deafen-key: root.deafen-key;
