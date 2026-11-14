@@ -530,6 +530,12 @@ The window follows Discord's arrangement:
   add-on (Settings, Add-ons; on unless turned off) puts a controller after
   deafen, with Discord linked, that turns "Share the game you play" on and
   off; it's struck through in red while the game is hidden, as muting is.
+  The Who's Watching add-on (Settings, Add-ons; on unless turned off), as
+  Equicord's plugin of that name, adds a "Spectators — N" row under "Your
+  screen" while this account is live: the viewers' avatars overlapping, as
+  many as fit up to 12, then "+N", or "No spectators". An avatar opens its
+  profile and hovering names it; hovering "+N" or the LIVE tag names them
+  all (`whos_watching` in `layout.json`).
 - A conversation with a 48px header: the conversation's icon and name, and
   for a Discord server channel its topic on one line after a rule, which a
   click shows in full. Its buttons sit on the right, as in Discord: a DM's

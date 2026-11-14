@@ -1229,6 +1229,9 @@ struct Layout {
     /// The Game Activity Toggle add-on's button beside mute and deafen; on
     /// unless turned off.
     game_toggle: Option<bool>,
+    /// The Who's Watching add-on's Spectators row in the voice panel; on
+    /// unless turned off.
+    whos_watching: Option<bool>,
     /// The voice channel this account was connected to, until it left: offered
     /// back after a restart, as Discord's notice does.
     last_voice: Option<String>,
@@ -1529,6 +1532,7 @@ impl Layout {
         self.message_logger.show(window);
         window.set_show_nameplates(self.nameplates.unwrap_or(true));
         window.set_game_toggle_button(self.game_toggle.unwrap_or(true));
+        window.set_whos_watching(self.whos_watching.unwrap_or(true));
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);

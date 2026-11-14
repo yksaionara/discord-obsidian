@@ -1156,6 +1156,9 @@ export component ObsidianWindow inherits Window {
     /// The Game Activity Toggle add-on: a button beside mute and deafen that
     /// turns sharing the game being played on and off.
     in-out property <bool> game-toggle-button: true;
+    /// The Who's Watching add-on: the voice panel names who watches this
+    /// account's stream; on unless turned off.
+    in-out property <bool> whos-watching: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
     /// Appearance's "Reduce motion".
@@ -1847,6 +1850,14 @@ export component ObsidianWindow inherits Window {
     property <length> anchor-width;
     property <length> anchor-height;
     property <bool> anchor-pointer;
+    // A spectator's profile, from their avatar in the voice panel.
+    function open-viewer-profile(person: PersonRow, x: length, y: length, width: length, height: length) {
+        if person.person != "" {
+            root.anchor(x, y, width, height, false);
+            root.profile-at-pointer = true;
+            root.show-profile(person.person);
+        }
+    }
     function anchor(x: length, y: length, width: length, height: length, pointer: bool) {
         root.anchor-x = x; root.anchor-y = y; root.anchor-width = width; root.anchor-height = height;
         root.anchor-pointer = pointer;
@@ -2520,7 +2531,9 @@ export component ObsidianWindow inherits Window {
                     voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
                     voice-warning: root.voice-warning; voice-error: root.voice-error;
                     can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
-                    share-watchers: root.share-viewers.length;
+                    share-viewers: root.share-viewers; share-viewer-names: root.share-viewer-names;
+                    whos-watching: root.whos-watching;
+                    open-viewer-profile(person, x, y, width, height) => { root.open-viewer-profile(person, x, y, width, height); }
                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                     can-soundboard: root.can-soundboard;
                     leave-voice => { root.leave-voice(); }
@@ -2546,7 +2559,9 @@ export component ObsidianWindow inherits Window {
                                 voice-active: root.voice-active; voice-ready: root.voice-ready; voice-leaving: root.voice-leaving;
                                 voice-warning: root.voice-warning; voice-error: root.voice-error;
                                 can-share: root.can-share; sharing: root.sharing; share-live: root.share-live; share-status: root.share-status;
-                                share-watchers: root.share-viewers.length;
+                                share-viewers: root.share-viewers; share-viewer-names: root.share-viewer-names;
+                                whos-watching: root.whos-watching;
+                                open-viewer-profile(person, x, y, width, height) => { root.open-viewer-profile(person, x, y, width, height); }
                                 can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                                 can-soundboard: root.can-soundboard;
                                 leave-voice => { root.leave-voice(); }
@@ -4046,6 +4061,7 @@ export component ObsidianWindow inherits Window {
             logger-edits <=> root.logger-edits; logger-ignore-bots <=> root.logger-ignore-bots;
             logger-ghost-pings <=> root.logger-ghost-pings;
             game-toggle <=> root.game-toggle-button;
+            whos-watching <=> root.whos-watching;
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 42: GtaCountdown {

@@ -23,7 +23,9 @@ or this account's own, shows in a corner (`StreamPip`), as Discord's
 picture in picture does. STREAM_CREATE and STREAM_UPDATE name a stream's
 viewers in `viewer_ids`; Discord Obsidian keeps them for the stream it shares and the one
 it watches, and shows them over the stream (`ViewerStack`) and as a count in
-the voice panel; a click on it returns to the call. This account's
+the voice panel; a click on it returns to the call. The Who's Watching
+add-on also lists the stream's viewers in the voice panel, by avatar
+([the chat UI doc](../chat-ui.md)). This account's
 own stream has a tile of its own, which opens large as others' do, without
 watching it through Discord: it shows the worker's preview.
 

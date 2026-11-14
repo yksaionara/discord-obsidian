@@ -356,8 +356,13 @@ export component VoiceDock inherits Rectangle {
     in property <bool> sharing;
     in property <bool> share-live;
     in property <string> share-status;
-    /// How many watch this account's stream.
-    in property <int> share-watchers;
+    /// Who watches this account's stream, in the call's order, and
+    /// "Watching: " and their names.
+    in property <[PersonRow]> share-viewers;
+    in property <string> share-viewer-names;
+    property <int> share-watchers: root.share-viewers.length;
+    /// The Who's Watching add-on: a Spectators row under "Your screen".
+    in property <bool> whos-watching;
     in property <bool> can-film;
     in property <bool> camera-on;
     /// The camera is on its way, until its first picture.
@@ -375,6 +380,8 @@ export component VoiceDock inherits Rectangle {
     callback open-soundboard(length, length);
     /// The call's connection in detail, from where its status is.
     callback open-call-link(length, length, length, length);
+    /// A spectator's profile, beside their avatar at this point in the window.
+    callback open-viewer-profile(PersonRow, length, length, length, length);
     background: root.card ? transparent : Theme.panel;
     VerticalLayout {
         padding-top: 10px; padding-bottom: root.card ? 10px : 8px; padding-right: root.card ? 10px : 8px; spacing: 6px;
@@ -424,6 +431,18 @@ export component VoiceDock inherits Rectangle {
                     x: root.mark + 2px; width: 20px; height: 20px; source: @image-url("icons/screen-share.svg");
                     image-fit: contain; colorize: Theme.accent;
                 }
+                // Who's Watching: hovering the LIVE tag names the spectators.
+                if root.whos-watching && root.share-live: TouchArea {
+                    property <string> tip: root.share-watchers > 0 ? root.share-viewer-names : "No spectators";
+                    changed has-hover => {
+                        if self.has-hover {
+                            Tip.text = self.tip; Tip.side = 0;
+                            Tip.x = self.absolute-position.x + root.mark + 12px; Tip.y = self.absolute-position.y;
+                        } else if Tip.text == self.tip {
+                            Tip.text = "";
+                        }
+                    }
+                }
             }
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
@@ -438,6 +457,71 @@ export component VoiceDock inherits Rectangle {
             IconButton {
                 icon: @image-url("icons/screen-share-off.svg"); label: "Stop sharing"; danger: true;
                 clicked => { root.toggle-share(); }
+            }
+        }
+        // Who's Watching, as Equicord's plugin shows it: a heading with how
+        // many, then their avatars overlapping, as many as fit up to 12 and
+        // how many more. An avatar opens its profile; hovering names it, and
+        // hovering the count names everyone.
+        if root.voice-active && root.share-live && root.whos-watching: VerticalLayout {
+            padding-left: 8px; spacing: 6px; alignment: start; vertical-stretch: 0;
+            Text {
+                text: "SPECTATORS — " + root.share-watchers;
+                color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+            }
+            if root.share-watchers == 0: Text { text: "No spectators"; color: Theme.secondary; font-size: 13px; }
+            if root.share-watchers > 0: faces-row := Rectangle {
+                property <int> fit: max(1, min(12, floor((self.width - 36px) / 20px)));
+                property <int> faces: root.share-watchers > self.fit ? self.fit - 1 : root.share-watchers;
+                // Fixed, or the dock takes the sidebar's spare height.
+                min-height: 28px; max-height: 28px; vertical-stretch: 0;
+                accessible-role: text; accessible-label: root.share-viewer-names;
+                for viewer[index] in root.share-viewers: Rectangle {
+                    visible: index < faces-row.faces;
+                    x: index * 20px; width: 28px; height: 28px; border-radius: 14px;
+                    background: Theme.panel;
+                    Avatar { size: 24px; initial: viewer.initial; tint: viewer.tint; picture: viewer.picture; }
+                    TouchArea {
+                        enabled: parent.visible; mouse-cursor: MouseCursor.pointer;
+                        clicked => {
+                            root.open-viewer-profile(viewer, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
+                        }
+                        changed has-hover => {
+                            if self.has-hover {
+                                Tip.text = viewer.name; Tip.side = 0;
+                                Tip.x = self.absolute-position.x + self.width / 2; Tip.y = self.absolute-position.y;
+                            } else if Tip.text == viewer.name {
+                                Tip.text = "";
+                            }
+                        }
+                    }
+                    accessible-role: button; accessible-label: viewer.name;
+                    accessible-action-default => {
+                        root.open-viewer-profile(viewer, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
+                    }
+                }
+                if root.share-watchers > faces-row.faces: Rectangle {
+                    x: faces-row.faces * 20px; width: max(28px, more-text.preferred-width + 12px); height: 28px; border-radius: 14px;
+                    background: Theme.panel;
+                    Rectangle {
+                        width: parent.width - 4px; height: 24px; border-radius: 12px;
+                        background: more-touch.has-hover ? Theme.hover : Theme.sidebar;
+                        more-text := Text {
+                            text: "+" + (root.share-watchers - faces-row.faces);
+                            color: Theme.text; font-size: 12px; font-weight: 700;
+                        }
+                    }
+                    more-touch := TouchArea {
+                        changed has-hover => {
+                            if self.has-hover {
+                                Tip.text = root.share-viewer-names; Tip.side = 0;
+                                Tip.x = self.absolute-position.x + self.width / 2; Tip.y = self.absolute-position.y;
+                            } else if Tip.text == root.share-viewer-names {
+                                Tip.text = "";
+                            }
+                        }
+                    }
+                }
             }
         }
         if root.voice-active && (root.can-film || root.can-share || root.sharing || root.can-soundboard): HorizontalLayout {
