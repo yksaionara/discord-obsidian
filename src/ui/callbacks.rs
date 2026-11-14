@@ -1662,6 +1662,7 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         layout.message_logger.apply();
         layout.nameplates = Some(window.get_show_nameplates());
         layout.game_toggle = Some(window.get_game_toggle_button());
+        layout.whos_watching = Some(window.get_whos_watching());
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
