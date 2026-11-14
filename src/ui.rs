@@ -384,7 +384,7 @@ fn watch_window(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
         winit::{
-            event::{ElementState, KeyEvent, WindowEvent},
+            event::{ElementState, KeyEvent, MouseButton, WindowEvent},
             keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
         },
     };
@@ -652,6 +652,33 @@ fn watch_window(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapter>>) {
                         }
                         return EventResult::PreventDefault;
                     }
+                }
+                // The mouse's back and forward buttons go back and forward,
+                // as the title bar's arrows do, wherever the pointer is.
+                if let WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    button: button @ (MouseButton::Back | MouseButton::Forward),
+                    ..
+                } = event
+                {
+                    let back = *button == MouseButton::Back;
+                    if let Some(window) = weak.upgrade()
+                        && window.get_workspace()
+                        && !window.get_settings_open()
+                        && if back { window.get_can_go_back() } else { window.get_can_go_forward() }
+                    {
+                        let weak = weak.clone();
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let Some(window) = weak.upgrade() {
+                                if back {
+                                    window.invoke_go_back();
+                                } else {
+                                    window.invoke_go_forward();
+                                }
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
                 }
                 // Ctrl+K opens the quick switcher, or closes it, wherever the
                 // focus is, as in Discord; not over the settings or a link

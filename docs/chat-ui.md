@@ -366,7 +366,9 @@ in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 the server's name, "Direct messages" or "Discord Obsidian" in the middle and
 minimize, maximize or restore, and close at the right. Signed in, it also has
 back and forward arrows at the left, which walk the conversations visited as
-Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
+Alt+Left and Alt+Right do, and as the mouse's back and forward side buttons
+do anywhere over the window (outside settings), up to 50 of them and past any
+that are gone, and
 Inbox and Help before the window's buttons. Help opens Discord's support site.
 Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
 conversations with unread messages, muted ones only for a mention, and
