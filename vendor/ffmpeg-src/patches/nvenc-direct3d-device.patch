@@ -1,0 +1,55 @@
+--- a/libavcodec/nvenc.c
++++ b/libavcodec/nvenc.c
+@@ -46,6 +46,13 @@
+ 
+ #define CHECK_CU(x) FF_CUDA_CHECK_DL(avctx, dl_fn->cuda_dl, x)
+ 
++#ifdef _WIN32
++/* Discord Obsidian: a Direct3D 11 device for the session, from
++ * src/nvenc_d3d11.c beside FFmpeg, and its release. */
++void *obsidian_nvenc_d3d11_device(int index);
++void obsidian_nvenc_d3d11_release(void *device);
++#endif
++
+ #define NVENC_CAP 0x30
+ 
+ #define IS_CBR(rc) (rc == NV_ENC_PARAMS_RC_CBR)
+@@ -768,6 +775,27 @@
+     } else {
+         int i, nb_devices = 0;
+ 
++#ifdef _WIN32
++        /* Discord Obsidian: on Windows the session opens on a Direct3D 11
++         * device where an NVIDIA adapter gives one, and on a CUDA context
++         * only when none does. It encodes the same frames either way, and
++         * a CUDA context takes over a hundred megabytes of the process. */
++        if (ctx->device == ANY_DEVICE) {
++            NV_ENCODE_API_FUNCTION_LIST *p_nvenc = &dl_fn->nvenc_funcs;
++
++            for (i = 0; (ctx->d3d11_device = obsidian_nvenc_d3d11_device(i)); i++) {
++                if (nvenc_open_session(avctx) >= 0) {
++                    if (nvenc_check_capabilities(avctx) >= 0)
++                        return 0;
++                    p_nvenc->nvEncDestroyEncoder(ctx->nvencoder);
++                    ctx->nvencoder = NULL;
++                }
++                obsidian_nvenc_d3d11_release(ctx->d3d11_device);
++                ctx->d3d11_device = NULL;
++            }
++        }
++#endif
++
+         if (CHECK_CU(dl_fn->cuda_dl->cuInit(0)) < 0)
+             return AVERROR_UNKNOWN;
+ 
+@@ -2081,6 +2109,10 @@
+         ID3D11Device_Release(ctx->d3d11_device);
+         ctx->d3d11_device = NULL;
+     }
++#elif defined(_WIN32)
++    /* Discord Obsidian: the device nvenc_setup_device opened the session on. */
++    obsidian_nvenc_d3d11_release(ctx->d3d11_device);
++    ctx->d3d11_device = NULL;
+ #endif
+ 
+     nvenc_free_functions(&dl_fn->nvenc_dl);

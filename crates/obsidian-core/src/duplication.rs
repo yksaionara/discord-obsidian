@@ -6,15 +6,12 @@
 //!
 //! Each frame is copied from the GPU into one reused staging texture, and
 //! converted from there to I420 into one reused buffer. The pointer, which
-//! duplication leaves out of the picture, is drawn onto that buffer, never
-//! onto the staging texture, so a frame that only moves the pointer is the
-//! last picture again with the pointer in its new place.
+//! duplication leaves out of the picture, is drawn onto that buffer while a
+//! frame is sent and taken off again after, so a frame that only moves the
+//! pointer is the last picture again with the pointer in its new place.
 
 use anyhow::{Context, Result, bail};
-use livekit::webrtc::{
-    native::yuv_helper,
-    video_frame::{I420Buffer, VideoBuffer},
-};
+use livekit::webrtc::{native::yuv_helper, video_frame::I420Buffer};
 use windows::{
     Win32::{
         Foundation::{HMODULE, POINT},
@@ -120,6 +117,8 @@ pub struct Duplication {
     /// Whether `picture` holds a picture yet.
     have_picture: bool,
     pointer: Pointer,
+    /// What the pointer covers in `picture` while it's drawn on.
+    under: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -244,6 +243,7 @@ impl Duplication {
                 picture: I420Buffer::new(width, height),
                 have_picture: false,
                 pointer: Pointer::default(),
+                under: Vec::new(),
             })
         }
     }
@@ -490,46 +490,64 @@ impl Duplication {
         self.have_picture
     }
 
-    /// The last picture with the pointer drawn on, into `into`, which takes
-    /// the screen's size.
-    pub fn picture_into(&self, into: &mut I420Buffer) {
-        if (into.width(), into.height()) != (self.width, self.height) {
-            *into = I420Buffer::new(self.width, self.height);
-        }
-        let (from_y, from_u, from_v) = self.picture.data();
-        {
-            let (y, u, v) = into.data_mut();
-            y.copy_from_slice(from_y);
-            u.copy_from_slice(from_u);
-            v.copy_from_slice(from_v);
-        }
-        self.draw_pointer(into);
+    /// Calls `show` with the last picture, at the screen's size, with the
+    /// pointer drawn on. What the pointer covers is kept aside meanwhile and
+    /// put back after, so the picture stays the screen's, for the pointer's
+    /// next place.
+    pub fn with_picture<T>(&mut self, show: impl FnOnce(&mut I420Buffer) -> T) -> T {
+        self.draw_pointer();
+        let shown = show(&mut self.picture);
+        self.lift_pointer();
+        shown
     }
 
-    fn draw_pointer(&self, into: &mut I420Buffer) {
+    /// The part of the picture the pointer covers: its columns and rows, or
+    /// none while it's hidden, has no shape or is off the screen.
+    fn pointer_area(&self) -> Option<(std::ops::Range<usize>, std::ops::Range<usize>)> {
         let pointer = &self.pointer;
         if !pointer.visible || pointer.width == 0 {
-            return;
+            return None;
         }
-        let (width, height) = (self.width as i64, self.height as i64);
-        let (y_stride, u_stride, v_stride) = into.strides();
-        let (y_plane, u_plane, v_plane) = into.data_mut();
-        for row in 0..pointer.height as i64 {
-            let screen_y = pointer.position.y as i64 + row;
-            if !(0..height).contains(&screen_y) {
-                continue;
-            }
-            for column in 0..pointer.width as i64 {
-                let screen_x = pointer.position.x as i64 + column;
-                if !(0..width).contains(&screen_x) {
-                    continue;
-                }
-                let paint = pointer.shape[(row * pointer.width as i64 + column) as usize];
-                let at = screen_y as usize * y_stride as usize + screen_x as usize;
+        let span = |at: i32, length: u32, limit: u32| {
+            let start = i64::from(at).clamp(0, i64::from(limit));
+            let end = (i64::from(at) + i64::from(length)).clamp(0, i64::from(limit));
+            (start < end).then_some(start as usize..end as usize)
+        };
+        Some((
+            span(pointer.position.x, pointer.width, self.width)?,
+            span(pointer.position.y, pointer.height, self.height)?,
+        ))
+    }
+
+    /// Draws the pointer onto the picture, keeping what it covers in
+    /// `under`: the luma's rows, then each chroma row's U and V.
+    fn draw_pointer(&mut self) {
+        self.under.clear();
+        let Some((columns, rows)) = self.pointer_area() else {
+            return;
+        };
+        let pointer = &self.pointer;
+        let (y_stride, u_stride, v_stride) = self.picture.strides();
+        let (y_stride, u_stride, v_stride) = (y_stride as usize, u_stride as usize, v_stride as usize);
+        let (y_plane, u_plane, v_plane) = self.picture.data_mut();
+        let chroma_columns = columns.start / 2..columns.end.div_ceil(2);
+        for row in rows.clone() {
+            self.under.extend_from_slice(&y_plane[row * y_stride..][columns.clone()]);
+        }
+        for row in rows.start / 2..rows.end.div_ceil(2) {
+            self.under.extend_from_slice(&u_plane[row * u_stride..][chroma_columns.clone()]);
+            self.under.extend_from_slice(&v_plane[row * v_stride..][chroma_columns.clone()]);
+        }
+        for screen_y in rows {
+            let row = (screen_y as i64 - i64::from(pointer.position.y)) as usize;
+            for screen_x in columns.clone() {
+                let column = (screen_x as i64 - i64::from(pointer.position.x)) as usize;
+                let paint = pointer.shape[row * pointer.width as usize + column];
+                let at = screen_y * y_stride + screen_x;
                 let chroma = (screen_x % 2 == 0 && screen_y % 2 == 0).then(|| {
                     (
-                        (screen_y as usize / 2) * u_stride as usize + screen_x as usize / 2,
-                        (screen_y as usize / 2) * v_stride as usize + screen_x as usize / 2,
+                        (screen_y / 2) * u_stride + screen_x / 2,
+                        (screen_y / 2) * v_stride + screen_x / 2,
                     )
                 });
                 match paint {
@@ -546,6 +564,33 @@ impl Duplication {
                     }
                 }
             }
+        }
+    }
+
+    /// Puts back what [`Self::draw_pointer`] drew over.
+    fn lift_pointer(&mut self) {
+        if self.under.is_empty() {
+            return;
+        }
+        let Some((columns, rows)) = self.pointer_area() else {
+            return;
+        };
+        let (y_stride, u_stride, v_stride) = self.picture.strides();
+        let (y_stride, u_stride, v_stride) = (y_stride as usize, u_stride as usize, v_stride as usize);
+        let (y_plane, u_plane, v_plane) = self.picture.data_mut();
+        let chroma_columns = columns.start / 2..columns.end.div_ceil(2);
+        let mut under = self.under.as_slice();
+        let mut put = |into: &mut [u8], columns: &std::ops::Range<usize>| {
+            let (kept, rest) = under.split_at(columns.len());
+            into[columns.clone()].copy_from_slice(kept);
+            under = rest;
+        };
+        for row in rows.clone() {
+            put(&mut y_plane[row * y_stride..], &columns);
+        }
+        for row in rows.start / 2..rows.end.div_ceil(2) {
+            put(&mut u_plane[row * u_stride..], &chroma_columns);
+            put(&mut v_plane[row * v_stride..], &chroma_columns);
         }
     }
 }
@@ -586,8 +631,12 @@ mod tests {
             }
         }
         assert!(duplication.has_picture());
-        let mut picture = I420Buffer::new(2, 2);
-        duplication.picture_into(&mut picture);
+        // The pointer comes off again: the picture is the screen's.
+        let luma = |picture: &mut I420Buffer| picture.data().0.to_vec();
+        let screen = luma(&mut duplication.picture);
+        let shown = duplication.with_picture(luma);
+        assert_eq!(shown.len(), screen.len());
+        assert!(luma(&mut duplication.picture) == screen);
         eprintln!("{}x{}: {frames} frames in 2 s", duplication.width, duplication.height);
     }
 }

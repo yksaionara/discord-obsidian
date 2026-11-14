@@ -10,7 +10,9 @@ formats or filters.
 `crates/obsidian-core/native/hwenc.c` drives the encoders and
 `native/hevc.c` the decoder.
 
-`update.sh` makes everything here except `src/` and `patches/`. It downloads
+`update.sh` makes everything here except `src/` and `patches/`; `src/`
+holds what Discord Obsidian adds beside FFmpeg: `va.c`, which loads libva, and
+`nvenc_d3d11.c`, the Direct3D 11 device NVENC opens on. It downloads
 FFmpeg's release, nv-codec-headers 12.0.16.1 and AMD's AMF headers 1.5.2
 and checks their SHA-256, takes libva's headers from the development
 shell's nixpkgs, configures and builds FFmpeg for each target, and keeps
@@ -56,6 +58,12 @@ libraries, are linked.
 - `nvenc-bitrate-without-idr.patch`: NVENC changes its bitrate as it runs,
   where FFmpeg resets the encoder, which costs an IDR frame each time. Go
   Live follows Discord's bandwidth estimate, which moves often.
+- `nvenc-direct3d-device.patch`: on Windows, NVENC opens its session on a
+  Direct3D 11 device, which `src/nvenc_d3d11.c` makes on the NVIDIA adapter,
+  where FFmpeg makes a CUDA context for frames that come from memory. The
+  encoder and its output are the same; a CUDA context took 116 MiB of the
+  stream worker's memory. CUDA still opens it when no device does, and on
+  Linux.
 - `vaapi-bitrate-without-idr.patch`: the same for VA-API. FFmpeg sends the
   rate control parameters to the driver only with IDR frames; this sends
   them again with the next picture when the bitrate changes, which VA-API

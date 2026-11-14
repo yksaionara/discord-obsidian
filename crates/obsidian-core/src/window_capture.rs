@@ -259,25 +259,10 @@ impl WindowCapture {
         self.have_picture
     }
 
-    /// The last picture, into `into`, which takes its size.
-    pub fn picture_into(&self, into: &mut I420Buffer) {
-        let (width, height) = (self.picture.width(), self.picture.height());
-        if (into.width(), into.height()) != (width, height) {
-            *into = I420Buffer::new(width, height);
-        }
-        let (from_y, from_u, from_v) = self.picture.data();
-        let (from_ys, from_us, from_vs) = self.picture.strides();
-        let (to_ys, to_us, to_vs) = into.strides();
-        let (to_y, to_u, to_v) = into.data_mut();
-        let copy = |from: &[u8], from_stride: u32, to: &mut [u8], to_stride: u32, row: usize, rows: u32| {
-            for line in 0..rows as usize {
-                to[line * to_stride as usize..][..row]
-                    .copy_from_slice(&from[line * from_stride as usize..][..row]);
-            }
-        };
-        copy(from_y, from_ys, to_y, to_ys, width as usize, height);
-        copy(from_u, from_us, to_u, to_us, width.div_ceil(2) as usize, height.div_ceil(2));
-        copy(from_v, from_vs, to_v, to_vs, width.div_ceil(2) as usize, height.div_ceil(2));
+    /// The last picture, at the window's size, which the next frame
+    /// replaces. Windows draws the pointer into it.
+    pub fn picture(&mut self) -> &mut I420Buffer {
+        &mut self.picture
     }
 }
 
@@ -343,8 +328,7 @@ mod tests {
             }
         }
         assert!(capture.has_picture(), "{frames} frames");
-        let mut picture = I420Buffer::new(2, 2);
-        capture.picture_into(&mut picture);
+        let picture = capture.picture();
         assert!(picture.width() >= 2 && picture.height() >= 2);
     }
 }

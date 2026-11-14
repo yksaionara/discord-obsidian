@@ -6,7 +6,8 @@
 //! libraries. Every FFmpeg C file is compiled with gen/rename.h included
 //! first, which prefixes FFmpeg's symbols so they can't meet the FFmpeg
 //! inside libwebrtc, and NASM gives the assembly's the same prefix. On
-//! Linux, src/va.c loads libva when it's first used.
+//! Linux, src/va.c loads libva when it's first used; on Windows,
+//! src/nvenc_d3d11.c makes the Direct3D 11 device NVENC's session opens on.
 
 use std::{
     env,
@@ -18,7 +19,7 @@ fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    for path in ["ffmpeg", "gen", "include", "src/va.c"] {
+    for path in ["ffmpeg", "gen", "include", "src/va.c", "src/nvenc_d3d11.c"] {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-env-changed=NASM");
@@ -96,6 +97,19 @@ fn main() {
                 .compile_intermediates(),
         );
         println!("cargo:rustc-link-lib=dl");
+    }
+    if os == "windows" {
+        // The Direct3D 11 device NVENC's session opens on, in place of a
+        // CUDA context.
+        objects.extend(
+            cc::Build::new()
+                .file(manifest.join("src/nvenc_d3d11.c"))
+                .opt_level(2)
+                .warnings(true)
+                .compile_intermediates(),
+        );
+        println!("cargo:rustc-link-lib=d3d11");
+        println!("cargo:rustc-link-lib=dxgi");
     }
     for library in lines("libs.txt") {
         println!("cargo:rustc-link-lib={library}");

@@ -35,8 +35,11 @@ struct obsidian_hwenc {
   /* VA-API's device, and the frame its encoder reads, on the GPU. */
   AVBufferRef *device;
   AVFrame *surface;
-  /* The frame handed over, in memory: I420 for NVENC, NV12 for VA-API. */
+  /* The frame handed over, in memory: NV12, with a buffer of its own, for
+   * VA-API, AMF and Media Foundation; for NVENC, the caller's I420 planes,
+   * lent for the length of a call. */
   AVFrame *frame;
+  int lends;
   AVPacket *packet;
   int64_t index;
   /* AMF hands a frame back a little after taking it, and is polled for it. */
@@ -185,6 +188,10 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
     av_opt_set_int(options, "zerolatency", 1, 0);
     av_opt_set_int(options, "delay", 0, 0);
     av_opt_set_int(options, "forced-idr", 1, 0);
+    /* One frame is in the encoder at a time: without B-frames or lookahead
+     * each comes out before the next goes in. FFmpeg would keep four input
+     * and output buffers, 15 MiB each at 1440p. */
+    av_opt_set_int(options, "surfaces", 1, 0);
     if (codec_id == CODEC_H264) av_opt_set(options, "profile", "main", 0);
   }
   ret = avcodec_open2(codec, found, NULL);
@@ -192,7 +199,10 @@ static int open_encoder(struct obsidian_hwenc *h, const AVCodec *found, struct v
   h->frame = av_frame_alloc();
   h->packet = av_packet_alloc();
   if (!h->frame || !h->packet) return AVERROR(ENOMEM);
-  h->frame->format = vaapi || amf || mf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+  /* NVENC reads the caller's I420 planes as they are; see lend(). */
+  h->lends = !(vaapi || amf || mf);
+  if (h->lends) return 0;
+  h->frame->format = AV_PIX_FMT_NV12;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
   return av_frame_get_buffer(h->frame, 0);
@@ -310,8 +320,8 @@ struct obsidian_hwenc *obsidian_hwenc_new(unsigned codec_id, unsigned width, uns
   return NULL;
 }
 
-/* Copies an I420 picture into the frame the encoder reads: as it is for
- * NVENC, with its chroma planes interleaved for VA-API's and AMF's NV12. */
+/* Copies an I420 picture into the frame the encoder reads, with its chroma
+ * planes interleaved for VA-API's, AMF's and Media Foundation's NV12. */
 static int fill(struct obsidian_hwenc *h, const uint8_t *y, int y_stride, const uint8_t *u,
                 int u_stride, const uint8_t *v, int v_stride) {
   AVFrame *frame = h->frame;
@@ -332,6 +342,36 @@ static int fill(struct obsidian_hwenc *h, const uint8_t *y, int y_stride, const 
       memcpy(frame->data[1] + row * frame->linesize[1], u_row, (size_t)width / 2);
       memcpy(frame->data[2] + row * frame->linesize[2], v_row, (size_t)width / 2);
     }
+  }
+  return 0;
+}
+
+static void lent(void *opaque, uint8_t *data) {
+  (void)opaque;
+  (void)data;
+}
+
+/* Points the frame at the caller's I420 planes, which NVENC copies into its
+ * own input buffer before obsidian_hwenc_encode returns: a frame of FFmpeg's
+ * own in between was one more copy of each picture, and 5.5 MiB at 1440p.
+ * The buffers only say whose the memory is; FFmpeg would copy a frame
+ * without any. */
+static int lend(struct obsidian_hwenc *h, const uint8_t *y, int y_stride, const uint8_t *u,
+                int u_stride, const uint8_t *v, int v_stride) {
+  AVFrame *frame = h->frame;
+  av_frame_unref(frame);
+  frame->format = AV_PIX_FMT_YUV420P;
+  frame->width = h->codec->width;
+  frame->height = h->codec->height;
+  const uint8_t *planes[3] = {y, u, v};
+  int strides[3] = {y_stride, u_stride, v_stride};
+  for (int i = 0; i < 3; i++) {
+    int width = i ? frame->width / 2 : frame->width, rows = i ? frame->height / 2 : frame->height;
+    size_t size = (size_t)strides[i] * (size_t)(rows - 1) + (size_t)width;
+    frame->buf[i] = av_buffer_create((uint8_t *)planes[i], size, lent, NULL, AV_BUFFER_FLAG_READONLY);
+    if (!frame->buf[i]) return AVERROR(ENOMEM);
+    frame->data[i] = (uint8_t *)planes[i];
+    frame->linesize[i] = strides[i];
   }
   return 0;
 }
@@ -399,7 +439,8 @@ long obsidian_hwenc_encode(struct obsidian_hwenc *h, const unsigned char *y, int
                           unsigned char *out, size_t capacity, int *is_key) {
   (void)pts;
   (void)duration;
-  int ret = fill(h, y, y_stride, u, u_stride, v, v_stride);
+  int ret = h->lends ? lend(h, y, y_stride, u, u_stride, v, v_stride)
+                     : fill(h, y, y_stride, u, u_stride, v, v_stride);
   if (ret < 0) return -1;
   AVFrame *frame = h->frame;
   if (h->surface) {
@@ -411,7 +452,10 @@ long obsidian_hwenc_encode(struct obsidian_hwenc *h, const unsigned char *y, int
   }
   frame->pts = h->index++;
   frame->pict_type = keyframe ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
-  if (avcodec_send_frame(h->codec, frame) < 0) return -1;
+  ret = avcodec_send_frame(h->codec, frame);
+  /* The caller's planes aren't the frame's past this call. */
+  if (h->lends) av_frame_unref(h->frame);
+  if (ret < 0) return -1;
   size_t size = 0;
   *is_key = 0;
   /* AMF waits a millisecond at most for each receive: polled for the

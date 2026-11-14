@@ -157,7 +157,9 @@ Valorant shared black. A picture still black after 5 seconds is logged
 ("what's shared has been black for 5 seconds"). Frames go
 out at the chosen rate at most, and only when the
 screen changed, with the last one again every 100 ms while nothing does. The
-pointer, which duplication leaves out, is drawn onto each frame. Cameras,
+pointer, which duplication leaves out, is drawn onto the screen's picture
+while a frame is scaled and sent, and taken off again after; the worker keeps
+one picture at the screen's size, not a copy for each frame. Cameras,
 screens duplication can't open, and windows Windows can't capture go
 through WebRTC's capturer. A frame within 4% of the stream's size each way, as a window
 gaining or losing a row gives, is scaled to it instead of opening the
@@ -392,6 +394,18 @@ VA-API change their bitrate as they run, without the IDR frame FFmpeg would
 insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer
 on the running encoder). "Higher quality" changes nothing on the GPU: NVENC's
 slowest preset looked no better than p4.
+
+The GPU's encoder is most of the worker's memory, so it's opened to take as
+little as it can. On Windows NVENC's session opens on a Direct3D 11 device
+rather than a CUDA context (a patch to FFmpeg, with
+`vendor/ffmpeg-src/src/nvenc_d3d11.c`), which encodes the same and takes
+over 100 MiB less; CUDA opens it only when no device does. NVENC keeps one
+input and output buffer, as one frame is in it at a time, where FFmpeg's
+default is four, and reads the worker's I420 planes as they are, without a
+frame of FFmpeg's in between. Of the codecs offered, only the first is opened
+at the stream's size when the stream starts; the others are opened at 640
+by 360 to see that they open, since a closed encoder doesn't give all its
+memory back.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

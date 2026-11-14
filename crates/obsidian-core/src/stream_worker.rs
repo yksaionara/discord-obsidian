@@ -584,6 +584,11 @@ impl Video {
 /// where the GPU's encoder for them opens.
 const GPU_CODECS: [Codec; 2] = [Codec::Av1, Codec::H265];
 
+/// The size a GPU encoder is opened at only to see that it opens. One that
+/// then doesn't open at the stream's size is withdrawn when Discord chooses
+/// it.
+const PROBE: (u32, u32) = (640, 360);
+
 fn log_encoder(encoder: &Encoder) {
     let (width, height) = encoder.size();
     tracing::info!(
@@ -786,11 +791,17 @@ impl Sink {
     /// The codecs to offer Discord, most wanted first, and an encoder for
     /// the first: AV1, then H265, where the GPU's encoder for each opens,
     /// then H264. Discord streams the first every viewer decodes. Each is
-    /// opened to see that it opens, and only the first kept.
+    /// opened to see that it opens: the first at the stream's size, and
+    /// kept; those after it at [`PROBE`]'s, since what an encoder took
+    /// while open doesn't all come back when it closes.
     fn offers(&self, width: u32, height: u32) -> Result<(Vec<Codec>, Encoder)> {
         let mut offers = vec![];
         let mut first = None;
         for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
+            let (width, height) = match first {
+                None => (width, height),
+                Some(_) => (width.min(PROBE.0), height.min(PROBE.1)),
+            };
             if let Ok(encoder) = self.open(codec, width, height) {
                 offers.push(codec);
                 first.get_or_insert(encoder);
@@ -1416,7 +1427,8 @@ trait FrameSource {
     /// Starts again after [`crate::duplication::Next::Lost`].
     fn reopen(&mut self) -> Result<()>;
     fn has_picture(&self) -> bool;
-    fn picture_into(&self, into: &mut I420Buffer);
+    /// Calls `show` with the last picture, at its own size.
+    fn with_picture(&mut self, show: &mut dyn FnMut(&mut I420Buffer) -> Result<()>) -> Result<()>;
 }
 
 #[cfg(windows)]
@@ -1430,8 +1442,8 @@ impl FrameSource for crate::duplication::Duplication {
     fn has_picture(&self) -> bool {
         crate::duplication::Duplication::has_picture(self)
     }
-    fn picture_into(&self, into: &mut I420Buffer) {
-        crate::duplication::Duplication::picture_into(self, into)
+    fn with_picture(&mut self, show: &mut dyn FnMut(&mut I420Buffer) -> Result<()>) -> Result<()> {
+        crate::duplication::Duplication::with_picture(self, show)
     }
 }
 
@@ -1446,8 +1458,8 @@ impl FrameSource for crate::window_capture::WindowCapture {
     fn has_picture(&self) -> bool {
         crate::window_capture::WindowCapture::has_picture(self)
     }
-    fn picture_into(&self, into: &mut I420Buffer) {
-        crate::window_capture::WindowCapture::picture_into(self, into)
+    fn with_picture(&mut self, show: &mut dyn FnMut(&mut I420Buffer) -> Result<()>) -> Result<()> {
+        show(crate::window_capture::WindowCapture::picture(self))
     }
 }
 
@@ -1479,7 +1491,6 @@ fn capture_frames(
     let mut early = interval / 4;
     let mut last_sent: Option<Instant> = None;
     let mut pending = false;
-    let mut picture = I420Buffer::new(2, 2);
     let mut reported = None;
     let mut front_checked = Instant::now();
     // Since when every picture sent was black, and whether the log said so.
@@ -1517,28 +1528,31 @@ fn capture_frames(
         let due = last_sent.map_or(now, |sent| sent + interval);
         let idle = last_sent.is_some_and(|sent| now >= sent + IDLE_REPEAT);
         if frames.has_picture() && ((pending && now + early >= due) || idle) {
-            frames.picture_into(&mut picture);
-            if !said_black && pending {
-                if is_black(&picture) {
-                    let since = *black_since.get_or_insert(now);
-                    if now.duration_since(since) >= BLACK_WARNING {
-                        said_black = true;
-                        tracing::warn!(
-                            width = picture.width(),
-                            height = picture.height(),
-                            "what's shared has been black for 5 seconds"
-                        );
+            let mut size = (0, 0);
+            // The source's own picture, lent: a copy of each frame at the
+            // screen's size was 5.5 MiB at 1440p, and its copying.
+            frames.with_picture(&mut |picture| {
+                if !said_black && pending {
+                    if is_black(picture) {
+                        let since = *black_since.get_or_insert(now);
+                        if now.duration_since(since) >= BLACK_WARNING {
+                            said_black = true;
+                            tracing::warn!(
+                                width = picture.width(),
+                                height = picture.height(),
+                                "what's shared has been black for 5 seconds"
+                            );
+                        }
+                    } else {
+                        black_since = None;
                     }
-                } else {
-                    black_since = None;
                 }
-            }
-            let (width, height) = (picture.width(), picture.height());
-            let size = fit(width, height, *max_width, *max_height);
-            let mut scaled = (size != (width, height))
-                .then(|| picture.scale(size.0 as i32, size.1 as i32));
-            let frame = scaled.as_mut().unwrap_or(&mut picture);
-            lock().frame(frame)?;
+                let (width, height) = (picture.width(), picture.height());
+                size = fit(width, height, *max_width, *max_height);
+                let mut scaled = (size != (width, height))
+                    .then(|| picture.scale(size.0 as i32, size.1 as i32));
+                lock().frame(scaled.as_mut().unwrap_or(picture))
+            })?;
             if reported != Some(size) {
                 reported = Some(size);
                 report(Report::Sharing {
