@@ -184,7 +184,7 @@ export component UnsavedBar inherits Rectangle {
     Rectangle { y: 0px; height: 1px; background: Theme.edge; }
     bar := HorizontalLayout {
         x: root.shakes == 0 ? 0px : Math.mod(root.shakes, 2) == 0 ? -6px : 6px;
-        animate x { duration: 50ms; }
+        animate x { duration: Theme.reduce-motion ? 0ms : 50ms; }
         width: root.width;
         padding: 12px; padding-left: root.pad; spacing: 8px;
         Middle {
@@ -434,7 +434,7 @@ export component SettingsScreen inherits Rectangle {
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
                 : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
-                : root.settings-section == 9 ? "Add-ons" : "Game Activity";
+                : root.settings-section == 9 ? "Add-ons" : root.settings-section == 42 ? "Vice City" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -857,6 +857,8 @@ export struct ThemeCard {
 /// wrong when that isn't a colour.
 export struct ThemeColour {
     name: string,
+    /// What it paints, in words.
+    label: string,
     colour: color,
     hex: string,
     wrong: bool,
@@ -938,31 +940,140 @@ component ThemeTile inherits Rectangle {
     }
 }
 
-// A colour in the theme editor: a swatch, its name, and its hex in a field
-// that says when it holds no colour.
-component ThemeColourRow inherits HorizontalLayout {
-    in property <ThemeColour> colour;
-    callback edited(string);
-    spacing: 10px;
-    Middle {
+// A colour chosen by eye: a square of every shade of one hue, from grey on
+// the left to full colour on the right and from light at the top to black at
+// the bottom, and a rainbow under it for the hue. Hue, shade and brightness
+// are kept apart from the colour, so dragging through grey or black keeps the
+// hue. Dragging sends each colour as it goes.
+export component ColourPicker inherits VerticalLayout {
+    in property <color> colour;
+    callback picked(color);
+    property <float> hue;
+    property <float> sat;
+    property <float> val;
+    property <bool> dragging: square-touch.pressed || hue-touch.pressed;
+    function load() {
+        root.hue = root.colour.to-hsv().hue;
+        root.sat = root.colour.to-hsv().saturation;
+        root.val = root.colour.to-hsv().value;
+    }
+    function send() { root.picked(hsv(root.hue, root.sat, root.val)); }
+    init => { root.load(); }
+    changed colour => { if !root.dragging { root.load(); } }
+    spacing: 12px;
+    square := Rectangle {
+        height: 160px;
+        border-radius: 10px; background: hsv(root.hue, 1, 1);
+        Rectangle { border-radius: 10px; background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%); }
+        Rectangle { border-radius: 10px; background: @linear-gradient(180deg, #00000000 0%, #000000 100%); }
+        Rectangle { border-radius: 10px; border-width: 1px; border-color: Theme.line; }
         Rectangle {
-            width: 28px; height: 28px; border-radius: 6px; background: root.colour.colour;
-            border-width: 1px; border-color: Theme.line;
+            x: root.sat * parent.width - self.width / 2; y: (1 - root.val) * parent.height - self.height / 2;
+            width: square-touch.pressed ? 22px : 18px; height: self.width; border-radius: self.width / 2;
+            animate width { duration: Theme.quick; easing: ease-out; }
+            background: hsv(root.hue, root.sat, root.val);
+            border-width: 3px; border-color: #ffffff;
+            drop-shadow-blur: 6px; drop-shadow-color: #00000080;
+        }
+        square-touch := TouchArea {
+            mouse-cursor: MouseCursor.crosshair;
+            function take() {
+                root.sat = clamp(self.mouse-x / self.width, 0, 1);
+                root.val = clamp(1 - self.mouse-y / self.height, 0, 1);
+                root.send();
+            }
+            pointer-event(event) => { if event.kind == PointerEventKind.down { self.take(); } }
+            moved => { if self.pressed { self.take(); } }
         }
     }
-    VerticalLayout {
-        alignment: center; horizontal-stretch: 1;
-        Text { text: root.colour.name; color: Theme.text; font-size: 14px; overflow: elide; }
-        if root.colour.wrong: Text { text: "Not a colour"; color: Theme.danger; font-size: 12px; overflow: elide; }
-    }
-    Middle {
-        TextField {
-            width: 116px; min-height: 34px; text-size: 14px; pad: 8px;
-            fill: root.colour.wrong ? Theme.danger.with-alpha(0.16) : Theme.sunken;
-            text: root.colour.hex; label: root.colour.name;
-            edited(text) => { root.edited(text); }
+    Rectangle {
+        height: 16px; border-radius: 8px;
+        background: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.67%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.67%, #ff00ff 83.33%, #ff0000 100%);
+        Rectangle {
+            x: root.hue / 360 * parent.width - self.width / 2; y: (parent.height - self.height) / 2;
+            width: hue-touch.pressed ? 22px : 20px; height: self.width; border-radius: self.width / 2;
+            animate width { duration: Theme.quick; easing: ease-out; }
+            background: hsv(root.hue, 1, 1);
+            border-width: 3px; border-color: #ffffff;
+            drop-shadow-blur: 6px; drop-shadow-color: #00000080;
+        }
+        hue-touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            function take() {
+                root.hue = clamp(self.mouse-x / self.width, 0, 0.9999) * 360;
+                root.send();
+            }
+            pointer-event(event) => { if event.kind == PointerEventKind.down { self.take(); } }
+            moved => { if self.pressed { self.take(); } }
         }
     }
+}
+
+// A row of ready colours to pick with one click; the one in use has a ring.
+component SwatchRow inherits HorizontalLayout {
+    in property <[color]> colours;
+    in property <color> current;
+    callback picked(color);
+    spacing: 8px; alignment: start;
+    for swatch in root.colours: Rectangle {
+        property <bool> chosen: abs(swatch.red - root.current.red) < 3 && abs(swatch.green - root.current.green) < 3 && abs(swatch.blue - root.current.blue) < 3;
+        width: 28px; height: 28px; border-radius: 14px;
+        background: swatch;
+        border-width: self.chosen ? 3px : 1px; border-color: self.chosen ? Theme.text : Theme.line;
+        transform-scale: swatch-touch.has-hover ? 1.12 : 1.0;
+        animate transform-scale { duration: Theme.quick; easing: ease-out; }
+        accessible-role: button; accessible-label: "Use this colour";
+        swatch-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.picked(swatch); } }
+    }
+}
+
+// A big swatch that names what it colours; the one being picked is ringed.
+component QuickColour inherits Rectangle {
+    in property <string> text;
+    in property <color> colour;
+    in property <bool> current;
+    callback clicked;
+    height: 64px; border-radius: 12px;
+    background: touch.has-hover || root.current ? Theme.hover : Theme.sunken;
+    border-width: root.current ? 2px : 1px; border-color: root.current ? Theme.accent : Theme.line;
+    animate background, border-color { duration: Theme.quick; }
+    accessible-role: button; accessible-label: "Pick the " + root.text;
+    HorizontalLayout {
+        padding: 12px; spacing: 12px;
+        Rectangle {
+            width: 40px; height: 40px; border-radius: 20px; background: root.colour;
+            border-width: 2px; border-color: Theme.overlay.with-alpha(0.25);
+        }
+        VerticalLayout {
+            alignment: center;
+            Text { text: root.text; color: Theme.text; font-size: 15px; font-weight: 700; }
+            Text { text: root.current ? "Picking now" : "Click to pick"; color: Theme.muted; font-size: 12px; }
+        }
+    }
+    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
+// A colour in the theme maker's full list: its swatch and what it paints.
+// The one being picked is ringed.
+component ThemeColourRow inherits Rectangle {
+    in property <ThemeColour> colour;
+    in property <bool> current;
+    callback clicked;
+    border-radius: 8px;
+    background: root.current ? Theme.active : touch.has-hover ? Theme.hover : transparent;
+    animate background { duration: Theme.quick; }
+    accessible-role: button; accessible-label: "Pick " + root.colour.label;
+    HorizontalLayout {
+        padding-left: 6px; padding-right: 6px; spacing: 10px;
+        Middle {
+            Rectangle {
+                width: 28px; height: 28px; border-radius: 8px; background: root.colour.colour;
+                border-width: root.current ? 2px : 1px; border-color: root.current ? Theme.accent : Theme.line;
+            }
+        }
+        Text { text: root.colour.label; color: root.current ? Theme.text : Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+    }
+    touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
 }
 
 // Settings: the window's colours, from the themes Discord Obsidian comes with and the
@@ -972,6 +1083,7 @@ component ThemeColourRow inherits HorizontalLayout {
 export component AppearanceSettings inherits VerticalLayout {
     callback preferences-changed();
     in-out property <bool> show-nameplates;
+    in-out property <bool> reduce-motion;
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
     /// The editor, while it's open: the colours, the name, whether the theme
@@ -990,6 +1102,13 @@ export component AppearanceSettings inherits VerticalLayout {
     callback edit-theme(string);
     callback start-chosen(int);
     callback colour-edited(int, string);
+    /// The quick colours: the chat's background and the accent, which every
+    /// other colour is made from when either is picked.
+    in property <color> quick-background;
+    in property <color> quick-accent;
+    callback quick-picked(color, color);
+    /// A colour of the full list came from the picker.
+    callback colour-picked(int, color);
     callback dark-toggled(bool);
     callback save-theme();
     callback cancel-theme();
@@ -1035,6 +1154,12 @@ export component AppearanceSettings inherits VerticalLayout {
         toggled => { root.title-bar-toggled(); }
     }
     if !root.editor: SettingsSwitch {
+        text: "Reduce motion";
+        description: "Turns off the window's animations: menus, buttons and lists move at once. A little lighter on the processor while you play.";
+        checked <=> root.reduce-motion;
+        toggled => { root.preferences-changed(); }
+    }
+    if !root.editor: SettingsSwitch {
         text: "Show nameplates";
         description: "The pictures Discord members equip behind their rows in the member list and on your account card.";
         checked <=> root.show-nameplates;
@@ -1042,6 +1167,11 @@ export component AppearanceSettings inherits VerticalLayout {
     }
     if root.editor: form := VerticalLayout {
         property <bool> confirming;
+        /// Which colour the picker changes: -1 the background, -2 the
+        /// accent, otherwise a colour of the full list by index.
+        property <int> picking: -1;
+        /// The full list shows.
+        property <bool> fine;
         spacing: 16px;
         VerticalLayout {
             spacing: 8px;
@@ -1068,15 +1198,72 @@ export component AppearanceSettings inherits VerticalLayout {
             text: "Dark"; description: "Drop-down lists and scroll bars draw dark to match.";
             checked <=> root.theme-dark; toggled(dark) => { root.dark-toggled(dark); }
         }
+        // Two colours make a whole theme: pick the background and the accent,
+        // by eye or from the ready ones, and every other colour follows.
+        VerticalLayout {
+            spacing: 10px;
+            SettingsHeading { text: "YOUR COLOURS"; }
+            Label { text: "Pick a background and an accent. Every other colour is worked out from them, and the whole window changes as you drag."; }
+            HorizontalLayout {
+                spacing: 12px;
+                QuickColour {
+                    text: "Background"; colour: root.quick-background; current: form.picking == -1;
+                    clicked => { form.picking = -1; }
+                }
+                QuickColour {
+                    text: "Accent"; colour: root.quick-accent; current: form.picking == -2;
+                    clicked => { form.picking = -2; }
+                }
+            }
+            if form.picking == -1: VerticalLayout {
+                spacing: 10px;
+                SwatchRow {
+                    colours: [#0b0b0c, #121214, #1e1f24, #1a1a1e, #1e1e2e, #0f172a, #1b1026, #102018, #2a1a14, #f5f5f7, #fdf6e3, #eef2ff];
+                    current: root.quick-background;
+                    picked(colour) => { root.quick-picked(colour, root.quick-accent); }
+                }
+                ColourPicker {
+                    colour: root.quick-background;
+                    picked(colour) => { root.quick-picked(colour, root.quick-accent); }
+                }
+            }
+            if form.picking == -2: VerticalLayout {
+                spacing: 10px;
+                SwatchRow {
+                    colours: [#5865f2, #ffbf47, #f23f43, #eb459e, #9b59b6, #3b82f6, #06b6d4, #23a55a, #a3e635, #f97316, #14b8a6, #e5e7eb];
+                    current: root.quick-accent;
+                    picked(colour) => { root.quick-picked(root.quick-background, colour); }
+                }
+                ColourPicker {
+                    colour: root.quick-accent;
+                    picked(colour) => { root.quick-picked(root.quick-background, colour); }
+                }
+            }
+        }
+        // Every colour on its own, for those who want to fine-tune: click
+        // one to pick it.
         VerticalLayout {
             spacing: 8px;
-            SettingsHeading { text: "COLOURS"; }
-            Label { text: "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."; }
+            HorizontalLayout {
+                SettingsHeading { text: "FINE-TUNE EVERY COLOUR"; vertical-alignment: center; horizontal-stretch: 1; }
+                ActionButton {
+                    text: form.fine ? "Hide" : "Show"; small: true; ghost: true;
+                    clicked => { form.fine = !form.fine; }
+                }
+            }
+            if form.fine && form.picking >= 0 && form.picking < root.colours.length: VerticalLayout {
+                spacing: 10px;
+                Text { text: root.colours[form.picking].label; color: Theme.text; font-size: 15px; font-weight: 700; }
+                ColourPicker {
+                    colour: root.colours[form.picking].colour;
+                    picked(colour) => { root.colour-picked(form.picking, colour); }
+                }
+            }
             // Two columns when they fit, read down.
-            Rectangle {
+            if form.fine: Rectangle {
                 property <int> columns: self.width >= 520px ? 2 : 1;
-                property <length> gap: 24px;
-                property <length> row-height: 46px;
+                property <length> gap: 16px;
+                property <length> row-height: 40px;
                 property <length> cell-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
                 property <int> rows: ceil(root.colours.length / self.columns);
                 height: self.rows * self.row-height;
@@ -1084,9 +1271,9 @@ export component AppearanceSettings inherits VerticalLayout {
                 for row[index] in root.colours: ThemeColourRow {
                     x: floor(index / parent.rows) * (parent.cell-width + parent.gap);
                     y: mod(index, parent.rows) * parent.row-height;
-                    width: parent.cell-width; height: parent.row-height;
-                    colour: row;
-                    edited(text) => { root.colour-edited(index, text); }
+                    width: parent.cell-width; height: parent.row-height - 4px;
+                    colour: row; current: form.picking == index;
+                    clicked => { form.picking = index; }
                 }
             }
         }
@@ -1101,6 +1288,93 @@ export component AppearanceSettings inherits VerticalLayout {
             }
         }
     }
+}
+
+/// Time left until GTA VI unlocks where the person is, from the app.
+export struct GtaClock {
+    days: string,
+    hours: string,
+    minutes: string,
+    seconds: string,
+    /// When and where it unlocks, in words.
+    note: string,
+    /// It's out.
+    out: bool,
+}
+
+// The easter egg behind "vice city" in Search settings: a sunset over
+// Leonida counting down to GTA VI at the hour it unlocks in the person's
+// region. It ticks once a second while it's on screen, and not at all after.
+export component GtaCountdown inherits VerticalLayout {
+    callback tick() -> GtaClock;
+    property <GtaClock> clock;
+    property <bool> beat;
+    init => { root.clock = root.tick(); }
+    Timer {
+        interval: 1s; running: !root.clock.out || root.clock.note == "";
+        triggered => { root.clock = root.tick(); root.beat = !root.beat; }
+    }
+    spacing: 16px;
+    Rectangle {
+        height: 340px; border-radius: 16px; clip: true;
+        background: @linear-gradient(180deg, #2b0a4a 0%, #8a1f6b 45%, #ff6b3d 78%, #ffc15e 100%);
+        // The sun, sinking into the sea, with bands cut out of it.
+        Rectangle {
+            x: (parent.width - self.width) / 2; y: parent.height * 0.42;
+            width: 180px; height: 180px; border-radius: 90px;
+            background: @linear-gradient(180deg, #ffe66d 0%, #ff4f8b 100%);
+            for band in 5: Rectangle {
+                x: 0px; y: 100px + band * 16px; width: parent.width; height: 3px + band * 1.5px;
+                background: #ff6b3d;
+            }
+        }
+        // The sea.
+        Rectangle {
+            y: parent.height * 0.78; height: parent.height * 0.22;
+            background: @linear-gradient(180deg, #3a0f5e 0%, #12051f 100%);
+            for line in 4: Rectangle {
+                x: parent.width * (0.15 + 0.05 * line); y: 8px + line * 13px;
+                width: parent.width * (0.7 - 0.1 * line); height: 2px; border-radius: 1px;
+                background: #ff8fb766;
+            }
+        }
+        VerticalLayout {
+            padding: 24px; spacing: 6px; alignment: start;
+            Text {
+                text: "WELCOME TO LEONIDA"; color: #ffffffcc; font-size: 13px; font-weight: 800;
+                letter-spacing: 4px; horizontal-alignment: center;
+            }
+            Text {
+                text: root.clock.out ? "GTA VI IS OUT" : "GTA VI";
+                color: #ffffff; font-size: 56px; font-weight: 900; horizontal-alignment: center;
+                stroke: #ff3d8b; stroke-width: 2px;
+            }
+            if !root.clock.out: HorizontalLayout {
+                alignment: center; spacing: 12px; padding-top: 12px;
+                for unit[index] in [
+                    { value: root.clock.days, name: "DAYS" },
+                    { value: root.clock.hours, name: "HOURS" },
+                    { value: root.clock.minutes, name: "MINUTES" },
+                    { value: root.clock.seconds, name: "SECONDS" },
+                ]: Rectangle {
+                    width: 92px; height: 96px; border-radius: 14px;
+                    background: #12051fb3; border-width: 1px; border-color: #ff8fb780;
+                    // The seconds give a little jump on each tick.
+                    transform-scale: index == 3 && root.beat ? 1.04 : 1.0;
+                    animate transform-scale { duration: Theme.smooth; easing: ease-out; }
+                    VerticalLayout {
+                        alignment: center; spacing: 2px;
+                        Text { text: unit.value; color: #ffffff; font-size: 40px; font-weight: 800; horizontal-alignment: center; }
+                        Text { text: unit.name; color: #ffc15e; font-size: 11px; font-weight: 700; letter-spacing: 2px; horizontal-alignment: center; }
+                    }
+                }
+            }
+            if root.clock.out: Text {
+                text: "Go play. Discord will still be here."; color: #ffffff; font-size: 18px; font-weight: 700; horizontal-alignment: center;
+            }
+        }
+    }
+    Label { text: root.clock.note; horizontal-alignment: center; }
 }
 
 // Settings: how messages look, and what they share.

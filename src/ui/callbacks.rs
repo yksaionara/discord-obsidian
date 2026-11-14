@@ -1549,6 +1549,25 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                 .theme_colour_edited(&window, index, &text);
         }
     });
+    window.on_gta_tick(super::gta::now);
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_theme_colour_picked(move |index, colour| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .theme_colour_picked(&window, index, colour);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_theme_quick_picked(move |background, accent| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .theme_quick_picked(&window, background, accent);
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_theme_dark_toggled(move |dark| {
@@ -1646,6 +1665,10 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         layout.animate = chosen(&ANIMATES, window.get_animate());
         ANIMATE.set(layout.animate);
         show_motion(&window);
+        layout.reduce_motion = window.get_reduce_motion();
+        window
+            .global::<obsidian_ui::Theme>()
+            .set_reduce_motion(layout.reduce_motion);
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
         layout.level_voice = Some(window.get_level_voice());

@@ -497,10 +497,10 @@ export component BadgeTipCard inherits Rectangle {
     // It pops up: fades in and grows from the caret, as Discord's does.
     property <bool> shown: false;
     opacity: root.shown ? 1 : 0;
-    animate opacity { duration: 120ms; easing: ease-out; }
+    animate opacity { duration: Theme.quick; easing: ease-out; }
     transform-scale: root.shown ? 1 : 0.95;
     transform-origin: { x: self.width / 2, y: self.height };
-    animate transform-scale { duration: 120ms; easing: ease-out; }
+    animate transform-scale { duration: Theme.quick; easing: ease-out; }
     Timer {
         interval: 16ms;
         running: true;

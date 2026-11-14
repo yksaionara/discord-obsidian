@@ -11,11 +11,19 @@ know, or a deleted theme's, shows Yap.
 
 ## Custom themes
 
-New theme opens an editor on a copy of the theme shown; START FROM swaps it
-for a copy of any other. The editor lists every colour by its name in
-`ui/theme.slint`, with a swatch and its hex, which takes `#rgb`, `#rrggbb` or
-`#rrggbbaa` and marks anything else. Each change shows at once, so the whole
-window is the preview. Save keeps the theme and chooses it; Cancel, leaving
+New theme opens the theme maker on a copy of the theme shown; START FROM
+swaps it for a copy of any other. Nobody has to know colour codes: YOUR
+COLOURS asks for two, the background and the accent, each from a row of ready
+colours or a picker (a square of a hue's shades and a rainbow for the hue,
+`ColourPicker`), and `theme::generate` works every other colour out from them:
+on a dark background the rail and sidebar step darker and raised surfaces
+lighter, text is a near-white tinted by the background, and the theme is dark
+when the background's luminance is under 0.35; on a light one the steps go
+the other way, with dark text and light tooltips. Text on the accent is dark
+on a pale accent and white otherwise. FINE-TUNE EVERY COLOUR lists each colour
+by what it paints ("Server list", "Chat background", `theme::label`), and a
+click on one opens the picker for it alone. Each change shows at once, even
+mid-drag, so the whole window is the preview. Save keeps the theme and chooses it; Cancel, leaving
 Appearance or closing settings shows the theme from before. A saved theme's
 card has a pencil that opens it again to rename, change or delete it;
 deleting the chosen one shows Yap. A window rebuilt while the editor is open,

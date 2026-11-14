@@ -2102,6 +2102,34 @@ export component VideoViewer inherits Rectangle {
 // A message's avatar or time, its reply, author line, text, attachments,
 // thread and reactions: a timeline row without what scrolls and hovers it,
 // for the conversation's timeline and a thread's beside it.
+// A message on its way: three dots that rise in turn and the word Sending,
+// which fade in only after a moment, so a quick send just settles from dim
+// to solid. The dots redraw only while this shows.
+component SendingIndicator inherits Rectangle {
+    property <bool> shown;
+    height: 18px; width: dots.width + 6px + word.preferred-width;
+    opacity: root.shown ? 1 : 0;
+    animate opacity { duration: Theme.smooth; easing: ease-out; }
+    Timer { interval: 450ms; running: !root.shown; triggered => { root.shown = true; } }
+    accessible-role: text; accessible-label: "Sending";
+    property <float> beat: root.shown && !Theme.reduce-motion ? mod(animation-tick() / 1ms, 900) / 900 : 0;
+    dots := Rectangle {
+        x: 0px; width: 22px; height: parent.height;
+        for index in 3: Rectangle {
+            // Each dot's turn is a third of the beat later than the last.
+            property <float> turn: mod(root.beat - index * 0.16 + 1, 1);
+            property <float> rise: self.turn < 0.4 ? sin(self.turn / 0.4 * 180deg) : 0;
+            x: index * 8px; y: (parent.height - self.height) / 2 - 3px * self.rise;
+            width: 5px; height: 5px; border-radius: 2.5px;
+            background: Theme.accent.with-alpha(0.45 + 0.55 * self.rise);
+        }
+    }
+    word := Text {
+        x: dots.width + 6px; height: parent.height;
+        text: "Sending"; color: Theme.muted; font-size: 12px; font-weight: 600; vertical-alignment: center;
+    }
+}
+
 export component MessageContent inherits VerticalLayout {
     in property <MessageRow> message;
     /// The message the pointer or keyboard is on, whose time shows.
@@ -2325,8 +2353,19 @@ export component MessageContent inherits VerticalLayout {
                     clicked => { root.react(message.item, reaction.key); }
                 }
             }
-            if message.delivery != "": HorizontalLayout {
-                spacing: 4px; alignment: start;
+            if message.delivery == "Sending...": HorizontalLayout {
+                spacing: 4px; alignment: start; padding-top: 2px;
+                Middle { SendingIndicator { } }
+            }
+            if message.delivery != "" && message.delivery != "Sending...": HorizontalLayout {
+                spacing: 6px; alignment: start;
+                Middle {
+                    Image {
+                        width: 14px; height: 14px;
+                        source: message.delivery-failed ? @image-url("icons/triangle-alert.svg") : @image-url("icons/clock.svg");
+                        colorize: message.delivery-failed ? Theme.danger : Theme.muted;
+                    }
+                }
                 Text { text: message.delivery; color: message.delivery-failed ? Theme.danger : Theme.muted; font-size: 13px; vertical-alignment: center; wrap: word-wrap; }
                 if message.can-retry: ActionButton { text: "Retry"; ghost: true; small: true; clicked => { root.retry(message.item); } }
                 if message.can-cancel: ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-send(message.item); } }

@@ -1,7 +1,7 @@
 import { DmHeading } from "obsidian/dm-heading.slint";
 import { ClientStyle } from "obsidian/style.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Theme, Tip, Middle, Label, PopupMotion } from "theme.slint";
 import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
@@ -142,6 +142,9 @@ export component RailItem inherits Rectangle {
     in property <bool> call;
     /// Marks a Discord server.
     in property <bool> discord;
+    /// The picture is the whole tile, as the app's logo is: no ground behind
+    /// it, and a lift on hover instead of a colour.
+    in property <bool> bare;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
@@ -159,17 +162,21 @@ export component RailItem inherits Rectangle {
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
         background: Theme.text;
-        animate height { duration: 200ms; easing: ease-out; }
+        animate height { duration: Theme.smooth; easing: ease-out; }
     }
     // A picture only changes shape when lit, as in Discord.
     tile := Rectangle {
         x: root.tile-left; width: root.tile-size; height: root.tile-size;
         border-radius: ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
-        background: root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
-        animate border-radius, background { duration: 160ms; easing: ease-out; }
-        clip: true;
+        background: root.bare ? transparent : root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
+        animate border-radius, background { duration: Theme.smooth; easing: ease-out; }
+        clip: !root.bare;
         if root.shown-picture.width > 0: Image {
             source: root.shown-picture; width: root.tile-size; height: root.tile-size; image-fit: cover;
+            // A bare picture grows a little under the pointer.
+            property <float> lift: root.bare && root.lit ? 1.06 : 1.0;
+            animate lift { duration: Theme.smooth; easing: ease-out; }
+            transform-scale: self.lift;
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
@@ -271,12 +278,12 @@ component FolderItem inherits Rectangle {
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
         background: Theme.text;
-        animate height { duration: 200ms; easing: ease-out; }
+        animate height { duration: Theme.smooth; easing: ease-out; }
     }
     tile := Rectangle {
         x: root.tile-left; width: root.tile-size; height: root.tile-size; border-radius: ClientStyle.folder-radius;
         background: root.open ? transparent : root.tint.with-alpha(pointer.has-hover ? 0.55 : 0.4);
-        animate background { duration: 160ms; easing: ease-out; }
+        animate background { duration: Theme.smooth; easing: ease-out; }
         if root.open: Image {
             source: @image-url("icons/folder.svg"); width: 24px; height: 24px; colorize: root.tint;
         }
@@ -461,7 +468,7 @@ export component ChannelRow inherits Rectangle {
     height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: 6px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
-    animate background { duration: 90ms; }
+    animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -703,7 +710,7 @@ component CategoryHeading inherits Rectangle {
             source: @image-url("icons/chevron-down.svg");
             width: 12px; image-fit: contain; colorize: root.ink;
             transform-rotation: root.collapsed ? -90deg : 0deg;
-            animate transform-rotation { duration: 120ms; easing: ease-out; }
+            animate transform-rotation { duration: Theme.quick; easing: ease-out; }
         }
         Rectangle { horizontal-stretch: 1; }
     }
@@ -822,7 +829,7 @@ export component ServerHeader inherits Rectangle {
             Image {
                 source: @image-url("icons/chevron-down.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
                 colorize: root.on-banner ? #ffffff : ClientStyle.enabled ? Theme.secondary : Theme.muted; transform-rotation: root.open ? 180deg : 0deg;
-                animate transform-rotation { duration: 120ms; easing: ease-out; }
+                animate transform-rotation { duration: Theme.quick; easing: ease-out; }
             }
         }
     }
@@ -868,11 +875,12 @@ export component ServerRail inherits Rectangle {
     in property <bool> can-join;
     callback join-server;
     width: 72px; background: Theme.rail;
+    read-all-motion := PopupMotion { open: root.servers-unread; }
     VerticalLayout {
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, in its own colours, as Discord puts its own here.
-            picture: @image-url("icons/logo.svg");
+            picture: @image-url("icons/logo.svg"); bare: true;
             label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
             tip: "Direct messages";
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
@@ -911,25 +919,27 @@ export component ServerRail inherits Rectangle {
                 }
             }
         }
-        // Marks every server read at once.
-        if root.servers-unread: HorizontalLayout {
+        // Marks every server read at once: a pill with a double check that
+        // grows in when something is unread and folds away once read.
+        if read-all-motion.shown: HorizontalLayout {
             alignment: center;
+            height: 26px * read-all-motion.amount;
             Rectangle {
-                width: 56px; height: 24px; border-radius: 12px;
-                background: read-all.has-hover ? Theme.accent : Theme.raised;
+                width: 48px; height: 26px; border-radius: 13px;
+                y: (parent.height - self.height) / 2;
+                opacity: read-all-motion.amount;
+                transform-scale: (0.6 + 0.4 * read-all-motion.amount) * (read-all.pressed ? 0.92 : 1.0);
+                animate transform-scale { duration: Theme.quick; easing: ease-out; }
+                background: read-all.has-hover ? Theme.accent : Theme.accent.with-alpha(0.14);
+                border-width: 1px;
+                border-color: read-all.has-hover ? Theme.accent : Theme.accent.with-alpha(0.38);
+                animate background, border-color { duration: Theme.quick; }
                 accessible-role: button; accessible-label: "Mark all servers read; Shift+click for DMs too";
                 accessible-action-default => { root.mark-all-read(false); }
-                HorizontalLayout {
-                    alignment: center; spacing: 3px;
-                    Image {
-                        y: (parent.height - self.height) / 2; width: 12px; height: 12px;
-                        source: @image-url("icons/check.svg");
-                        colorize: read-all.has-hover ? Theme.on-accent : Theme.secondary;
-                    }
-                    Text {
-                        text: "Read all"; font-size: 10px; font-weight: 700; vertical-alignment: center;
-                        color: read-all.has-hover ? Theme.on-accent : Theme.secondary;
-                    }
+                Image {
+                    width: 18px; height: 18px;
+                    source: @image-url("icons/check-check.svg");
+                    colorize: read-all.has-hover ? Theme.on-accent : Theme.accent;
                 }
                 read-all := TouchArea {
                     // Shift as the click went down: DMs too.
@@ -938,7 +948,17 @@ export component ServerRail inherits Rectangle {
                     pointer-event(event) => {
                         if event.kind == PointerEventKind.down { self.shift = event.modifiers.shift; }
                     }
-                    clicked => { root.mark-all-read(self.shift); }
+                    clicked => { Tip.text = ""; root.mark-all-read(self.shift); }
+                    changed has-hover => {
+                        if self.has-hover {
+                            Tip.text = "Mark all as read (Shift: DMs too)";
+                            Tip.side = 1;
+                            Tip.x = parent.absolute-position.x + parent.width + 12px;
+                            Tip.y = parent.absolute-position.y + parent.height / 2;
+                        } else if Tip.side == 1 && Tip.text == "Mark all as read (Shift: DMs too)" {
+                            Tip.text = "";
+                        }
+                    }
                 }
             }
         }
@@ -1044,30 +1064,12 @@ component DmScreenLinks inherits VerticalLayout {
     in property <string> requests-badge;
     callback open-friends;
     callback open-requests;
-    /// Nitro, Shop and Quests: Discord's own pages, in the browser.
-    callback open-link(string);
     padding-top: 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
         text: "Friends";
         icon: @image-url("icons/users.svg");
         selected: root.friends-open;
         clicked => { root.open-friends(); }
-    }
-    // Under Friends as in Discord's client, which shows them in itself.
-    ChannelRow {
-        text: "Nitro"; label: "Nitro, in the browser";
-        icon: @image-url("icons/nitro.svg");
-        clicked => { root.open-link("https://discord.com/nitro"); }
-    }
-    ChannelRow {
-        text: "Shop"; label: "Shop, in the browser";
-        icon: @image-url("icons/shop.svg");
-        clicked => { root.open-link("https://discord.com/shop"); }
-    }
-    ChannelRow {
-        text: "Quests"; label: "Quests, in the browser";
-        icon: @image-url("icons/trophy.svg");
-        clicked => { root.open-link("https://discord.com/quest-home"); }
     }
     ChannelRow {
         text: "Requests";
@@ -1214,7 +1216,6 @@ export component RoomList inherits Rectangle {
                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                 open-friends => { root.open-friends(); }
                 open-requests => { root.open-requests(); }
-                open-link(link) => { root.open-link(link); }
             }
             if ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
                 discord-linked: root.discord-linked;
@@ -1238,7 +1239,6 @@ export component RoomList inherits Rectangle {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                     open-friends => { root.open-friends(); }
                     open-requests => { root.open-requests(); }
-                    open-link(link) => { root.open-link(link); }
                 }
                 if index == 0 && ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
                     discord-linked: root.discord-linked;
@@ -1368,7 +1368,7 @@ export component RoomList inherits Rectangle {
                         property <string> tip: person.elsewhere ? "Connected on another client" : "";
                         height: 30px; border-radius: 4px;
                         background: person-touch.has-hover ? Theme.hover : transparent;
-                        animate background { duration: 90ms; }
+                        animate background { duration: Theme.quick; }
                         opacity: person.elsewhere && !person-touch.has-hover ? 0.5 : 1;
                         accessible-role: button;
                         accessible-label: person.elsewhere ? person.name + ", connected on another client" : person.name;
@@ -1432,7 +1432,7 @@ export component RoomList inherits Rectangle {
                         // menu, as above.
                         height: 30px; border-radius: 4px;
                         background: participant-touch.has-hover ? Theme.hover : transparent;
-                        animate background { duration: 90ms; }
+                        animate background { duration: Theme.quick; }
                         accessible-role: button; accessible-label: person.name;
                         accessible-description: "Show their profile";
                         accessible-action-default => {

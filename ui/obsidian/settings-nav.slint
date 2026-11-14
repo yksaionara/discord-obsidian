@@ -82,6 +82,12 @@ export component SettingsNavigation inherits Rectangle {
                         clicked => { root.chose(entry.id); }
                     }
                 }
+                // Only for those who know to search for it.
+                if root.query.to-lowercase() == "vice city" || root.selected == 42: ChannelRow {
+                    height: 40px; text: "Vice City"; icon: @image-url("../icons/star-filled.svg");
+                    selected: root.selected == 42;
+                    clicked => { root.chose(42); }
+                }
             }
         }
     }

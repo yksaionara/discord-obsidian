@@ -68,7 +68,15 @@ export global Theme {
     in-out property <color> avatar: #6b7280;
     /// Whether the theme is dark, for the std-widgets that follow the system's scheme.
     in-out property <bool> dark: true;
-    out property <duration> quick: 120ms;
+    /// Appearance's "Reduce motion": every transition below takes no time,
+    /// so nothing redraws for an animation.
+    in-out property <bool> reduce-motion;
+    /// A hover or press.
+    out property <duration> quick: self.reduce-motion ? 0ms : 120ms;
+    /// Something moving or growing into place.
+    out property <duration> smooth: self.reduce-motion ? 0ms : 200ms;
+    /// A larger piece of the window arriving.
+    out property <duration> slow: self.reduce-motion ? 0ms : 320ms;
 }
 
 // One tooltip for the whole window, drawn above everything else.
@@ -125,16 +133,16 @@ export global Badges {
 }
 
 // How popups open, as Discord's modals do but quicker: the card grows
-// from 80% as it fades in, and shrinks away as it fades out when it
+// from 90% as it fades in, and shrinks away as it fades out when it
 // closes. A popup's dimmed backdrop only fades.
 export global Popup {
     /// The card fades as it grows, on the GPU. Skia Software draws a
     /// fading card into a layer as large as what changed, which is the
     /// whole window under a dimmed backdrop, so there the card only grows.
     in property <bool> fade: true;
-    out property <duration> duration: 100ms;
+    out property <duration> duration: Theme.reduce-motion ? 0ms : 160ms;
     /// The card's size and opacity for how far it's open, from 0 to 1.
-    public pure function scale(amount: float) -> float { 0.8 + 0.2 * amount }
+    public pure function scale(amount: float) -> float { 0.9 + 0.1 * amount }
     public pure function opacity(amount: float) -> float { root.fade ? amount : (amount > 0 ? 1 : 0) }
 }
 
@@ -147,5 +155,6 @@ export component PopupMotion {
     out property <bool> shown: self.open || self.amount > 0;
     init => { if self.open { self.amount = 1; } }
     changed open => { self.amount = self.open ? 1 : 0; }
-    animate amount { duration: Popup.duration; easing: ease-out-quad; }
+    // Fast at first and settling softly, as Discord's modals do.
+    animate amount { duration: Popup.duration; easing: cubic-bezier(0.16, 1, 0.3, 1); }
 }

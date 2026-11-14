@@ -292,10 +292,14 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the message's other images, a counter shows which one it is, and Escape, the
   close button or a click outside the image closes it. It can save the image
   too.
-- Send through the SDK's persistent send queue. A message appears at once with
-  "Sending...". After a connection problem it shows "Not sent yet" and goes out
+- Send through the SDK's persistent send queue. A message appears at once,
+  dimmed; if it hasn't gone after 450 ms, three accent dots that rise in turn
+  and the word Sending fade in under it (`SendingIndicator`), and they only
+  redraw while they show. After a connection problem it shows "Not sent yet",
+  with a clock, and goes out
   by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
-  probing the homeserver. A refused message shows "Not sent" with Retry. Queued
+  probing the homeserver. A refused message shows "Not sent" with a warning
+  sign and Retry. Queued
   messages can be cancelled, and they survive closing Discord Obsidian.
 - Save each room's draft in the encrypted session store, so drafts survive
   restarts. Sending clears the saved draft.
@@ -407,8 +411,10 @@ The window follows Discord's arrangement:
   When an update has downloaded, an Update pill sits at the top of the
   rail, in a call or not: it installs the update and restarts, and left
   alone, the next start installs it (see Updates below).
-  While any server or folder on the rail is marked unread, a "Read all" pill
-  sits above the servers: it marks every server's unread channels read at
+  While any server or folder on the rail is marked unread, a pill with a
+  double check, tinted with the accent, grows in above the servers and folds
+  away once they're read ("Mark all as read" on hover): it marks every
+  server's unread channels read at
   once, leaving DMs as they are, and Discord gets them as bulk
   acknowledgements; Shift+click marks every unread DM read too.
   Hovering shows the server's name. A right click on a server, or the Menu
@@ -514,9 +520,9 @@ The window follows Discord's arrangement:
   call, a green notice under the title bar says "You were in a voice
   channel last time you left Discord." with Reconnect, which joins that
   channel again once it's known; leaving the call, or dismissing the
-  notice, forgets it (`last_voice` in `layout.json`). On the DM home, Nitro,
-  Shop and Quests follow Friends, as in Discord's client, and open
-  Discord's pages in the browser; the search above reads "Find or start a
+  notice, forgets it (`last_voice` in `layout.json`). On the DM home, Friends
+  and Requests lead the list; Discord's Nitro, Shop and Quests pages are left
+  out. The search above reads "Find or start a
   conversation", and the Friends header ends with New Group DM.
   In Discord's style the two are one floating card, as in
   Discord's client: the call on top, a line, then the account, under one

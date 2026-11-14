@@ -934,6 +934,7 @@ impl Editor {
                 let colour = self.theme.colour(index)?;
                 Some(obsidian_ui::ThemeColour {
                     name: token(name).into(),
+                    label: label(name).into(),
                     colour,
                     hex: hex(colour).into(),
                     wrong: false,
@@ -974,8 +975,240 @@ impl Editor {
         }
     }
 
+    /// Takes a colour from the picker. Returns whether the theme changed.
+    pub fn pick(&mut self, index: usize, colour: Color) -> bool {
+        let Some(mut row) = self.rows.row_data(index) else {
+            return false;
+        };
+        row.colour = colour;
+        row.hex = hex(colour).into();
+        row.wrong = false;
+        self.rows.set_row_data(index, row);
+        match self.theme.colour_mut(index) {
+            Some(slot) if *slot != colour => {
+                *slot = colour;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Makes every colour again from a background and an accent, as the
+    /// theme maker's quick colours do.
+    pub fn generate(&mut self, background: Color, accent: Color) {
+        self.theme = generate(background, accent);
+        self.fill();
+    }
+
     /// Whether every field holds a colour.
     pub fn valid(&self) -> bool {
         !self.rows.iter().any(|row| row.wrong)
+    }
+}
+
+/// What a colour paints, in words for the theme maker rather than its name
+/// in `ui/theme.slint`.
+pub fn label(name: &str) -> &'static str {
+    match name {
+        "rail" => "Server list",
+        "sidebar" => "Channel list",
+        "panel" => "Account panel",
+        "chat" => "Chat background",
+        "stage" => "Call stage",
+        "raised" => "Cards and popups",
+        "field" => "Message box",
+        "sunken" => "Deep wells",
+        "hover" => "Hover",
+        "active" => "Selected",
+        "row_hover" => "List hover",
+        "line" => "Lines",
+        "edge" => "Edges",
+        "outline" => "Sidebar outline",
+        "outline_chat" => "Chat outline",
+        "outline_field" => "Message box outline",
+        "text" => "Text",
+        "secondary" => "Secondary text",
+        "muted" => "Muted text",
+        "faint" => "Faint text",
+        "accent" => "Accent",
+        "accent_hover" => "Accent on hover",
+        "on_accent" => "Text on accent",
+        "accent_soft" => "Accent glow",
+        "danger" => "Danger",
+        "danger_hover" => "Danger on hover",
+        "on_danger" => "Text on danger",
+        "live" => "Online and live",
+        "loud" => "Loud microphone",
+        "link" => "Links",
+        "button_default" => "Buttons",
+        "button_default_hover" => "Buttons on hover",
+        "overlay" => "Hover wash",
+        "shimmer" => "Loading shimmer",
+        "reply_spine" => "Reply line",
+        "tooltip" => "Tooltips",
+        "avatar" => "Avatar fallback",
+        _ => "Colour",
+    }
+}
+
+/// `a` moved `amount` of the way to `b`, alpha included.
+fn mix(a: Color, b: Color, amount: f32) -> Color {
+    let step = |from: u8, to: u8| (from as f32 + (to as f32 - from as f32) * amount).round() as u8;
+    Color::from_argb_u8(
+        step(a.alpha(), b.alpha()),
+        step(a.red(), b.red()),
+        step(a.green(), b.green()),
+        step(a.blue(), b.blue()),
+    )
+}
+
+/// Relative luminance, 0 for black to 1 for white.
+fn luminance(colour: Color) -> f32 {
+    let channel = |value: u8| {
+        let value = value as f32 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(colour.red()) + 0.7152 * channel(colour.green()) + 0.0722 * channel(colour.blue())
+}
+
+/// A whole theme from two colours the theme maker asks for: the chat's
+/// background and the accent. The rail and sidebar step darker than the chat
+/// (lighter surfaces step up on a dark one), text reads against the ground,
+/// and the theme is dark when the ground is.
+pub fn generate(background: Color, accent: Color) -> Theme {
+    let background = background.with_alpha(1.0);
+    let accent = accent.with_alpha(1.0);
+    let white = rgb(0xffffff);
+    let black = rgb(0x000000);
+    let dark = luminance(background) < 0.35;
+    let on_accent = if luminance(accent) > 0.45 {
+        mix(black, accent, 0.12)
+    } else {
+        white
+    };
+    let accent_soft = accent.with_alpha(0.15);
+    if dark {
+        let sidebar = mix(background, black, 0.22);
+        Theme {
+            dark: true,
+            rail: mix(background, black, 0.4),
+            sidebar,
+            panel: mix(background, black, 0.32),
+            chat: background,
+            stage: background,
+            raised: mix(background, white, 0.06),
+            field: mix(background, white, 0.08),
+            sunken: mix(background, black, 0.5),
+            hover: mix(background, white, 0.04),
+            active: mix(background, white, 0.09),
+            row_hover: mix(sidebar, white, 0.04),
+            line: mix(background, white, 0.09),
+            edge: mix(background, black, 0.6),
+            outline: mix(sidebar, white, 0.08),
+            outline_chat: mix(background, white, 0.08),
+            outline_field: mix(background, white, 0.09),
+            text: mix(white, background, 0.06),
+            secondary: mix(white, background, 0.3),
+            muted: mix(white, background, 0.45),
+            faint: mix(white, background, 0.64),
+            accent,
+            accent_hover: mix(accent, white, 0.18),
+            on_accent,
+            accent_soft,
+            danger: YAP.danger,
+            danger_hover: YAP.danger_hover,
+            on_danger: YAP.on_danger,
+            live: YAP.live,
+            loud: YAP.loud,
+            link: YAP.link,
+            button_default: mix(background, white, 0.12),
+            button_default_hover: mix(background, white, 0.17),
+            overlay: white,
+            shimmer: rgba(0xffffff10),
+            reply_spine: mix(background, white, 0.2),
+            tooltip: mix(background, black, 0.62),
+            avatar: YAP.avatar,
+        }
+    } else {
+        let sidebar = mix(background, black, 0.04);
+        Theme {
+            dark: false,
+            rail: mix(background, black, 0.09),
+            sidebar,
+            panel: mix(background, black, 0.065),
+            chat: background,
+            stage: background,
+            raised: mix(background, white, 0.6),
+            field: mix(background, black, 0.05),
+            sunken: mix(background, black, 0.08),
+            hover: mix(background, black, 0.05),
+            active: mix(background, black, 0.09),
+            row_hover: mix(sidebar, black, 0.04),
+            line: mix(background, black, 0.12),
+            edge: mix(background, black, 0.18),
+            outline: mix(sidebar, black, 0.1),
+            outline_chat: mix(background, black, 0.1),
+            outline_field: mix(background, black, 0.12),
+            text: mix(black, background, 0.1),
+            secondary: mix(black, background, 0.34),
+            muted: mix(black, background, 0.48),
+            faint: mix(black, background, 0.62),
+            accent,
+            accent_hover: mix(accent, black, 0.12),
+            on_accent,
+            accent_soft,
+            danger: rgb(0xd83a42),
+            danger_hover: rgb(0xc4313a),
+            on_danger: white,
+            live: rgb(0x1f9d55),
+            loud: rgb(0xe8730c),
+            link: rgb(0x0b6bcb),
+            button_default: mix(background, black, 0.08),
+            button_default_hover: mix(background, black, 0.12),
+            overlay: black,
+            shimmer: rgba(0xffffff66),
+            reply_spine: mix(background, black, 0.25),
+            tooltip: mix(background, white, 0.75),
+            avatar: YAP.avatar,
+        }
+    }
+}
+
+#[cfg(test)]
+mod generate_tests {
+    use super::*;
+
+    #[test]
+    fn a_dark_ground_makes_a_dark_theme_with_light_text() {
+        let theme = generate(rgb(0x1b1026), rgb(0xeb459e));
+        assert!(theme.dark);
+        assert!(luminance(theme.text) > 0.7);
+        assert!(luminance(theme.rail) < luminance(theme.chat));
+        assert_eq!(theme.accent, rgb(0xeb459e));
+    }
+
+    #[test]
+    fn a_light_ground_makes_a_light_theme_with_dark_text() {
+        let theme = generate(rgb(0xf5f5f7), rgb(0x5865f2));
+        assert!(!theme.dark);
+        assert!(luminance(theme.text) < 0.1);
+        assert_eq!(theme.on_accent, rgb(0xffffff));
+    }
+
+    #[test]
+    fn a_pale_accent_takes_dark_text() {
+        let theme = generate(rgb(0x111111), rgb(0xffe066));
+        assert!(luminance(theme.on_accent) < 0.2);
+    }
+
+    #[test]
+    fn every_colour_has_words() {
+        for name in Theme::NAMES {
+            assert_ne!(label(name), "Colour", "{name} has no label");
+        }
     }
 }

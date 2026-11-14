@@ -30,6 +30,9 @@ live-preview = ["desktop", "obsidian-ui/live-preview"]
 
 [dependencies]
 anyhow.workspace = true
+# The Vice City easter egg's countdown, in the local time zone; already in the
+# tree through obsidian-core.
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 slint = { workspace = true, optional = true }

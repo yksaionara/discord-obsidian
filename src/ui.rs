@@ -46,6 +46,7 @@ mod channel_settings;
 mod emoji_animation;
 mod games;
 mod gifs;
+mod gta;
 mod menus;
 mod messages;
 #[cfg(windows)]
@@ -1229,6 +1230,8 @@ struct Layout {
     last_voice: Option<String>,
     /// When animations play.
     animate: Animate,
+    /// Appearance's "Reduce motion": the window's transitions take no time.
+    reduce_motion: bool,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1522,6 +1525,10 @@ impl Layout {
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
         show_motion(window);
+        window.set_reduce_motion(self.reduce_motion);
+        window
+            .global::<obsidian_ui::Theme>()
+            .set_reduce_motion(self.reduce_motion);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
         window.set_level_voice(self.level_voice.unwrap_or(true));

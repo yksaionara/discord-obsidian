@@ -37,11 +37,31 @@ Message groups have a 16px leading gap, with a smaller timestamp. The docked
 profile is a 320px column with a View Full Profile button. User settings open as
 a modal with a 266px sidebar and a content column up to 696px.
 
+## Motion
+
+Transitions take their time from `Theme` in `ui/theme.slint`: `quick`
+(120 ms) for a hover or press, `smooth` (200 ms) for something moving into
+place, `slow` (320 ms) for larger pieces, and `Popup.duration` (160 ms, easing
+out like Discord's modals from 90% of the card's size). Buttons give a little
+under the pointer, the Home logo lifts on hover, and the rail's Read all pill
+grows in and folds away. Appearance's "Reduce motion" (`reduce_motion` in
+`layout.json`) makes every one of them take no time, so nothing redraws for an
+animation. Animations only cost while they run: nothing is drawn between them,
+and no picture is kept for one.
+
+## Vice City
+
+Typing "vice city" into Search settings shows a hidden Vice City page: a
+sunset counting down to GTA VI (`src/ui/gta.rs`). It counts to midnight local
+time on November 19, 2026, as Rockstar releases it, except in US time zones
+(UTC-5 to UTC-10), whose stores unlock together at midnight Eastern. It ticks
+once a second while it's on screen.
+
 ## Not yet Discord
 
 Only implemented destinations appear. Missing: banner, badges and decorations
 in the profile and account popover, clan tags, per-channel unread counts, the
-quick switcher and Nitro, Shop and Quests pages. Several need data the client
+and the quick switcher. Nitro, Shop and Quests are left out on purpose. Several need data the client
 does not fetch yet.
 
 ## Tests

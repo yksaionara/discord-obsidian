@@ -70,6 +70,8 @@ impl Adapter {
     }
 
     fn open_theme_editor(&mut self, window: &ObsidianWindow, editor: theme::Editor) {
+        window.set_theme_background(editor.theme.chat);
+        window.set_theme_accent(editor.theme.accent);
         window.set_theme_editing_saved(editor.editing.is_some());
         window.set_theme_dark(editor.theme.dark);
         window.set_theme_colours(editor.rows());
@@ -99,6 +101,8 @@ impl Adapter {
             window.set_theme_name(name.into());
         }
         editor.restart(base, theme);
+        window.set_theme_background(theme.chat);
+        window.set_theme_accent(theme.accent);
         window.set_theme_start(index);
         window.set_theme_dark(theme.dark);
         window.set_theme_can_save(true);
@@ -117,6 +121,35 @@ impl Adapter {
             let theme = editor.theme;
             self.set_theme(window, &theme);
         }
+    }
+
+    /// A colour came from the picker: the window shows it at once.
+    pub(super) fn theme_colour_picked(&mut self, window: &ObsidianWindow, index: i32, colour: slint::Color) {
+        let Some(editor) = self.theme_editor.as_mut() else {
+            return;
+        };
+        if usize::try_from(index).is_ok_and(|index| editor.pick(index, colour)) {
+            let theme = editor.theme;
+            window.set_theme_background(theme.chat);
+            window.set_theme_accent(theme.accent);
+            window.set_theme_can_save(editor.valid());
+            self.set_theme(window, &theme);
+        }
+    }
+
+    /// The background or accent changed among the quick colours: every
+    /// colour is made again from the two.
+    pub(super) fn theme_quick_picked(&mut self, window: &ObsidianWindow, background: slint::Color, accent: slint::Color) {
+        let Some(editor) = self.theme_editor.as_mut() else {
+            return;
+        };
+        editor.generate(background, accent);
+        let theme = editor.theme;
+        window.set_theme_background(background);
+        window.set_theme_accent(accent);
+        window.set_theme_dark(theme.dark);
+        window.set_theme_can_save(true);
+        self.set_theme(window, &theme);
     }
 
     pub(super) fn theme_dark_toggled(&mut self, window: &ObsidianWindow, dark: bool) {
@@ -168,8 +201,12 @@ impl Adapter {
     pub(super) fn cancel_theme(&mut self, window: &ObsidianWindow) {
         if self.theme_editor.take().is_some() {
             close_theme_editor(window);
-            let (_, before) =
-                theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes);
+            // The theme Appearance shows as chosen, which may be the default
+            // presentation's rather than one the layout names.
+            let shown = window.get_theme_id();
+            let (_, before) = theme::lookup(&shown, &self.layout.custom_themes).unwrap_or_else(|| {
+                theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes)
+            });
             self.set_theme(window, &before);
         }
     }

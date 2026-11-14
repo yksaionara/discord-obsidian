@@ -45,7 +45,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, Ga
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls, Logged } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AddonsSettings } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -1158,6 +1158,8 @@ export component ObsidianWindow inherits Window {
     in-out property <bool> game-toggle-button: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
+    /// Appearance's "Reduce motion".
+    in-out property <bool> reduce-motion;
     /// When animations play: 0 while Discord Obsidian has the focus, 1 always, 2 never.
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
@@ -1249,6 +1251,13 @@ export component ObsidianWindow inherits Window {
     callback edit-theme(string);
     callback theme-start-chosen(int);
     callback theme-colour-edited(int, string);
+    /// The theme maker's quick colours, and a colour from its picker.
+    in property <color> theme-background;
+    in property <color> theme-accent;
+    callback theme-quick-picked(color, color);
+    /// The Vice City easter egg's countdown, as it stands now.
+    callback gta-tick() -> GtaClock;
+    callback theme-colour-picked(int, color);
     callback theme-dark-toggled(bool);
     callback save-theme();
     callback cancel-theme();
@@ -2189,7 +2198,7 @@ export component ObsidianWindow inherits Window {
                     x: 3px; width: 2px; height: parent.height;
                     background: edge.pressed ? Theme.faint : Theme.line;
                     opacity: edge.has-hover || edge.pressed ? 1 : 0;
-                    animate opacity { duration: 120ms; }
+                    animate opacity { duration: Theme.quick; }
                 }
             }
         }
@@ -3173,7 +3182,7 @@ export component ObsidianWindow inherits Window {
                                             Rectangle {
                                                 y: parent.body; height: parent.height - parent.body - parent.tail;
                                                 background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit ? Theme.row-hover : transparent;
-                                                animate background { duration: 400ms; }
+                                                animate background { duration: Theme.slow; }
                                             }
                                             // A message that calls on this account is tinted marigold with a
                                             // marigold edge, below the history notice and the dividers above it:
@@ -3792,7 +3801,7 @@ export component ObsidianWindow inherits Window {
             x: 3px; width: 2px;
             background: parent.pressed ? Theme.faint : Theme.line;
             opacity: parent.has-hover || parent.pressed ? 1 : 0;
-            animate opacity { duration: 120ms; }
+            animate opacity { duration: Theme.quick; }
         }
     }
     // So does the edge of the thread beside the conversation, below the header.
@@ -3812,7 +3821,7 @@ export component ObsidianWindow inherits Window {
             x: 3px; width: 2px;
             background: parent.pressed ? Theme.faint : Theme.line;
             opacity: parent.has-hover || parent.pressed ? 1 : 0;
-            animate opacity { duration: 120ms; }
+            animate opacity { duration: Theme.quick; }
         }
     }
 
@@ -3829,7 +3838,7 @@ export component ObsidianWindow inherits Window {
         property <length> bottom: root.height - self.height - 16px;
         x: (root.pip-left ? self.left : self.right) + self.drag-x;
         y: (root.pip-bottom ? self.bottom : self.top) + self.drag-y;
-        animate x, y { duration: self.dragging ? 0ms : 180ms; easing: ease-out; }
+        animate x, y { duration: self.dragging ? 0ms : Theme.smooth; easing: ease-out; }
         title: root.pip-kind == 1 ? root.watch-title : root.pip-kind == 2 ? "Your screen" : root.participants[root.pip-person].name;
         status: root.pip-kind == 1 ? root.watch-status : root.pip-kind == 2 ? root.share-status : "";
         frame: root.pip-kind == 1 ? root.watch-frame : root.pip-kind == 2 ? root.share-frame : root.participant-frames[root.pip-person];
@@ -3952,12 +3961,16 @@ export component ObsidianWindow inherits Window {
             system-title-bar <=> root.system-title-bar; title-bar-choice: root.title-bar-choice;
             title-bar-toggled => { root.title-bar-toggled(); }
             show-nameplates <=> root.show-nameplates;
+            reduce-motion <=> root.reduce-motion;
             preferences-changed => { root.preferences-changed(); }
             choose-theme(id) => { root.choose-theme(id); }
             new-theme => { root.new-theme(); }
             edit-theme(id) => { root.edit-theme(id); }
             start-chosen(index) => { root.theme-start-chosen(index); }
             colour-edited(index, text) => { root.theme-colour-edited(index, text); }
+            quick-background: root.theme-background; quick-accent: root.theme-accent;
+            quick-picked(background, accent) => { root.theme-quick-picked(background, accent); }
+            colour-picked(index, colour) => { root.theme-colour-picked(index, colour); }
             dark-toggled(dark) => { root.theme-dark-toggled(dark); }
             save-theme => { root.save-theme(); }
             cancel-theme => { root.cancel-theme(); }
@@ -4031,6 +4044,9 @@ export component ObsidianWindow inherits Window {
             logger-ghost-pings <=> root.logger-ghost-pings;
             game-toggle <=> root.game-toggle-button;
             preferences-changed => { root.preferences-changed(); }
+        }
+        if root.settings-section == 42: GtaCountdown {
+            tick => { return root.gta-tick(); }
         }
         if root.settings-section == 8: GameActivitySettings {
             shown: root.show-game; linked: root.discord-linked; executables: root.game-executables;
@@ -4637,7 +4653,7 @@ export component ObsidianWindow inherits Window {
         drop-card := Rectangle {
             x: root.drop-aside ? parent.width - parent.aside-part + (parent.aside-part - self.width) / 2 : (parent.width - parent.aside-part - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            animate x { duration: 120ms; easing: ease-out; }
+            animate x { duration: Theme.quick; easing: ease-out; }
             width: 310px; height: drop-lines.preferred-height + 16px;
             border-radius: 10px; background: root.drop-refusal != "" && !root.dragging ? Theme.danger : Theme.accent;
             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
@@ -4754,10 +4770,10 @@ export component ObsidianWindow inherits Window {
         width: self.w; height: self.h;
         property <bool> shown: !Tip.pop;
         opacity: self.shown ? 1 : 0;
-        animate opacity { duration: 120ms; easing: ease-out; }
+        animate opacity { duration: Theme.quick; easing: ease-out; }
         transform-scale: self.shown ? 1 : 0.95;
         transform-origin: { x: self.w / 2, y: self.h };
-        animate transform-scale { duration: 120ms; easing: ease-out; }
+        animate transform-scale { duration: Theme.quick; easing: ease-out; }
         Timer {
             interval: 16ms;
             running: Tip.pop && !tip-card.shown;

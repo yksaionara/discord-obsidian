@@ -27,6 +27,9 @@ export component ActionButton inherits Rectangle {
         : root.ghost ? (pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent)
         : (pointer.has-hover ? Theme.button-default-hover : Theme.button-default);
     animate background { duration: Theme.quick; }
+    // Gives under the pointer, so a click is felt.
+    transform-scale: pointer.pressed ? 0.96 : 1.0;
+    animate transform-scale { duration: Theme.quick; easing: ease-out; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -121,6 +124,8 @@ export component IconButton inherits Rectangle {
         border-color: Theme.accent;
         Image {
             source: root.icon; width: root.glyph; height: root.glyph;
+            transform-scale: pointer.pressed ? 0.86 : 1.0;
+            animate transform-scale { duration: Theme.quick; easing: ease-out; }
             colorize: !root.enabled ? Theme.faint : root.emphasis ? Theme.on-accent
                 : root.alert || (root.danger && pointer.has-hover) ? Theme.danger
                 : pointer.has-hover ? Theme.text : root.tint;

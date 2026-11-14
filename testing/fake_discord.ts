@@ -252,8 +252,8 @@
 // The API sets a device cookie, as Discord's does, and
 // GET /_control/cookies counts how often it was set and sent back.
 // GET /_control/list-requests counts member list subscriptions. POST
-// /_control/slow with a number of milliseconds slows history, attachments
-// and links' pictures, to show loading states.
+// /_control/slow with a number of milliseconds slows history, attachments,
+// links' pictures and sending a message, to show loading states.
 // POST /_control/clip makes Bob attach clip.mp4, six seconds with sound, and
 // link a post whose card plays a video, as vxtwitter's do; Carol forwards
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
@@ -7978,8 +7978,9 @@ const server = Bun.serve<SocketData>({
       if (/^\/(icons|avatars|banners|embed\/avatars|guilds)\//.test(path)) mediaRequests.avatars++;
       if (/^\/(attachments|media\/attachments|external)\//.test(path)) mediaRequests.previews++;
     }
-    // Slowed, so loading states can be seen: history, attachments and links' pictures.
-    if (slowMs > 0 && req.method === "GET" && (/\/channels\/\d+\/messages$/.test(path) || path.startsWith("/attachments/") || path.startsWith("/external/"))) {
+    // Slowed, so loading states can be seen: history, attachments, links' pictures and sending.
+    if (slowMs > 0 && ((req.method === "GET" && (/\/channels\/\d+\/messages$/.test(path) || path.startsWith("/attachments/") || path.startsWith("/external/")))
+      || (req.method === "POST" && /\/channels\/\d+\/messages$/.test(path)))) {
       await Bun.sleep(slowMs);
     }
     if (path === "/" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
