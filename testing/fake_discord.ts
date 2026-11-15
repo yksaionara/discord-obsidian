@@ -250,7 +250,8 @@
 // events it missed; a close with 1000 or 1001 ends it instead. POST
 // /_control/gateway-reconnect sends op 7, and GET /_control/sessions counts
 // identifies and resumes, and op 40 heartbeats with the last `qos` they
-// carried and the last identify's `qos_token`, and VOICE_SERVER_PINGs. The voice gateway is version
+// carried and the last identify's `qos_token`, VOICE_SERVER_PINGs, and
+// the DMs CALL_CONNECT (op 13) asked about, answered with CALL_CREATE. The voice gateway is version
 // 9 and answers op 16 with its backend. POST /_control/refresh-token with a token ends
 // the session with op 9, and the READY after it refreshes the login to that
 // token in auth_token, as Discord does; from then on only that token works.
@@ -2086,6 +2087,8 @@ const sessionCounts = {
   qosToken: null as string | null,
   // VOICE_SERVER_PINGs (op 5), which a client sends when a call drops.
   voicePings: 0,
+  // The DMs a client asked about their calls (op 13), in order.
+  callConnects: [] as string[],
 };
 
 function send(ws: Socket, op: number, d: unknown, t: string | null = null) {
@@ -3128,6 +3131,10 @@ function gatewayMessage(ws: Socket, text: string) {
       send(ws, 0, {}, "RESUMED");
       break;
     }
+    case 13: // Call connect: a DM opened; its call, if any, comes again.
+      sessionCounts.callConnects.push(String(d.channel_id));
+      if (calls.has(String(d.channel_id))) send(ws, 0, wireCall(String(d.channel_id)), "CALL_CREATE");
+      break;
     case 5: // Voice server ping: the call keeps its server here.
       sessionCounts.voicePings++;
       break;

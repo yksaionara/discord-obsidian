@@ -3635,6 +3635,15 @@ async fn calls_in_dms() {
         .unwrap()
         .id
         .clone();
+    // Opening the DM asks about its call, once, as Discord's client does.
+    discord.view(PRIVATE, Some(&dm));
+    discord.view(PRIVATE, Some(&dm));
+    let asked = || -> serde_json::Value {
+        serde_json::from_str::<serde_json::Value>(&control(server, "GET", "/_control/sessions", "")).unwrap()
+            ["callConnects"]
+            .clone()
+    };
+    until("the DM asked about its call", || asked() == serde_json::json!([dm])).await;
     let assigned = discord.join(PRIVATE, &dm).await.unwrap();
     let mut call = timeout(
         WAIT,

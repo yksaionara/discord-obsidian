@@ -344,6 +344,12 @@ impl Session<'_> {
         // This session shows the status the settings hold, as Discord's own apps do.
         self.show_presence().await?;
         self.report_activity();
+        // The DM on screen asks about its call again on a new connection.
+        if let Some((guild, channel)) = &self.shared.viewing
+            && guild == ready::PRIVATE
+        {
+            self.gateway.call_connect(channel).await?;
+        }
         self.shared.lists.publish_group(&self.tracker);
         self.ask_previews();
         self.shared
@@ -480,6 +486,13 @@ impl Session<'_> {
             }
             Request::View { guild, channel } => {
                 self.shared.viewing = channel.clone().map(|channel| (guild.clone(), channel));
+                // As Discord's client does when a DM opens, it asks about
+                // its call; CALL_CREATE answers if there's one.
+                if guild == ready::PRIVATE
+                    && let Some(channel) = &channel
+                {
+                    gateway.call_connect(channel).await?;
+                }
                 let threads = self.tracker.view(&guild, channel.as_deref());
                 let channel = channel.map(|channel| self.tracker.listed_channel(&guild, channel));
                 let listed = self

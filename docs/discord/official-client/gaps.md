@@ -62,9 +62,8 @@ features. The ones a chat-and-voice client shows to users:
 ## Gateway commands Discord Obsidian doesn't send
 
 Compare with the command table in [gateway.md](gateway.md). Discord Obsidian
-sends 1–6, 8, 18–20, 22, 31, 37, 40 and 43 (`gateway.rs`). Of the rest:
+sends 1–6, 8, 13, 18–20, 22, 31, 37, 40 and 43 (`gateway.rs`). Of the rest:
 
-- 13 `CALL_CONNECT` `{channel_id}`: for DM calls. The callers weren't traced
 - 21 `STREAM_PING` `{stream_key}`: the official client sends it when a
   stream's connection drops and will reconnect. Discord Obsidian's streams
   don't reconnect, so it has nothing to send it from

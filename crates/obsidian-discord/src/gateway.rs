@@ -63,6 +63,7 @@ const REQUEST_GUILD_MEMBERS: u64 = 8;
 const INVALID_SESSION: u64 = 9;
 const HELLO: u64 = 10;
 const HEARTBEAT_ACK: u64 = 11;
+const CALL_CONNECT: u64 = 13;
 const STREAM_CREATE: u64 = 18;
 const STREAM_DELETE: u64 = 19;
 const STREAM_WATCH: u64 = 20;
@@ -274,6 +275,8 @@ pub struct Gateway {
     members_held: HashMap<String, Instant>,
     /// Servers this session asked for their voice channels' statuses.
     channel_info: std::collections::HashSet<String>,
+    /// DMs this session asked about their calls.
+    calls_asked: std::collections::HashSet<String>,
 }
 
 impl Drop for Gateway {
@@ -378,6 +381,7 @@ impl Gateway {
             task,
             members_held: HashMap::new(),
             channel_info: std::collections::HashSet::new(),
+            calls_asked: std::collections::HashSet::new(),
         };
         loop {
             let event = gateway.next().await?;
@@ -439,6 +443,15 @@ impl Gateway {
             }),
         )
         .await
+    }
+
+    /// Asks about a DM's call the first time this session opens it, as the
+    /// web client does; Discord answers with CALL_CREATE if there's one.
+    pub async fn call_connect(&mut self, channel_id: &str) -> Result<()> {
+        if !self.calls_asked.insert(channel_id.to_owned()) {
+            return Ok(());
+        }
+        self.send(CALL_CONNECT, json!({"channel_id": channel_id})).await
     }
 
     /// Tells Discord this session's call lost its voice connection and is

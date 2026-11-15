@@ -223,8 +223,11 @@ measures a call with cameras; see [measurements](../measurements/README.md).
 
 ## DM calls
 
-A DM or group DM has a call, as in Discord. The phone in its header starts
-one, or joins the one going on, through the same voice dock and one-call
+A DM or group DM has a call, as in Discord. Opening one sends op 13
+`CALL_CONNECT` with its channel, the first time on each connection and again
+for the one on screen after reconnecting, as Discord's client does, and
+Discord answers with CALL_CREATE when a call is going on. The phone in its
+header starts one, or joins the one going on, through the same voice dock and one-call
 rule as a voice channel. Joining sends op 4 without a server, naming the DM
 as the channel; VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE come back without
 a server too, the latter with the channel's id, and the voice connection
