@@ -1,7 +1,5 @@
-- New: drag servers up and down the server list with your mouse, onto another server to make a folder, or into a folder, as in Discord. Discord keeps the new order.
-- New: hover someone who's live in a voice channel for the Streaming Now card, with a preview of their stream and Watch Stream.
-- Smoother screen sharing at 1080p 144fps: the bitrate no longer climbs past what your connection gets through, which froze streams every minute or so, and when the connection can't carry every frame, it sends fewer, sharper ones instead of freezing.
-- Fixed: games in full screen or windowed full screen, such as Valorant, are in the share list again, the game you're playing first. They share as soon as you tab back in.
-- Fixed: the mic test no longer cancels out your own voice, so you hear yourself clearly.
-- Emojis in reactions, polls and channel names look like Discord's.
-- Fixed: a message no longer jumps up while it sends, and reaction tooltips no longer show one letter per line.
+- New: drag someone in a voice channel onto another voice channel to move them there, as in Discord, where you may move members. Drag yourself to join it.
+- New: hover a server to see who's in its voice channels and who's streaming there, as in Discord.
+- New: Discord's own icons throughout, from the mic, headphones and settings to the header and menus.
+- Fixed: the mute and deafen shortcuts work while Discord Obsidian is the window in front too, not only in other apps.
+- Calls and the connection to Discord now behave as Discord's current client does: a dropped call asks for another voice server, pinned messages update live, voice channel statuses show, and app buttons in messages work.
