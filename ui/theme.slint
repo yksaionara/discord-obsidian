@@ -79,6 +79,9 @@ export global Theme {
     out property <duration> slow: self.reduce-motion ? 0ms : 320ms;
 }
 
+/// Someone in a server's call, as its tooltip on the rail shows them.
+export struct TipPerson { initial: string, picture-url: string, tint: color }
+
 // One tooltip for the whole window, drawn above everything else.
 export global Tip {
     in-out property <string> text;
@@ -88,6 +91,12 @@ export global Tip {
     in-out property <int> side;
     /// Whether it pops up with a fade, as a badge's does, not at once.
     in-out property <bool> pop;
+    /// A server's tooltip on the rail, as Discord's: under its name, who is
+    /// in its voice channels and who streams there. They belong to the
+    /// tooltip whose text is `people-for`, and no other shows them.
+    in-out property <[TipPerson]> voice;
+    in-out property <[TipPerson]> streams;
+    in-out property <string> people-for;
 }
 
 // The tooltip of a badge that levels up, as Discord's client shows it: a

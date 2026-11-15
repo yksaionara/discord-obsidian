@@ -2660,6 +2660,26 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             );
         }
     });
+    // Someone dragged onto another voice channel: moved there, as Move To
+    // does, or for this account, joining it. Discord refuses a move this
+    // account may not make, and the core doesn't ask for one.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_move_voice_person(move |from, user, to| {
+        if let Some(window) = weak.upgrade() {
+            let me = state.borrow().app.state.discord_user.as_deref() == Some(user.as_str());
+            let action = if me {
+                Action::RequestJoinVoice(to.into())
+            } else {
+                Action::ChangeMember {
+                    place: from.into(),
+                    user: user.into(),
+                    change: obsidian_core::chat::MemberChange::Move(Some(to.into())),
+                }
+            };
+            state.borrow_mut().action(&window, action);
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_watch_stream(move |id| {

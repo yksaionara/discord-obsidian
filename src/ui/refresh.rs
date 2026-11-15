@@ -4357,8 +4357,11 @@ pub(super) fn rail_rows(
     while let Some(server) = servers.next() {
         let Some(folder) = &server.folder else {
             let (unread, mentions) = marks(server);
+            let (voice, streams) = call_people(server, rooms_by_id);
             rows.push(ServerRow {
                 call: in_call(server),
+                voice,
+                streams,
                 ..server_row(server, selected(server), unread, mentions)
             });
             continue;
@@ -4416,11 +4419,14 @@ pub(super) fn rail_rows(
             let last = inside.len() - 1;
             for (index, server) in inside.into_iter().enumerate() {
                 let (unread, mentions) = marks(server);
+                let (voice, streams) = call_people(server, rooms_by_id);
                 rows.push(ServerRow {
                     nested: true,
                     last: index == last,
                     tint,
                     call: in_call(server),
+                    voice,
+                    streams,
                     ..server_row(server, selected(server), unread, mentions)
                 });
             }
@@ -4462,6 +4468,42 @@ pub(super) fn voice_places<'a>(
         }
     }
     places
+}
+
+/// Who a server's tooltip on the rail shows, as Discord's does: those in its
+/// voice and stage channels, and apart from them those streaming there.
+/// Nothing is made for a server without a call, most of them.
+fn call_people(
+    server: &obsidian_core::chat::ChatServer,
+    rooms_by_id: &HashMap<&str, &obsidian_core::chat::ChatRoom>,
+) -> (ModelRc<TipPerson>, ModelRc<TipPerson>) {
+    let (mut voice, mut streams) = (Vec::new(), Vec::new());
+    let people = server
+        .channels
+        .iter()
+        .filter_map(|channel| rooms_by_id.get(channel.as_str()))
+        .filter(|room| room.voice)
+        .flat_map(|room| &room.people);
+    for person in people {
+        let row = TipPerson {
+            initial: initial(&person.name),
+            picture_url: person.avatar.as_deref().unwrap_or_default().into(),
+            tint: tint(&person.id),
+        };
+        if person.streaming {
+            streams.push(row);
+        } else {
+            voice.push(row);
+        }
+    }
+    let model = |rows: Vec<TipPerson>| {
+        if rows.is_empty() {
+            ModelRc::default()
+        } else {
+            ModelRc::new(VecModel::from(rows))
+        }
+    };
+    (model(voice), model(streams))
 }
 
 fn call_room(state: &AppState) -> Option<&str> {

@@ -411,7 +411,13 @@ The window follows Discord's arrangement:
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
   anywhere; a closed folder shows it for its servers. The rail is built again
-  for a voice event only when the call starts, ends or moves.
+  for a voice event of this account's only when the call starts, ends or
+  moves; others joining and leaving rebuild it with the channel list.
+  A server's tooltip, as Discord's, has a pointer at its left and, under its
+  name, who is in its voice and stage channels beside a speaker, and apart
+  from them who is streaming there beside a shared screen: six avatars, each
+  over the last with a ring cut round it, then "+N". A tooltip showing keeps
+  up as people come and go.
   When an update has downloaded, an Update pill sits at the top of the
   rail, in a call or not: it installs the update and restarts, and left
   alone, the next start installs it (see Updates below).
@@ -485,7 +491,12 @@ The window follows Discord's arrangement:
   through the picture store), or "Stream just started. Get in here!" before
   the streamer's client uploaded one, and a green Watch Stream that does
   what the LIVE tag does. It goes a moment after the pointer leaves the row
-  and the card. A server channel's row, hovered or selected, shows
+  and the card. Someone in a voice channel, pressed and moved, is dragged as
+  in Discord: their avatar and name follow the pointer, the voice channel
+  under it lights in the accent colour, and dropping them there moves them
+  (`PATCH /guilds/{guild}/members/{user}` with `channel_id`, the Move To
+  that their menu offers, refused where it doesn't), or for this account,
+  joins that channel. A server channel's row, hovered or selected, shows
   Discord's buttons after a voice channel's chat button: Create Invite and
   Edit Channel, each where the channel's menu offers it. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the
@@ -697,8 +708,10 @@ the problem pastes it to whoever can look.
 Voice settings record a shortcut each for toggling mute and deafen: a key
 with any of Ctrl, Shift and Alt (`src/hotkeys.rs`). On Windows a low-level
 keyboard hook hears them in every app, games included, and passes the key on;
-it runs only while one is set, so nothing more runs at startup otherwise.
-Elsewhere they work while the window is in front.
+it runs only while one is set, so nothing more runs at startup otherwise. While
+Discord Obsidian's own window is in front the hook leaves the key to the
+window, which hears it among its key events as it does on every other system,
+so a press toggles once.
 
 ## Volumes and share presets
 

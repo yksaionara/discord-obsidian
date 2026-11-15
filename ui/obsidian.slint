@@ -36,7 +36,7 @@ import "fonts/DisplayName-Journal.ttf";
 // Discord Obsidian's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, StreamHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, TipPerson, BadgeTip, ReactionHover, StreamHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "obsidian/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
@@ -76,6 +76,38 @@ export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
+
+// A line of a server's tooltip on the rail, as Discord's: what its people are
+// doing, a speaker or a shared screen, and the first six of them, each a
+// little over the last with a ring cut round it, then how many more.
+component TipPeopleRow inherits HorizontalLayout {
+    in property <image> icon;
+    in property <[TipPerson]> people;
+    property <int> shown: min(root.people.length, 6);
+    property <int> more: root.people.length - self.shown;
+    spacing: 8px; alignment: start;
+    Rectangle {
+        width: 20px; height: 24px;
+        Image { source: root.icon; width: 20px; height: 20px; colorize: Theme.secondary; accessible-role: none; }
+    }
+    Rectangle {
+        width: (root.shown + (root.more > 0 ? 1 : 0)) * 20px + 4px; height: 24px;
+        for person[index] in root.people: Rectangle {
+            visible: index < 6;
+            x: index * 20px - 2px; y: -2px; width: 28px; height: 28px; border-radius: 14px;
+            background: Theme.tooltip;
+            Avatar { size: 24px; initial: person.initial; tint: person.tint; picture-url: person.picture-url; }
+        }
+        if root.more > 0: Rectangle {
+            x: root.shown * 20px - 2px; y: -2px; width: 28px; height: 28px; border-radius: 14px;
+            background: Theme.tooltip;
+            Rectangle {
+                width: 24px; height: 24px; border-radius: 12px; background: Theme.overlay.with-alpha(0.12);
+                Text { text: "+" + root.more; color: Theme.text; font-size: 11px; font-weight: 700; }
+            }
+        }
+    }
+}
 
 export component ObsidianWindow inherits Window {
     /// "Discord Obsidian", or "(3) Discord Obsidian" with mentions and DMs waiting, as a browser
@@ -1385,6 +1417,8 @@ export component ObsidianWindow inherits Window {
     callback watch-stream(string);
     /// Someone in a voice channel was clicked in the channel list.
     callback show-voice-person(string, string);
+    /// Someone in a voice channel dragged onto another: from, who, to.
+    callback move-voice-person(string, string, string);
     /// The "Streaming Now" card shows the stream someone shares in a voice
     /// channel, by the channel and their user id, which asks Discord for its
     /// preview; empty ids hide it.
@@ -2518,6 +2552,7 @@ export component ObsidianWindow inherits Window {
                                 open-room-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                                 open-voice-menu(room, person, x, y) => { root.open-voice-menu(room, person, x, y); }
                                 show-voice-person(room, id) => { root.show-voice-person(room, id); }
+                                move-voice-person(from, user, to) => { root.move-voice-person(from, user, to); }
                                 open-voice-profile(person, x, y, width, height) => {
                                     if person.person != "" {
                                         root.anchor(x, y, width, height, false);
@@ -2681,7 +2716,7 @@ export component ObsidianWindow inherits Window {
                                         icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
                                         label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
                                         alert: root.shown-deafened;
-                                        glyph: ClientStyle.enabled ? 21px : 20px;
+                                        glyph: 20px;
                                         tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                         menu-label: "Output options"; open: root.output-open;
                                         enabled: root.voice-ready || !root.voice-active;
@@ -2697,7 +2732,7 @@ export component ObsidianWindow inherits Window {
                                         icon: root.show-game ? @image-url("icons/gamepad.svg") : @image-url("icons/gamepad-off.svg");
                                         label: root.show-game ? "Hide your game activity" : "Share your game activity";
                                         alert: !root.show-game; radius: 4px;
-                                        glyph: ClientStyle.enabled ? 22px : 20px;
+                                        glyph: 20px;
                                         tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                         clicked => { root.show-game-toggled(!root.show-game); }
                                     }
@@ -2707,7 +2742,7 @@ export component ObsidianWindow inherits Window {
                                     }
                                     cog := IconButton {
                                         icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
-                                        glyph: ClientStyle.enabled ? 24px : 20px;
+                                        glyph: 20px;
                                         tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                         clicked => { root.settings-open = true; root.refresh-devices(); }
                                     }
@@ -4909,10 +4944,14 @@ export component ObsidianWindow inherits Window {
         resize-window(direction) => { root.resize-window(direction); }
     }
     if Tip.text != "": tip-card := Rectangle {
-        property <length> w: tip-text.preferred-width + 20px;
-        property <length> h: 32px;
+        // A server's, with who is in its calls under its name, as Discord's.
+        property <bool> rich: Tip.side == 1 && Tip.people-for == Tip.text && (Tip.voice.length > 0 || Tip.streams.length > 0);
+        property <length> w: tip-layout.preferred-width;
+        property <length> h: tip-layout.preferred-height;
+        // To the right, the name's line faces what it names.
+        property <length> name-middle: self.rich ? 22px : self.h / 2;
         x: Tip.side == 1 ? Tip.x + 10px : max(8px, min(root.width - self.w - 8px, Tip.x - self.w / 2));
-        y: Tip.side == 1 ? Tip.y - self.h / 2 : Tip.side == 0 ? max(4px, Tip.y - self.h - 6px) : Tip.y + 6px;
+        y: Tip.side == 1 ? max(4px, min(root.height - self.h - 4px, Tip.y - self.name-middle)) : Tip.side == 0 ? max(4px, Tip.y - self.h - 6px) : Tip.y + 6px;
         width: self.w; height: self.h;
         property <bool> shown: !Tip.pop;
         opacity: self.shown ? 1 : 0;
@@ -4925,9 +4964,26 @@ export component ObsidianWindow inherits Window {
             running: Tip.pop && !tip-card.shown;
             triggered => { tip-card.shown = true; }
         }
-        border-radius: 6px; background: Theme.tooltip;
+        border-radius: self.rich ? 8px : 6px; background: Theme.tooltip;
         drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
-        tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
+        // Discord's pointer, at the rail's tooltips' left edge.
+        if Tip.side == 1: Path {
+            x: -5px; y: Tip.y - tip-card.y - 6px; width: 6px; height: 12px;
+            viewbox-width: 6; viewbox-height: 12;
+            commands: "M 6 0 L 0 6 L 6 12 Z"; fill: Theme.tooltip;
+        }
+        tip-layout := VerticalLayout {
+            padding-left: tip-card.rich ? 12px : 10px; padding-right: self.padding-left;
+            padding-top: tip-card.rich ? 6px : 0px; padding-bottom: tip-card.rich ? 12px : 0px;
+            spacing: 6px;
+            tip-text := Text {
+                text: Tip.text; color: Theme.text; font-size: tip-card.rich ? 16px : 14px; font-weight: tip-card.rich ? 600 : 700;
+                min-height: 32px; vertical-alignment: center; overflow: elide;
+                max-width: tip-card.rich ? 260px : 10000px;
+            }
+            if tip-card.rich && Tip.voice.length > 0: TipPeopleRow { icon: @image-url("icons/volume-2.svg"); people: Tip.voice; }
+            if tip-card.rich && Tip.streams.length > 0: TipPeopleRow { icon: @image-url("icons/screen-share.svg"); people: Tip.streams; }
+        }
     }
     if BadgeTip.title != "": BadgeTipCard {
         x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));

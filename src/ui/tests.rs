@@ -4294,7 +4294,12 @@ fn friends_in_a_servers_voice_channel_show_where() {
     };
     let mut state = AppState::default();
     state.rooms = [
-        room("lounge", true, false, vec![person("ann"), person("bob")]),
+        room(
+            "lounge",
+            true,
+            false,
+            vec![person("ann"), VoicePerson { streaming: true, ..person("bob") }],
+        ),
         room("general", false, false, Vec::new()),
         // A DM call isn't a server's voice channel.
         room("dm", true, true, vec![person("cat")]),
@@ -4321,6 +4326,14 @@ fn friends_in_a_servers_voice_channel_show_where() {
         .map(|room| (room.id.as_str(), &**room))
         .collect();
     let places = refresh::voice_places(&state, &rooms_by_id);
+    // The server's tooltip on the rail shows who is in its calls, and apart
+    // from them who streams there, as Discord's does.
+    let rail = refresh::rail_rows(&state, &rooms_by_id, &Default::default());
+    let initials = |people: &ModelRc<TipPerson>| -> Vec<String> {
+        people.iter().map(|person| person.initial.to_string()).collect()
+    };
+    assert_eq!(initials(&rail[0].voice), ["A"]);
+    assert_eq!(initials(&rail[0].streams), ["B"]);
     let mut found: Vec<_> = places
         .iter()
         .map(|(&user, place)| (user, place.room, place.channel, place.server))

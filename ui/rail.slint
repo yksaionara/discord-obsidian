@@ -1,7 +1,7 @@
 import { DmHeading } from "obsidian/dm-heading.slint";
 import { ClientStyle } from "obsidian/style.slint";
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label, PopupMotion, StreamHover } from "theme.slint";
+import { Theme, Tip, TipPerson, Middle, Label, PopupMotion, StreamHover } from "theme.slint";
 import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
@@ -32,6 +32,9 @@ export struct ServerRow {
     dm: bool,
     /// The line between those DMs and the servers.
     divider: bool,
+    /// Who is in its voice channels, and apart from them who streams there,
+    /// for its tooltip.
+    voice: [TipPerson], streams: [TipPerson],
 }
 
 export struct RoomRow {
@@ -143,6 +146,12 @@ export component RailItem inherits Rectangle {
     in property <string> badge;
     /// In a call here, shown at the top right.
     in property <bool> call;
+    /// Who is in its calls and who streams there, under the tooltip's name.
+    in property <[TipPerson]> voice-people;
+    in property <[TipPerson]> streamers;
+    /// Keeps a tooltip that's showing up to date as people come and go.
+    changed voice-people => { if Tip.people-for == root.tip && Tip.text == root.tip { Tip.voice = root.voice-people; } }
+    changed streamers => { if Tip.people-for == root.tip && Tip.text == root.tip { Tip.streams = root.streamers; } }
     /// Marks a Discord server.
     in property <bool> discord;
     /// The picture is the whole tile, as the app's logo is: no ground behind
@@ -266,6 +275,9 @@ export component RailItem inherits Rectangle {
             changed has-hover => {
                 if self.has-hover && self.dragging {
                 } else if self.has-hover {
+                    Tip.voice = root.voice-people;
+                    Tip.streams = root.streamers;
+                    Tip.people-for = root.tip;
                     Tip.text = root.tip;
                     Tip.side = 1;
                     Tip.x = root.absolute-position.x + root.width;
@@ -1190,7 +1202,7 @@ export component ServerRail inherits Rectangle {
                         + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
                     tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.discord && root.matrix-build ? server.name + " (Discord)" : server.name;
                     selected: server.selected; unread: server.unread; badge: server.badge; discord: server.discord;
-                    call: server.call;
+                    call: server.call; voice-people: server.voice; streamers: server.streams;
                     opacity: server.unavailable ? 0.5 : 1;
                     clicked => { root.navigate-server(server.id); }
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
@@ -1381,6 +1393,28 @@ export component RoomList inherits Rectangle {
     /// Someone's LIVE tag in a voice channel was clicked: the channel's id
     /// and theirs.
     callback show-voice-person(string, string);
+    /// Someone in a voice channel dragged onto another, as in Discord: the
+    /// channel they're in, who, and the channel dropped on. Someone else is
+    /// moved, where Move To would offer it; this account joins there.
+    callback move-voice-person(string, string, string);
+    // The person being dragged, from which voice channel, where the pointer
+    // is in the window, and the voice channel under it.
+    property <string> person-from;
+    property <string> person-user;
+    property <PersonRow> person-row;
+    property <length> person-x;
+    property <length> person-y;
+    property <string> person-to;
+    function drag-person(from: string, person: PersonRow) {
+        root.person-from = from; root.person-user = person.person; root.person-row = person;
+        root.person-to = ""; StreamHover.on-row = false; Tip.text = "";
+    }
+    function drop-person() {
+        if root.person-to != "" && root.person-to != root.person-from {
+            root.move-voice-person(root.person-from, root.person-user, root.person-to);
+        }
+        root.person-user = ""; root.person-from = ""; root.person-to = "";
+    }
     /// Someone in a voice channel was clicked: their row, and where it is
     /// in the window, which their profile opens beside.
     callback open-voice-profile(PersonRow, length, length, length, length);
@@ -1605,6 +1639,19 @@ export component RoomList inherits Rectangle {
                         x: 8px; width: parent.width - 8px;
                         y: room.place < root.arranging ? -3px : parent.height + parent.people - 1px;
                     }
+                    // A voice channel under someone dragged from another.
+                    property <bool> person-over: room.voice && root.person-user != ""
+                        && root.person-x >= root.absolute-position.x && root.person-x < root.absolute-position.x + root.width
+                        && root.person-y >= self.absolute-position.y - 2px && root.person-y < self.absolute-position.y + self.height + self.people;
+                    changed person-over => {
+                        if self.person-over { root.person-to = room.id; }
+                        else if root.person-to == room.id { root.person-to = ""; }
+                    }
+                    if self.person-over && room.id != root.person-from: Rectangle {
+                        x: 8px; width: parent.width - 8px; height: parent.height + parent.people;
+                        border-radius: 6px; background: Theme.accent.with-alpha(0.12);
+                        border-width: 1px; border-color: Theme.accent.with-alpha(0.7);
+                    }
                 }
                 // Discord reports who is in every voice channel; Matrix
                 // only shows the call Discord Obsidian is in, below.
@@ -1627,11 +1674,32 @@ export component RoomList inherits Rectangle {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
                         person-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
+                            // Pressed and moved, they're dragged to another channel.
+                            property <bool> dragged;
+                            mouse-cursor: root.person-user != "" ? MouseCursor.grabbing : MouseCursor.pointer;
                             clicked => {
-                                root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
+                                if !self.dragged {
+                                    root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
+                                }
+                            }
+                            moved => {
+                                if self.pressed && root.person-user == "" && root.arranging == 0 && person.person != "" && !person.elsewhere
+                                    && (abs(self.mouse-x - self.pressed-x) > 6px || abs(self.mouse-y - self.pressed-y) > 6px) {
+                                    self.dragged = true;
+                                    root.drag-person(room.id, person);
+                                }
+                                if self.dragged {
+                                    root.person-x = self.absolute-position.x + self.mouse-x;
+                                    root.person-y = self.absolute-position.y + self.mouse-y;
+                                }
                             }
                             pointer-event(event) => {
+                                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                    self.dragged = false;
+                                }
+                                if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && self.dragged {
+                                    root.drop-person();
+                                }
                                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                     root.open-voice-menu(room.id, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                                 }
@@ -1697,11 +1765,31 @@ export component RoomList inherits Rectangle {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
                         participant-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
+                            property <bool> dragged;
+                            mouse-cursor: root.person-user != "" ? MouseCursor.grabbing : MouseCursor.pointer;
                             clicked => {
-                                root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
+                                if !self.dragged {
+                                    root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
+                                }
+                            }
+                            moved => {
+                                if self.pressed && root.person-user == "" && root.arranging == 0 && person.person != ""
+                                    && (abs(self.mouse-x - self.pressed-x) > 6px || abs(self.mouse-y - self.pressed-y) > 6px) {
+                                    self.dragged = true;
+                                    root.drag-person(root.voice-channel, person);
+                                }
+                                if self.dragged {
+                                    root.person-x = self.absolute-position.x + self.mouse-x;
+                                    root.person-y = self.absolute-position.y + self.mouse-y;
+                                }
                             }
                             pointer-event(event) => {
+                                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                    self.dragged = false;
+                                }
+                                if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && self.dragged {
+                                    root.drop-person();
+                                }
                                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                     root.open-voice-menu(root.voice-channel, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                                 }
@@ -1748,6 +1836,18 @@ export component RoomList inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+    // Someone dragged between voice channels follows the pointer.
+    if root.person-user != "": Rectangle {
+        x: root.person-x - root.absolute-position.x + 10px; y: root.person-y - root.absolute-position.y - 15px;
+        width: person-ghost.preferred-width; height: 30px; border-radius: 4px;
+        background: Theme.raised; opacity: 0.92;
+        drop-shadow-blur: 10px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+        person-ghost := HorizontalLayout {
+            spacing: 8px; padding-left: 4px; padding-right: 10px;
+            Middle { Avatar { size: 22px; initial: root.person-row.initial; tint: root.person-row.tint; picture: root.person-row.picture; } }
+            Text { text: root.person-row.name; font-size: 15px; font-weight: 500; color: Theme.text; vertical-alignment: center; }
         }
     }
     // What's dragged follows the pointer, faint, as a browser draws it.
