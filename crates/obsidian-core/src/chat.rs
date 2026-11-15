@@ -113,7 +113,9 @@ pub struct ChatRoom {
     /// The largest file a message here may carry, in bytes.
     pub upload_limit: u64,
     /// A one-to-one Discord DM's other person: whether they're around, when
-    /// Discord says, and their custom status or what they're doing.
+    /// Discord says, and their custom status or what they're doing. For a
+    /// Discord voice channel, its status, which its channel list shows
+    /// under its name.
     pub presence: Option<Presence>,
     pub activity: Option<String>,
     /// What they're doing, in full, as their profile shows it.

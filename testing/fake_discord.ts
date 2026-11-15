@@ -89,7 +89,10 @@
 // write to her, opening a DM with her the first time, and POST
 // /_control/mention makes Bob mention her in #general. #general has a topic
 // that mentions Bob, links #general and a page; POST /_control/topic sets
-// it to the body, or with none takes it away, and CHANNEL_UPDATE says so. Erin, who shares no
+// it to the body, or with none takes it away, and CHANNEL_UPDATE says so.
+// The Lounge has a voice channel status, sent in CHANNEL_INFO when a client
+// asks with op 43; POST /_control/voice-status sets it to the body, or with
+// none clears it, and VOICE_CHANNEL_STATUS_UPDATE says so. Erin, who shares no
 // server with her, sent a message request, and Frank one Discord marked as
 // spam; PUT and DELETE /channels/{id}/recipients/@me accept and ignore them,
 // and GET /users/@me/message-requests/supplemental-data gives their latest
@@ -2064,6 +2067,9 @@ let slowMs = 0;
  *  takes it away. */
 let generalTopic: string | null =
   `Co-op nights, plans and links. Ask <@${users.bob.id}> to join, keep <#${GENERAL}> on topic, and read the **house rules** at https://example.com/rules first.`;
+/** The Lounge's voice channel status, which REQUEST_CHANNEL_INFO (op 43)
+ *  answers with in CHANNEL_INFO and POST /_control/voice-status changes. */
+let loungeStatus: string | null = "Movie night <:pog:4207>";
 /** How often clients asked for a member list, for GET /_control/list-requests. */
 let listRequests = 0;
 /** How often clients identified and resumed, for GET /_control/sessions. */
@@ -3241,6 +3247,14 @@ function gatewayMessage(ws: Socket, text: string) {
       // Request soundboard sounds: one SOUNDBOARD_SOUNDS for each server.
       for (const id of d.guild_ids ?? []) {
         send(ws, 0, { guild_id: id, soundboard_sounds: id === GUILD ? serverSounds : [] }, "SOUNDBOARD_SOUNDS");
+      }
+      break;
+    case 43: // Channel info: the server's voice channels' statuses
+      if (d.guild_id === GUILD) {
+        send(ws, 0, {
+          guild_id: GUILD,
+          channels: [{ id: LOUNGE, status: loungeStatus, voice_start_time: null }],
+        }, "CHANNEL_INFO");
       }
       break;
     case 37: {
@@ -8514,6 +8528,11 @@ const server = Bun.serve<SocketData>({
         dispatch("CHANNEL_UPDATE", { ...channel, permission_overwrites: overwrites });
       }
       return new Response("hidden from Bots\n");
+    }
+    if (req.method === "POST" && path === "/_control/voice-status") {
+      loungeStatus = (await req.text()) || null;
+      dispatch("VOICE_CHANNEL_STATUS_UPDATE", { id: LOUNGE, guild_id: GUILD, status: loungeStatus ?? "" });
+      return new Response("the Lounge's status changed\n");
     }
     if (req.method === "POST" && path === "/_control/topic") {
       generalTopic = (await req.text()) || null;

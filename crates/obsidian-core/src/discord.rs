@@ -171,6 +171,43 @@ pub fn status_parts(status: &str) -> (Option<String>, &str) {
     (None, status)
 }
 
+/// `text` with each custom emoji written `<:name:id>` shown as `:name:`, as
+/// where a picture can't go, such as after the first of a voice channel's
+/// status.
+pub fn emoji_names(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains('<') {
+        return text.into();
+    }
+    let mut shown = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('<') {
+        shown.push_str(&rest[..start]);
+        let tag = &rest[start..];
+        let end = tag.find('>');
+        let name = end.and_then(|end| {
+            let inner = tag[1..end].strip_prefix('a').unwrap_or(&tag[1..end]);
+            let mut parts = inner.strip_prefix(':')?.split(':');
+            let (name, id) = (parts.next()?, parts.next()?);
+            (parts.next().is_none() && !name.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                .then_some(name)
+        });
+        match (name, end) {
+            (Some(name), Some(end)) => {
+                shown.push(':');
+                shown.push_str(name);
+                shown.push(':');
+                rest = &tag[end + 1..];
+            }
+            _ => {
+                shown.push('<');
+                rest = &tag[1..];
+            }
+        }
+    }
+    shown.push_str(rest);
+    shown.into()
+}
+
 /// The address of a custom emoji's picture; none in a build without Discord.
 pub fn emoji_picture(id: &str) -> Option<String> {
     #[cfg(feature = "discord")]
@@ -832,7 +869,7 @@ fn server_rooms(
                 nameplate: None,
                 style: None,
                 presence: None,
-                activity: None,
+                activity: channel.status.as_deref().map(str::to_owned),
                 activities: Default::default(),
                 upload_limit: obsidian_discord::api::upload_limit(
                     premium,
@@ -1332,6 +1369,13 @@ mod tests {
             .map(|(id, marks)| (id.as_str(), *marks))
             .collect();
         marked(server, &marks)
+    }
+
+    #[test]
+    fn names_custom_emoji_where_no_picture_goes() {
+        assert_eq!(emoji_names("plain"), "plain");
+        assert_eq!(emoji_names("watching <:pog:5> and <a:dance:6>!"), "watching :pog: and :dance:!");
+        assert_eq!(emoji_names("1 < 2 <b> <:x:y>"), "1 < 2 <b> <:x:y>");
     }
 
     #[test]

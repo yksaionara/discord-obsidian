@@ -68,6 +68,7 @@ const STREAM_WATCH: u64 = 20;
 const STREAM_SET_PAUSED: u64 = 22;
 const REQUEST_SOUNDBOARD_SOUNDS: u64 = 31;
 const GUILD_SUBSCRIPTIONS_BULK: u64 = 37;
+const REQUEST_CHANNEL_INFO: u64 = 43;
 /// The heartbeat the web client sends, with what [`qos`] reports, in place of
 /// op 1's.
 const QOS_HEARTBEAT: u64 = 40;
@@ -270,6 +271,8 @@ pub struct Gateway {
     /// Servers whose members Discord said Discord Obsidian asked about too often, with
     /// when it may ask again.
     members_held: HashMap<String, Instant>,
+    /// Servers this session asked for their voice channels' statuses.
+    channel_info: std::collections::HashSet<String>,
 }
 
 impl Drop for Gateway {
@@ -373,6 +376,7 @@ impl Gateway {
             events,
             task,
             members_held: HashMap::new(),
+            channel_info: std::collections::HashSet::new(),
         };
         loop {
             let event = gateway.next().await?;
@@ -453,7 +457,17 @@ impl Gateway {
             GUILD_SUBSCRIPTIONS_BULK,
             json!({"subscriptions": {guild_id: subscription}}),
         )
-        .await
+        .await?;
+        // As the web client does the first time a server opens, it asks for
+        // its voice channels' statuses, which READY leaves out.
+        if self.channel_info.insert(guild_id.to_owned()) {
+            self.send(
+                REQUEST_CHANNEL_INFO,
+                json!({"guild_id": guild_id, "fields": ["status", "voice_start_time"]}),
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// Starts sharing to the voice channel this account is in, or with no
@@ -1148,6 +1162,17 @@ mod tests {
             self.socket.close(Some(frame)).await.unwrap();
         }
 
+        /// The next GUILD_SUBSCRIPTIONS_BULK, past the REQUEST_CHANNEL_INFO
+        /// that follows a server's first.
+        async fn subscription(&mut self) -> Value {
+            loop {
+                let command = self.command().await;
+                if command["op"] != REQUEST_CHANNEL_INFO {
+                    return command;
+                }
+            }
+        }
+
         /// The next command other than a heartbeat; heartbeats are
         /// acknowledged and counted.
         async fn command(&mut self) -> Value {
@@ -1360,10 +1385,10 @@ mod tests {
             "sending waits"
         );
 
-        let first = peer.command().await;
+        let first = peer.subscription().await;
         assert_eq!(first["d"]["subscriptions"]["a"]["typing"], true);
         let heartbeats = peer.heartbeats;
-        let second = peer.command().await;
+        let second = peer.subscription().await;
         assert!(second["d"]["subscriptions"]["b"].is_object());
         assert!(
             started.elapsed() >= window / 2,
@@ -1374,7 +1399,7 @@ mod tests {
             "{} heartbeats went meanwhile",
             peer.heartbeats - heartbeats
         );
-        let third = peer.command().await;
+        let third = peer.subscription().await;
         assert!(third["d"]["subscriptions"]["c"].is_object());
 
         // The connection stayed up through it all.

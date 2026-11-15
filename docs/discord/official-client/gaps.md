@@ -20,6 +20,9 @@ Matched now:
   `rtc_connection_id` (`voice_connection.rs`).
 - `VOICE_STATE_UPDATE_BATCH` and `PRESENCES_REPLACE` are handled, split
   into the single events.
+- Voice channel statuses: op 43 `REQUEST_CHANNEL_INFO` the first time a
+  server opens, `CHANNEL_INFO` and `VOICE_CHANNEL_STATUS_UPDATE`.
+- `GUILD_SCHEDULED_EVENT_USER_ADD/REMOVE` keep interested counts current.
 
 Still different:
 
@@ -38,21 +41,15 @@ features. The ones a chat-and-voice client shows to users:
 
 - `CHANNEL_PINS_UPDATE`, `CHANNEL_PINS_ACK`: the pins badge and its unread state
 - `GUILD_MEMBER_ADD`: someone joins while the member list is open
-- `VOICE_CHANNEL_STATUS_UPDATE`, `VOICE_CHANNEL_START_TIME_UPDATE`: the
-  status line under a voice channel and "in voice for …"
-- `VOICE_STATE_UPDATE_BATCH`: several voice state changes in one dispatch
 - `STAGE_INSTANCE_CREATE/UPDATE/DELETE`: Stage topics
 - `SESSIONS_REPLACE`: your own other sessions, used for your shown status
   and "active on mobile"
-- `PRESENCES_REPLACE`: a whole presence refresh
 - `INTERACTION_CREATE/SUCCESS/FAILURE`, `INTERACTION_MODAL_CREATE`: slash
   command and button feedback, and app modals
 - `APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE`: slash command option autocomplete
 - `THREAD_MEMBER_LIST_UPDATE`: a thread's member sidebar
 - `SAVED_MESSAGE_CREATE/DELETE`: "Save for later" / bookmarks
 - `RECENT_MENTION_DELETE`: removing an item from the inbox's mentions
-- `GUILD_SCHEDULED_EVENT_USER_ADD/REMOVE`: the "interested" count on events
-- `CHANNEL_MEMBER_COUNT_UPDATE`, `CHANNEL_INFO`: answers to ops 39 and 43
 - `LAST_MESSAGES`: the answer to op 34
 - `FORUM_UNREADS`: the answer to op 28
 - `GUILD_JOIN_REQUEST_*`: membership screening / applications
@@ -70,6 +67,6 @@ sends 1–4, 6, 8, 18–20, 22, 31 and 37 (`gateway.rs`). Of the rest:
 - 28 `REQUEST_FORUM_UNREADS`: unread state for the threads of a forum
 - 34 `REQUEST_LAST_MESSAGES`: the official client fetches the last message
   of many channels at once, for sorting and previews
-- 39 `REQUEST_CHANNEL_MEMBER_COUNT`, 43 `REQUEST_CHANNEL_INFO`
+- 39 `REQUEST_CHANNEL_MEMBER_COUNT`
 - 35 `SEARCH_RECENT_MEMBERS`: the paged member search in moderation views
 - 41 `UPDATE_TIME_SPENT_SESSION_ID`: analytics, and optional

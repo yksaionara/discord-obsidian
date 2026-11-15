@@ -3031,7 +3031,19 @@ const STICKER_SIZE: i32 = 160;
 /// what they're doing on one line, or a group's size; and the address of the
 /// picture of the status's custom emoji.
 fn dm_detail(room: &obsidian_core::chat::ChatRoom) -> (SharedString, SharedString) {
-    if !room.direct || room.network != Network::Discord {
+    if room.network != Network::Discord {
+        return Default::default();
+    }
+    // A voice channel's status, under its name as Discord's list has it:
+    // its first custom emoji as a picture, any after it by name.
+    if room.voice && !room.direct {
+        let (words, emoji) = activity_line(room.activity.as_deref());
+        return (
+            obsidian_core::discord::emoji_names(&words).into_owned().into(),
+            emoji,
+        );
+    }
+    if !room.direct {
         return Default::default();
     }
     if room.person.is_none() {

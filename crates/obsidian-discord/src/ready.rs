@@ -332,6 +332,11 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
+    /// A voice channel's status, which its members set and the channel list
+    /// shows under its name; from CHANNEL_INFO and
+    /// VOICE_CHANNEL_STATUS_UPDATE, as READY leaves it out.
+    #[serde(default)]
+    pub status: Option<Arc<str>>,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -635,6 +640,35 @@ pub struct Overwrite {
 impl Server {
     /// Keeps `event` as a GUILD_SCHEDULED_EVENT_CREATE or _UPDATE gives it, or
     /// forgets it for a delete or one that no longer counts.
+    /// Counts one more person interested in the event `id`, or one fewer;
+    /// returns whether the server knows it.
+    pub fn count_interest(&mut self, id: &str, added: bool) -> bool {
+        let Some(index) = self.events.iter().position(|event| event.id == id) else {
+            return false;
+        };
+        let event = &mut Arc::make_mut(&mut self.events)[index];
+        event.interested = if added {
+            event.interested.saturating_add(1)
+        } else {
+            event.interested.saturating_sub(1)
+        };
+        true
+    }
+
+    /// Sets the status of the voice channel `id`, or clears it with an empty
+    /// one; returns whether it changed.
+    pub fn set_voice_status(&mut self, id: &str, status: Option<&str>) -> bool {
+        let status = status.map(str::trim).filter(|status| !status.is_empty());
+        let Some(channel) = self.voice_channels.iter_mut().find(|channel| channel.id == id) else {
+            return false;
+        };
+        if channel.status.as_deref() == status {
+            return false;
+        }
+        channel.status = status.map(Arc::from);
+        true
+    }
+
     pub fn put_event(&mut self, event: ScheduledEvent, deleted: bool) {
         let events = Arc::make_mut(&mut self.events);
         events.retain(|known| known.id != event.id);

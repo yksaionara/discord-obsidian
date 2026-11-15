@@ -1590,6 +1590,19 @@ async fn reads_history_and_member_lists() {
         _ => None,
     })
     .await;
+    // Opening the server asked for its voice channels' statuses, as the web
+    // client does, and they change as members set them.
+    let status = |snapshot: &Snapshot| {
+        snapshot.servers[0].voice_channels[0].status.as_deref().map(str::to_owned)
+    };
+    snapshot_where(&discord, |snapshot| {
+        status(snapshot).as_deref() == Some("Movie night <:pog:4207>")
+    })
+    .await;
+    post_control(server, "/_control/voice-status", "Ranked");
+    snapshot_where(&discord, |snapshot| status(snapshot).as_deref() == Some("Ranked")).await;
+    post_control(server, "/_control/voice-status", "");
+    snapshot_where(&discord, |snapshot| status(snapshot).is_none()).await;
     let listed: Vec<_> = members
         .iter()
         .map(|member| (member.name.as_str(), member.group.as_str(), member.presence))

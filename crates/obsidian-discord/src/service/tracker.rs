@@ -484,6 +484,43 @@ impl Tracker {
                 server.put_event(scheduled, *event == Event::GuildScheduledEventDelete);
                 true
             }
+            Event::VoiceChannelStatusUpdate => {
+                let (Some(server), Some(id)) = (
+                    data["guild_id"]
+                        .as_str()
+                        .and_then(|guild| self.server_mut(guild)),
+                    data["id"].as_str(),
+                ) else {
+                    return false;
+                };
+                server.set_voice_status(id, data["status"].as_str())
+            }
+            Event::ChannelInfo => {
+                let Some(server) = data["guild_id"]
+                    .as_str()
+                    .and_then(|guild| self.server_mut(guild))
+                else {
+                    return false;
+                };
+                let mut changed = false;
+                for channel in data["channels"].as_array().into_iter().flatten() {
+                    if let Some(id) = channel["id"].as_str() {
+                        changed |= server.set_voice_status(id, channel["status"].as_str());
+                    }
+                }
+                changed
+            }
+            Event::GuildScheduledEventUserAdd | Event::GuildScheduledEventUserRemove => {
+                let (Some(server), Some(id)) = (
+                    data["guild_id"]
+                        .as_str()
+                        .and_then(|guild| self.server_mut(guild)),
+                    data["guild_scheduled_event_id"].as_str(),
+                ) else {
+                    return false;
+                };
+                server.count_interest(id, *event == Event::GuildScheduledEventUserAdd)
+            }
             Event::GuildEmojisUpdate => {
                 let Some(server) = data["guild_id"]
                     .as_str()
@@ -1872,6 +1909,64 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn keeps_voice_channels_statuses() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "channels": [
+                {"id": "11", "name": "Lounge", "type": 2, "position": 0},
+                {"id": "12", "name": "Games", "type": 2, "position": 1},
+            ]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let status = |tracker: &Tracker, index: usize| {
+            tracker.servers[0].voice_channels[index].status.as_deref().map(str::to_owned)
+        };
+        assert!(tracker.apply(
+            &Event::ChannelInfo,
+            &json!({"guild_id": "10", "channels": [
+                {"id": "11", "status": "watching <:pog:5> movies"},
+                {"id": "12", "status": null},
+            ]}),
+        ));
+        assert_eq!(status(&tracker, 0).as_deref(), Some("watching <:pog:5> movies"));
+        assert_eq!(status(&tracker, 1), None);
+        assert!(tracker.apply(
+            &Event::VoiceChannelStatusUpdate,
+            &json!({"guild_id": "10", "id": "11", "status": ""}),
+        ));
+        assert_eq!(status(&tracker, 0), None, "an empty status clears it");
+        assert!(!tracker.apply(
+            &Event::VoiceChannelStatusUpdate,
+            &json!({"guild_id": "10", "id": "11", "status": ""}),
+        ), "nothing changed");
+    }
+
+    #[test]
+    fn counts_who_is_interested_in_an_event_as_it_changes() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "channels": [],
+                "guild_scheduled_events": [{
+                    "id": "20", "name": "Movie night", "status": 1, "entity_type": 3,
+                    "scheduled_start_time": "2099-01-01T00:00:00+00:00",
+                    "scheduled_end_time": "2099-01-01T02:00:00+00:00",
+                    "entity_metadata": {"location": "Here"}, "user_count": 2,
+                }]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let interested = |tracker: &Tracker| tracker.servers[0].events[0].interested;
+        assert_eq!(interested(&tracker), 2);
+        let change = json!({"guild_id": "10", "guild_scheduled_event_id": "20", "user_id": "2"});
+        assert!(tracker.apply(&Event::GuildScheduledEventUserAdd, &change));
+        assert_eq!(interested(&tracker), 3);
+        tracker.apply(&Event::GuildScheduledEventUserRemove, &change);
+        tracker.apply(&Event::GuildScheduledEventUserRemove, &change);
+        tracker.apply(&Event::GuildScheduledEventUserRemove, &change);
+        tracker.apply(&Event::GuildScheduledEventUserRemove, &change);
+        assert_eq!(interested(&tracker), 0, "never below none");
+    }
 
     #[test]
     fn tracks_voice_channels_and_names() {

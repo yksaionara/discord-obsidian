@@ -83,6 +83,9 @@ events! {
     GuildScheduledEventCreate = "GUILD_SCHEDULED_EVENT_CREATE",
     GuildScheduledEventUpdate = "GUILD_SCHEDULED_EVENT_UPDATE",
     GuildScheduledEventDelete = "GUILD_SCHEDULED_EVENT_DELETE",
+    /// Someone became interested in an event, or stopped being.
+    GuildScheduledEventUserAdd = "GUILD_SCHEDULED_EVENT_USER_ADD",
+    GuildScheduledEventUserRemove = "GUILD_SCHEDULED_EVENT_USER_REMOVE",
     GuildStickersUpdate = "GUILD_STICKERS_UPDATE",
     ChannelCreate = "CHANNEL_CREATE",
     ChannelUpdate = "CHANNEL_UPDATE",
@@ -118,6 +121,11 @@ events! {
     StreamServerUpdate = "STREAM_SERVER_UPDATE",
     /// Someone sent a soundboard sound or an emoji into this account's call.
     VoiceChannelEffectSend = "VOICE_CHANNEL_EFFECT_SEND",
+    /// A voice channel's status changed: `{id, guild_id, status}`.
+    VoiceChannelStatusUpdate = "VOICE_CHANNEL_STATUS_UPDATE",
+    /// The answer to REQUEST_CHANNEL_INFO (op 43): a server's voice channels'
+    /// statuses, `{guild_id, channels: [{id, status, voice_start_time}]}`.
+    ChannelInfo = "CHANNEL_INFO",
     /// A server's soundboard sounds, asked for with op 31.
     SoundboardSounds = "SOUNDBOARD_SOUNDS",
     GuildSoundboardSoundCreate = "GUILD_SOUNDBOARD_SOUND_CREATE",
@@ -208,6 +216,14 @@ mod tests {
                 "GUILD_SCHEDULED_EVENT_DELETE",
                 Event::GuildScheduledEventDelete,
             ),
+            (
+                "GUILD_SCHEDULED_EVENT_USER_ADD",
+                Event::GuildScheduledEventUserAdd,
+            ),
+            (
+                "GUILD_SCHEDULED_EVENT_USER_REMOVE",
+                Event::GuildScheduledEventUserRemove,
+            ),
             ("GUILD_STICKERS_UPDATE", Event::GuildStickersUpdate),
             ("CHANNEL_CREATE", Event::ChannelCreate),
             ("CHANNEL_UPDATE", Event::ChannelUpdate),
@@ -230,6 +246,8 @@ mod tests {
             ("STREAM_DELETE", Event::StreamDelete),
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
+            ("VOICE_CHANNEL_STATUS_UPDATE", Event::VoiceChannelStatusUpdate),
+            ("CHANNEL_INFO", Event::ChannelInfo),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (
                 "GUILD_SOUNDBOARD_SOUND_CREATE",

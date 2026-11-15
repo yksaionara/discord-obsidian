@@ -4,6 +4,12 @@ Scope for the beta:
 
 - Server voice channels: join, leave, a participant list, speaking indicators,
   mute, deafen and per-person volume.
+- Voice channel statuses, on a second line under the channel's name as
+  Discord's list shows them, with the first custom emoji as a picture and
+  any after it by name. READY leaves them out, so the first time a server
+  opens, Discord Obsidian asks with op 43 `REQUEST_CHANNEL_INFO` (fields
+  `status` and `voice_start_time`), as the web client does. CHANNEL_INFO
+  answers, and VOICE_CHANNEL_STATUS_UPDATE keeps them current.
 - DM and group DM calls, both incoming with ringing and outgoing.
 - One connection at a time across Discord Obsidian and Discord. Joining Discord voice asks
   to leave a Discord Obsidian call, and the other way round.

@@ -261,7 +261,8 @@ icon; other community servers keep the community icon.
 Under the header a 60px row reads "N Events" with a calendar icon, where N
 counts the scheduled events that haven't ended (status 1 scheduled or 2
 active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
-current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE. Clicking the row
+current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE, and their
+interested counts by GUILD_SCHEDULED_EVENT_USER_ADD and USER_REMOVE. Clicking the row
 opens a menu with one row per event: its name, and "Happening now" or the
 start time (12 or 24 hours as the clock is set) followed by its place.
 Discord Obsidian doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
