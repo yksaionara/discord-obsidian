@@ -201,6 +201,9 @@ async fn run(
                     error = format!("{error:#}"),
                     "the call's voice connection dropped"
                 );
+                // As Discord's client does, so Discord can move the call
+                // to a working voice server.
+                identity.ping.ping();
                 // The first try goes at once, so a blip passes unheard; the
                 // rest wait longer each time, rather than hammering a voice
                 // server that's struggling.

@@ -2896,6 +2896,10 @@ async fn calls_and_goes_live() {
         call_audio(server, "fake-voice-token-moved")["resumed"] == 1
     })
     .await;
+    // It told Discord, as Discord's client does, with op 5.
+    let sessions: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/sessions", "")).unwrap();
+    assert!(sessions["voicePings"].as_u64() >= Some(1), "{sessions}");
     let before = call_audio(server, "fake-voice-token-moved")["packets"]
         .as_u64()
         .unwrap();

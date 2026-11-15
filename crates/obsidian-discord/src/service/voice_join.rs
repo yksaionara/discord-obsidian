@@ -19,6 +19,8 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(15);
 pub(super) struct VoiceJoin {
     pending: Option<Pending>,
     deadline: Pin<Box<Sleep>>,
+    /// What the voice servers it hands out carry, to ask for another.
+    ping: super::VoicePing,
 }
 
 struct Pending {
@@ -41,10 +43,11 @@ impl Pending {
 }
 
 impl VoiceJoin {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(ping: super::VoicePing) -> Self {
         Self {
             pending: None,
             deadline: Box::pin(tokio::time::sleep(JOIN_TIMEOUT)),
+            ping,
         }
     }
 
@@ -131,6 +134,7 @@ impl VoiceJoin {
                 session_id: session_id.clone(),
                 token: token.clone(),
                 endpoint: endpoint.clone(),
+                ping: self.ping.clone(),
             };
             if let Some(done) = self.pending.take() {
                 let _ = done.reply.send(Ok(server));
@@ -166,7 +170,7 @@ mod tests {
             Default::default(),
         );
         let (reply, mut answer) = oneshot::channel();
-        let mut join = VoiceJoin::new();
+        let mut join = VoiceJoin::new(super::super::VoicePing::default());
         join.start("10".into(), "11".into(), reply);
         let dispatch = |event, data| Dispatch { event, data };
         let state = |session: &str| json!({"guild_id": "10", "user_id": "1", "channel_id": "11", "session_id": session});

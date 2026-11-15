@@ -337,6 +337,9 @@ pub(crate) struct Identity {
     /// This account, and the DAVE group's id, as far as it's known.
     pub user: u64,
     pub group: u64,
+    /// For a call, what asks Discord for another voice server when the
+    /// connection drops; a stream's does nothing.
+    pub ping: crate::service::VoicePing,
 }
 
 /// A connection after its handshake.

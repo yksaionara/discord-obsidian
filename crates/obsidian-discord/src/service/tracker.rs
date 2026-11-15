@@ -963,6 +963,8 @@ impl Tracker {
                         session_id: entry.session.clone()?,
                         token: token.to_owned(),
                         endpoint: endpoint.to_owned(),
+                        // The session gives it its own.
+                        ping: Default::default(),
                     },
                 })
             }

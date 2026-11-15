@@ -58,6 +58,8 @@ pub(super) struct Shared {
     /// What the gateway reports about whether Discord Obsidian is in use,
     /// kept for the next connection.
     pub(super) qos: crate::gateway::Qos,
+    /// What a call's voice server carries to ask for another when it drops.
+    pub(super) voice_ping: super::VoicePing,
 }
 
 pub(super) async fn run(
@@ -270,6 +272,7 @@ async fn connected_session(
     tracker.beside(shared.beside.as_ref().map(|(_, thread)| thread.as_str()));
     shared.snapshots.send_replace(Arc::new(tracker.snapshot()));
     let quiet = tracker.next_quiet(now_ms());
+    let voice_ping = shared.voice_ping.clone();
     let mut session = Session {
         gateway,
         publisher: Publisher::new(shared.snapshots.clone()),
@@ -283,7 +286,7 @@ async fn connected_session(
         away_changes: Box::pin(tokio::time::sleep(until(None))),
         tracker,
         shared,
-        join: VoiceJoin::new(),
+        join: VoiceJoin::new(voice_ping),
         streams: StreamOpenings::new(),
         searches: MemberSearches::default(),
         previews: mpsc::unbounded_channel(),
@@ -554,6 +557,7 @@ impl Session<'_> {
                 self.report_activity();
                 Ok(())
             }
+            Request::VoiceServerPing => gateway.voice_server_ping().await,
             Request::ShowGame(shown) => {
                 // As with the status, the settings update that follows agrees.
                 self.tracker.show_game = shown;
@@ -683,7 +687,10 @@ impl Session<'_> {
             self.shared.lists.user_changed(&self.tracker, data);
             let _ = self.shared.live.send(Live::Names);
         }
-        if !awaited && let Some(moved) = self.tracker.moved(event, data) {
+        if !awaited && let Some(mut moved) = self.tracker.moved(event, data) {
+            if let Live::VoiceMoved { server, .. } = &mut moved {
+                server.ping = self.shared.voice_ping.clone();
+            }
             let _ = self.shared.live.send(moved);
         }
         if *event == Event::UserGuildSettingsUpdate {

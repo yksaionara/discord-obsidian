@@ -56,6 +56,7 @@ const HEARTBEAT: u64 = 1;
 const IDENTIFY: u64 = 2;
 const PRESENCE_UPDATE: u64 = 3;
 const VOICE_STATE_UPDATE: u64 = 4;
+const VOICE_SERVER_PING: u64 = 5;
 const RESUME: u64 = 6;
 const RECONNECT: u64 = 7;
 const REQUEST_GUILD_MEMBERS: u64 = 8;
@@ -438,6 +439,13 @@ impl Gateway {
             }),
         )
         .await
+    }
+
+    /// Tells Discord this session's call lost its voice connection and is
+    /// trying again, as the web client does; Discord may answer with
+    /// VOICE_SERVER_UPDATE for another server.
+    pub async fn voice_server_ping(&mut self) -> Result<()> {
+        self.send(VOICE_SERVER_PING, Value::Null).await
     }
 
     /// Subscribes to a server while one of its channels is on screen, as the

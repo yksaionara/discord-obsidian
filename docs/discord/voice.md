@@ -156,7 +156,12 @@ starts once 60 ms has arrived, a missing packet plays as Opus's loss
 concealment (or from the next packet's forward error correction), and a
 speaker who stays silent for 100 ms drops out of the mix until they speak
 again. When the voice gateway drops, the connection resumes with op 7, and
-connects again from scratch if resuming fails.
+connects again from scratch if resuming fails. A call's drop also sends op 5
+`VOICE_SERVER_PING` on the main gateway, as Discord's client does, so
+Discord can move the call to a working voice server with
+VOICE_SERVER_UPDATE, which the call follows as it follows any move. The
+call holds the session only weakly for this, so a call never keeps a
+session going.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
 its public address and port with UDP address discovery: a 74-byte ask, which

@@ -555,6 +555,24 @@ pub struct VoiceServer {
     pub session_id: String,
     pub token: String,
     pub endpoint: String,
+    /// Tells Discord the call's connection dropped; see [`VoicePing`].
+    pub ping: VoicePing,
+}
+
+/// Sends op 5 `VOICE_SERVER_PING` on the session's gateway when a call's
+/// voice connection drops and tries again, as Discord's client does, so
+/// Discord can move the call to a working voice server with
+/// VOICE_SERVER_UPDATE. It holds the session only weakly, so a call never
+/// keeps one going; a default one does nothing.
+#[derive(Clone, Default)]
+pub struct VoicePing(Option<mpsc::WeakUnboundedSender<Request>>);
+
+impl VoicePing {
+    pub fn ping(&self) {
+        if let Some(requests) = self.0.as_ref().and_then(mpsc::WeakUnboundedSender::upgrade) {
+            let _ = requests.send(Request::VoiceServerPing);
+        }
+    }
 }
 
 /// Leaves out the token, which no log should show.
@@ -648,6 +666,8 @@ enum Request {
     Inactive(Option<u64>, bool),
     /// Discord Obsidian's window came to the front, or left it.
     Foreground(bool),
+    /// A call's voice connection dropped; see [`VoicePing`].
+    VoiceServerPing,
     /// This gateway session's id, from READY.
     Session(oneshot::Sender<Option<String>>),
     /// Asks for these servers' soundboard sounds.
@@ -829,6 +849,7 @@ impl Discord {
                 beside: None,
                 foreground: false,
                 qos: crate::gateway::Qos::default(),
+                voice_ping: VoicePing(Some(requests.downgrade())),
             },
         ));
         Ok(Self {

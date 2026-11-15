@@ -212,6 +212,7 @@ fn identity(server: &VoiceServer, server_id: &str, channel_id: &str) -> Result<I
         streams: json!([{"type": "video", "rid": rtp::STREAM_RID, "quality": 100}]),
         user: id(&server.user_id)?,
         group: id(channel_id)?,
+        ping: server.ping.clone(),
     })
 }
 
@@ -304,6 +305,7 @@ mod tests {
             session_id: "s".into(),
             token: "t".into(),
             endpoint: "voice.example".into(),
+            ping: Default::default(),
         };
         let call = identity(&server, "20", "30").unwrap();
         assert_eq!((call.user, call.group), (1, 30));

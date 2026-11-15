@@ -682,6 +682,7 @@ async fn open(
         streams: json!([{"type": "screen", "rid": rtp::STREAM_RID, "quality": 100}]),
         user,
         group,
+        ping: Default::default(),
     };
     // Discord Obsidian encodes in what it offers, and decodes what it was given.
     let codecs = match role {
