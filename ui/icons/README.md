@@ -1,3 +1,35 @@
+Discord's own icons, drawn as its desktop client 1.0.9268 draws them, take
+precedence: their paths were read from the client's web bundle and written out
+filled with currentColor, each under the name of the icon it replaced,
+Discord's component name in brackets: arrow-left (ArrowLargeLeft), arrow-right
+(ArrowLargeRight), at-sign (At), ban (Deny), bell (Bell), bell-off (BellSlash),
+calendar (Calendar), check (CheckmarkLarge), chevron-down (ChevronSmallDown),
+chevron-left (ChevronSmallLeft), chevron-right (ChevronSmallRight), chevron-up
+(ChevronSmallUp), circle-plus (CirclePlus), clock (Clock), community (Compass),
+copy (Copy), crown (Crown), download (Download), ellipsis (MoreHorizontal),
+external-link (WindowLaunch), eye (Eye), eye-off (EyeSlash), folder (Folder),
+folder-plus (FolderPlus), forward (ArrowAngleRightUp), gamepad
+(GameController), gavel (Hammer), gif (Gif), hand (HandRequestSpeak), hash
+(Text), headphone-off (HeadphonesSlash), headphones (Headphones), help-circle
+(CircleQuestion), image (Image), inbox (Inbox), link (Link), lock (Lock),
+log-out (DoorExit), message-circle (Chat), message-circle-plus (ChatPlus), mic
+(Microphone), mic-off (MicrophoneSlash), monitor (Screen), music (Music), nitro
+(NitroWheel), palette (PaintPalette), pencil (Pencil), phone (PhoneCall),
+phone-off (PhoneHangUp), pin (Pin), plus (PlusLarge), puzzle (PuzzlePiece),
+refresh-cw (Refresh), reply (ArrowAngleLeftUp), screen-share (ScreenArrow),
+screen-share-off (ScreenSlash), search (MagnifyingGlass), settings (Settings),
+shield (Shield), shop (Shop), smile (Reaction), smile-plus (ReactionPlus),
+soundboard (Soundboard), star (StarOutline), star-filled (Star), thread
+(Thread), trash-2 (Trash), trophy (Trophy), user (User), user-minus
+(UserMinus), user-plus (UserPlus), users (Friends), video (Video), video-off
+(VideoSlash), volume-2 (VoiceNormal), volume-x (VoiceX), x (XSmall). circle-
+plus and help-circle leave out the ground circle Discord draws behind them in a
+second colour. These are Discord's artwork, not under this folder's licences;
+Discord's terms apply to them.
+
+The icons below that list keep the provenance given here; an icon named in it
+is no longer the one described.
+
 Most icons come from Solar, the icon set by 480 Design
 (https://www.figma.com/community/file/1166831539721848736), under CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). They were taken from Iconify's
