@@ -3994,6 +3994,7 @@ impl Application {
                 stickers,
             } => self.stickers_changed(server, form, result, stickers),
             Event::ServerStickers { server, stickers } => self.server_stickers(server, stickers),
+            Event::PinsChanged { room } => return self.pins_changed(room),
             Event::ServerBan {
                 server,
                 ban,

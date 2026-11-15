@@ -10387,6 +10387,23 @@ fn going_idle_while_signed_out_tells_nobody() {
 }
 
 #[test]
+fn open_pins_load_again_when_the_channel_pins_or_unpins() {
+    let mut app = connected();
+    let room = "discord:10:11".to_owned();
+    assert!(app.apply(Event::PinsChanged { room: room.clone() }).is_empty(), "none open");
+    app.state.pins = Some(Pins {
+        room: room.clone(),
+        messages: Some(Ok(vec![])),
+    });
+    assert!(matches!(
+        app.apply(Event::PinsChanged { room: room.clone() }).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Pins { room: asked }))] if *asked == room
+    ));
+    assert!(app.apply(Event::PinsChanged { room: "discord:10:12".into() }).is_empty());
+    assert!(app.state.pins.as_ref().unwrap().messages.is_some(), "kept until they come");
+}
+
+#[test]
 fn the_window_coming_to_the_front_tells_discord_once_signed_in() {
     let foreground = |effects: &[Effect]| {
         effects.iter().find_map(|effect| match effect {

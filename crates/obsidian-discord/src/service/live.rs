@@ -47,6 +47,10 @@ pub(super) fn live_events(
         })
     };
     match event {
+        Event::ChannelPinsUpdate => vec![Live::PinsChanged {
+            guild: data["guild_id"].as_str().unwrap_or(PRIVATE).to_owned(),
+            channel: channel(),
+        }],
         // Few and small: an open page of the server's settings follows it.
         Event::GuildUpdate => data["id"]
             .as_str()

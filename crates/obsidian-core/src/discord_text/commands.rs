@@ -681,6 +681,12 @@ pub fn live(
         });
         return;
     }
+    if let Ok(Live::PinsChanged { guild, channel }) = &event {
+        let _ = events.send(Event::PinsChanged {
+            room: discord::room_id(guild, channel),
+        });
+        return;
+    }
     if let Ok(Live::ServerStickers { guild, stickers }) = &event {
         let _ = events.send(Event::ServerStickers {
             server: discord::server_id(guild),

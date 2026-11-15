@@ -177,7 +177,9 @@ threads](servers.md#a-channels-list-of-threads).
 
 - Pinned messages open under the pin, the latest pinned first, from `GET
   /channels/{id}/messages/pins`, whose `items` carry each `message`. Discord Obsidian asks
-  each time they open, and for the first 50.
+  each time they open, and for the first 50, and again when
+  CHANNEL_PINS_UPDATE says the channel pinned or unpinned something while
+  they're open, keeping the ones shown until the new ones come.
 - Notices, such as that someone pinned a message, joined, started a thread
   or a call, or that a poll closed, show as Discord's client shows them: a
   row of their own with an icon in place of the avatar, the author's name

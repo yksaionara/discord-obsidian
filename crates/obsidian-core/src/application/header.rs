@@ -31,6 +31,16 @@ impl Application {
         effects
     }
 
+    /// Loads the pins again when the room whose pins are open changed them,
+    /// keeping the ones shown until the new ones come.
+    pub(super) fn pins_changed(&mut self, room: String) -> Vec<Effect> {
+        if self.state.pins.as_ref().is_some_and(|pins| pins.room == room) {
+            vec![Effect::Backend(Command::Discord(DiscordCommand::Pins { room }))]
+        } else {
+            vec![]
+        }
+    }
+
     pub(super) fn pins_came(&mut self, room: String, result: Result<Vec<ChatMessage>, String>) {
         if let Some(pins) = self.state.pins.as_mut().filter(|pins| pins.room == room) {
             pins.messages = Some(result);

@@ -515,6 +515,9 @@ pub enum Live {
         ban: Box<server_settings::Ban>,
         banned: bool,
     },
+    /// A message was pinned or unpinned in a channel, of `guild` or
+    /// [`ready::PRIVATE`], for its pins while they're open.
+    PinsChanged { guild: String, channel: String },
     /// A server's stickers, as GUILD_STICKERS_UPDATE gives them all, for
     /// Stickers while it's open.
     ServerStickers {

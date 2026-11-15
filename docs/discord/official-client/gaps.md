@@ -23,6 +23,7 @@ Matched now:
 - Voice channel statuses: op 43 `REQUEST_CHANNEL_INFO` the first time a
   server opens, `CHANNEL_INFO` and `VOICE_CHANNEL_STATUS_UPDATE`.
 - `GUILD_SCHEDULED_EVENT_USER_ADD/REMOVE` keep interested counts current.
+- `CHANNEL_PINS_UPDATE` reloads pins while they're open.
 
 Still different:
 
@@ -39,7 +40,7 @@ client handles and `obsidian-discord` never names. Most concern billing,
 quests, Activities, notification center, OAuth, game servers and developer
 features. The ones a chat-and-voice client shows to users:
 
-- `CHANNEL_PINS_UPDATE`, `CHANNEL_PINS_ACK`: the pins badge and its unread state
+- `CHANNEL_PINS_ACK`: the pins' unread state
 - `GUILD_MEMBER_ADD`: someone joins while the member list is open
 - `STAGE_INSTANCE_CREATE/UPDATE/DELETE`: Stage topics
 - `SESSIONS_REPLACE`: your own other sessions, used for your shown status

@@ -123,6 +123,9 @@ events! {
     VoiceChannelEffectSend = "VOICE_CHANNEL_EFFECT_SEND",
     /// A voice channel's status changed: `{id, guild_id, status}`.
     VoiceChannelStatusUpdate = "VOICE_CHANNEL_STATUS_UPDATE",
+    /// A message was pinned or unpinned in a channel: `{guild_id?,
+    /// channel_id, last_pin_timestamp}`.
+    ChannelPinsUpdate = "CHANNEL_PINS_UPDATE",
     /// The answer to REQUEST_CHANNEL_INFO (op 43): a server's voice channels'
     /// statuses, `{guild_id, channels: [{id, status, voice_start_time}]}`.
     ChannelInfo = "CHANNEL_INFO",
@@ -247,6 +250,7 @@ mod tests {
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
             ("VOICE_CHANNEL_STATUS_UPDATE", Event::VoiceChannelStatusUpdate),
+            ("CHANNEL_PINS_UPDATE", Event::ChannelPinsUpdate),
             ("CHANNEL_INFO", Event::ChannelInfo),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (

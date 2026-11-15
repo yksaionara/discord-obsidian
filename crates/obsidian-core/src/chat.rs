@@ -3894,6 +3894,8 @@ pub enum Event {
         result: Result<(), String>,
         stickers: Option<Vec<ServerSticker>>,
     },
+    /// A message was pinned or unpinned in this room, for its pins if open.
+    PinsChanged { room: String },
     /// A server's stickers changed, as GUILD_STICKERS_UPDATE gives them,
     /// for an open Stickers.
     ServerStickers {
