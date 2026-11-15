@@ -841,6 +841,7 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     bind!(on_close_event, Action::CloseEvent);
     bind_item!(on_find_invite, Action::FindInvite);
     bind_item!(on_open_invite, Action::OpenInvite);
+    bind_item!(on_open_channel_settings, Action::OpenChannelSettings);
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
@@ -2053,6 +2054,32 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    window.on_preview_stream(move |room, user| {
+        let Some(window) = weak.upgrade() else { return };
+        let shown = (!room.is_empty() && !user.is_empty()).then(|| (room.into(), user.into()));
+        state.borrow_mut().action(&window, Action::PreviewStream(shown));
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_drop_server(move |id, target, zone| {
+        let Some(window) = weak.upgrade() else { return };
+        let drop = match zone {
+            1 => obsidian_core::application::ServerDrop::Before,
+            2 => obsidian_core::application::ServerDrop::Into,
+            3 => obsidian_core::application::ServerDrop::After,
+            _ => return,
+        };
+        let mut adapter = state.borrow_mut();
+        adapter.action(
+            &window,
+            Action::DropServer { id: id.into(), target: target.into(), drop },
+        );
+        // Discord's list keeps the order now, or this device does.
+        adapter.layout.server_order = adapter.app.state.server_order.clone();
+        adapter.layout.write(&adapter.root);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_open_aside(move |id| {
         if let Some(window) = weak.upgrade() {
             state
@@ -2376,8 +2403,19 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     #[cfg(feature = "discord")]
     let weak = window.as_weak();
     #[cfg(feature = "discord")]
+    let state = adapter.clone();
+    #[cfg(feature = "discord")]
     window.on_list_share_sources(move || {
         use obsidian_core::stream_worker::{Report, Source, Worker};
+        // The game Discord sees being played, whose window comes first, as
+        // Discord's dialog puts the game first.
+        let playing = state
+            .borrow()
+            .app
+            .state
+            .discord_playing
+            .as_ref()
+            .map(|playing| playing.name.to_lowercase());
         // A picture fills a tile of the share dialog, two to a row, in
         // pixels; they're let go as it closes.
         let scale = weak
@@ -2398,6 +2436,10 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                     Source::Camera(_) => cameras.push(listed),
                     _ => windows.push(listed),
                 }
+            }
+            if let Some(playing) = playing.filter(|playing| !playing.is_empty()) {
+                // Stable: the rest keep their order.
+                windows.sort_by_key(|listed| !listed.title.to_lowercase().contains(&playing));
             }
             let ids: Vec<u64> = screens
                 .iter()

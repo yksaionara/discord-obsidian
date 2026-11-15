@@ -635,6 +635,8 @@ enum Request {
     Status(String),
     /// Sharing the game played changed in the settings.
     ShowGame(bool),
+    /// The server list's order and folders changed in the settings.
+    ServerList(Vec<crate::settings::Folder>),
     /// Nobody has used Discord Obsidian since then, in Unix milliseconds, or someone
     /// is using it again; and whether it may show idle.
     Inactive(Option<u64>, bool),
@@ -2008,6 +2010,16 @@ impl Discord {
         Ok(())
     }
 
+    /// Puts the server list in this order and these folders, everywhere this
+    /// account is signed in, as a server dragged on Discord's list does. An
+    /// entry with an empty `id` is a server outside any folder. This
+    /// session shows it at once, before Discord answers; the settings update
+    /// that follows agrees, or puts back what Discord kept.
+    pub async fn set_server_list(&self, entries: Vec<crate::settings::Folder>) -> Result<()> {
+        let _ = self.requests.send(Request::ServerList(entries.clone()));
+        self.api.set_server_list(&entries).await
+    }
+
     /// Shares the game this account plays, everywhere it's signed in, or
     /// stops sharing it. Stopping ends game detection and Rich Presence.
     pub async fn set_show_game(&self, shown: bool) -> Result<()> {
@@ -3005,6 +3017,14 @@ impl Discord {
     pub async fn decline(&self, channel: &str) -> Result<()> {
         let me = self.snapshots.borrow().user_id.clone().unwrap_or_default();
         self.api.stop_ringing(channel, &me).await
+    }
+
+    /// The address of the latest preview of the stream `user` shares in the
+    /// voice channel `channel` of `guild`; none before its first.
+    pub async fn stream_preview_url(&self, guild: &str, channel: &str, user: &str) -> Result<Option<String>> {
+        self.api
+            .stream_preview_url(&crate::stream::key(guild, channel, user))
+            .await
     }
 
     /// Uploads the preview Discord shows of this account's live stream: a

@@ -758,7 +758,9 @@ pub(super) fn message_row_within(
                 .iter()
                 .map(|reaction| ReactionChip {
                     key: reaction.key.clone().into(),
-                    label: custom_emoji::text(&reaction.key, &message.emoji).into(),
+                    // Twemoji, as Discord draws a reaction, not the
+                    // system's emoji font.
+                    label: emoji_text::text(&custom_emoji::text(&reaction.key, &message.emoji)).into(),
                     count: i32::try_from(reaction.count).unwrap_or(i32::MAX),
                     mine: reaction.mine,
                 })

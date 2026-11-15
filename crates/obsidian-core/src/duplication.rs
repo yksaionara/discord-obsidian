@@ -73,6 +73,35 @@ pub fn filled_screen(window: u64) -> Option<u64> {
     }
 }
 
+/// Whether `window` is a game's as a game shows: minimized, as one in full
+/// screen is while another app has the focus, or filling its screen; and
+/// still there.
+pub fn minimized_or_filling(window: u64) -> bool {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{IsIconic, IsWindow},
+    };
+    // SAFETY: reads the window's state; a window that's gone fails IsWindow.
+    unsafe {
+        let hwnd = HWND(window as usize as *mut core::ffi::c_void);
+        IsWindow(Some(hwnd)).as_bool() && (IsIconic(hwnd).as_bool() || filled_screen(window).is_some())
+    }
+}
+
+/// Whether the window `window` is minimized.
+pub fn minimized(window: u64) -> bool {
+    use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::IsIconic};
+    // SAFETY: only reads the window's state; a window that's gone isn't.
+    unsafe { IsIconic(HWND(window as usize as *mut core::ffi::c_void)).as_bool() }
+}
+
+/// Whether the window `window` is still there.
+pub fn window_exists(window: u64) -> bool {
+    use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::IsWindow};
+    // SAFETY: only asks whether the handle names a window.
+    unsafe { IsWindow(Some(HWND(window as usize as *mut core::ffi::c_void))).as_bool() }
+}
+
 /// The screen the window `window` fills while it's the one in front, as
 /// [`filled_screen`] gives it: only then does duplicating the screen show
 /// the window and nothing else. A borderless game alt-tabbed away from

@@ -331,4 +331,18 @@ mod tests {
         let picture = capture.picture();
         assert!(picture.width() >= 2 && picture.height() >= 2);
     }
+
+    /// Opens the minimized window `OBSIDIAN_TEST_WINDOW` names by handle, as
+    /// a game in full screen is while the share dialog has the focus: it
+    /// opens, and gives no frames until it's back.
+    #[test]
+    #[ignore = "needs a minimized window"]
+    fn opens_a_minimized_window() {
+        let window: u64 = std::env::var("OBSIDIAN_TEST_WINDOW").unwrap().parse().unwrap();
+        let mut capture = WindowCapture::open(window).unwrap();
+        for _ in 0..10 {
+            assert!(matches!(capture.next(20).unwrap(), Next::Timeout));
+        }
+        assert!(!capture.has_picture());
+    }
 }

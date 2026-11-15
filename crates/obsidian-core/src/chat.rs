@@ -629,7 +629,7 @@ pub struct ChannelSettings {
 }
 
 /// A folder of servers on the rail, as Discord's server list keeps them.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ServerFolder {
     /// Unique across networks, such as `discord-folder:7`.
     pub id: String,
@@ -637,6 +637,15 @@ pub struct ServerFolder {
     pub name: Option<String>,
     /// Its colour as RGB; none for the default.
     pub color: Option<u32>,
+}
+
+/// One place in the rail's server list: a folder and its servers, or a
+/// server outside any folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerListEntry {
+    pub folder: Option<ServerFolder>,
+    /// Its servers' ids, as [`ChatServer::id`], in order.
+    pub servers: Vec<String>,
 }
 
 /// A room's standing from its power levels: Matrix's admin is 100 and moderator 50.
@@ -2683,6 +2692,12 @@ pub enum DiscordCommand {
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`;
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
+    /// Put the Discord server list in this order and these folders, all of
+    /// it, everywhere the account is signed in. Only Discord's servers.
+    SetServerList(Vec<ServerListEntry>),
+    /// Ask for the latest preview of the stream `user` shares in the voice
+    /// channel `room`; [`Event::StreamPreview`] follows.
+    StreamPreview { room: String, user: String },
     /// Share the game the Discord account plays, or stop;
     /// [`Event::ShowGameSet`] follows.
     ShowGame(bool),
@@ -3643,6 +3658,13 @@ pub enum Event {
     CustomStatusSet(Result<(), String>),
     /// Whether [`DiscordCommand::SetStatus`] changed it, or why not.
     StatusSet(Result<(), String>),
+    /// The address of the latest preview of the stream `user` shares in
+    /// `room`, none before its first or when it couldn't be had.
+    StreamPreview {
+        room: String,
+        user: String,
+        url: Option<String>,
+    },
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.

@@ -521,6 +521,11 @@ impl Session<'_> {
                 self.publisher.changed();
                 self.show_presence().await
             }
+            Request::ServerList(entries) => {
+                self.tracker.set_server_list(entries);
+                self.publisher.changed();
+                Ok(())
+            }
             Request::Session(reply) => {
                 let _ = reply.send(self.tracker.session.clone());
                 Ok(())

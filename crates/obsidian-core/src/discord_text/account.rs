@@ -471,6 +471,58 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::StreamPreview { room, user }) = command {
+        if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(&room)) {
+            let (discord, events) = (discord.clone(), events.clone());
+            let (guild, channel) = (guild.to_owned(), channel.to_owned());
+            tokio::spawn(async move {
+                let url = discord
+                    .stream_preview_url(&guild, &channel, &user)
+                    .await
+                    .unwrap_or_else(|error| {
+                        tracing::debug!(error = format!("{error:#}"), "no stream preview");
+                        None
+                    });
+                let _ = events.send(Event::StreamPreview { room, user, url });
+            });
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::SetServerList(entries)) = command {
+        if let Ok(discord) = discord {
+            let discord = discord.clone();
+            let entries: Vec<obsidian_discord::settings::Folder> = entries
+                .into_iter()
+                .filter_map(|entry| {
+                    let servers: Vec<String> = entry
+                        .servers
+                        .iter()
+                        .filter_map(|server| server.strip_prefix(discord::PREFIX))
+                        .map(str::to_owned)
+                        .collect();
+                    let folder = entry.folder.unwrap_or_default();
+                    (!servers.is_empty()).then(|| obsidian_discord::settings::Folder {
+                        id: folder
+                            .id
+                            .strip_prefix(discord::FOLDER_PREFIX)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        name: folder.name,
+                        color: folder.color,
+                        servers,
+                    })
+                })
+                .collect();
+            tokio::spawn(async move {
+                // The list shows as moved already; the settings update
+                // after a refusal puts back what Discord kept.
+                if let Err(error) = discord.set_server_list(entries).await {
+                    tracing::warn!(error = format!("{error:#}"), "could not change the server list");
+                }
+            });
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {

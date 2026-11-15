@@ -485,9 +485,11 @@ impl Drop for GateMeter {
 /// Frames waiting for the speakers; more than this and new ones are dropped.
 const QUEUE: usize = 4;
 /// What the mic test keeps queued for the speakers, and the most blocks it
-/// keeps waiting for them: little, so it plays back promptly.
+/// keeps waiting for them: the gate's pre-roll and a little more, so the
+/// start of each word plays. One block plays for each block heard, so what
+/// waits drains in the pause after each phrase.
 const TEST_QUEUE: Duration = Duration::from_millis(30);
-const TEST_WAITING: usize = 2;
+const TEST_WAITING: usize = BEFORE_OPENING + 2;
 /// What the speakers keep queued: three frames.
 const SPEAKER_QUEUE: Duration = Duration::from_millis(60);
 /// Roughly how late the microphone hears what the speakers played.
@@ -713,10 +715,10 @@ fn measure(
     let mut block = [0i16; BLOCK];
     let mut frame = [0i16; BLOCK * CHANNELS as usize];
     // What the gate sent and isn't played yet. Opening sends the blocks it
-    // kept from before as well, which would add to the delay for good, so
-    // one block plays for each block heard, and more than two waiting
-    // drop the oldest.
-    let mut waiting = VecDeque::with_capacity(BEFORE_OPENING + 1);
+    // kept from before as well, the start of the word; one block plays for
+    // each block heard, so that delay goes again in the next pause.
+    // Dropping all but two of them cut the start off every word.
+    let mut waiting = VecDeque::with_capacity(TEST_WAITING + 1);
     let mut shown = f32::NEG_INFINITY;
     while !shared.stop.load(Ordering::Relaxed) {
         stream.read(&mut block);
@@ -744,9 +746,10 @@ fn measure(
             }
             None => frame.fill(0),
         }
-        // The microphone hears the speakers too: echo cancellation takes
-        // the voice played back out of it, so it doesn't play again.
-        processing.played(&mut frame);
+        // What plays back isn't given to the echo canceller, as Discord's
+        // test doesn't: it's the voice the microphone hears a moment
+        // before, so the canceller took the voice itself for echo and
+        // played back almost nothing of it.
         speakers.write(&frame);
     }
     Ok(())

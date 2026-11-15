@@ -1,3 +1,7 @@
-- New: mic test. Settings > Voice & video > Let's check plays your voice back as Discord calls send it, after noise suppression and the input sensitivity, with a level bar that turns green when you'd be heard.
-- New: your mouse's back and forward side buttons go back and forward between conversations, like the arrows in the title bar.
-- New: Who's Watching. While you stream, the voice panel shows who's watching under "Your screen"; hover an avatar for the name, click it for the profile. Turn it off in Settings > Add-ons.
+- New: drag servers up and down the server list with your mouse, onto another server to make a folder, or into a folder, as in Discord. Discord keeps the new order.
+- New: hover someone who's live in a voice channel for the Streaming Now card, with a preview of their stream and Watch Stream.
+- Smoother screen sharing at 1080p 144fps: the bitrate no longer climbs past what your connection gets through, which froze streams every minute or so, and when the connection can't carry every frame, it sends fewer, sharper ones instead of freezing.
+- Fixed: games in full screen or windowed full screen, such as Valorant, are in the share list again, the game you're playing first. They share as soon as you tab back in.
+- Fixed: the mic test no longer cancels out your own voice, so you hear yourself clearly.
+- Emojis in reactions, polls and channel names look like Discord's.
+- Fixed: a message no longer jumps up while it sends, and reaction tooltips no longer show one letter per line.

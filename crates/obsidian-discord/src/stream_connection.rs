@@ -84,6 +84,13 @@ const RESEND_SHARE: u64 = 4;
 /// up to the cap for the stream's quality, holds between 2% and 10% and
 /// while nothing says, and above that drops by half the fraction lost.
 ///
+/// It grows only while the encoder uses what it has: never past one and a
+/// half times what the server acknowledged receiving, as libwebrtc limits
+/// an application-limited sender. A calm screen sends far below its target,
+/// and growing it anyway let the next busy scene burst far past what the
+/// path carried: streams ran to their cap while 9 Mbit/s got through, then
+/// lost 30% to 60% of their packets, every 30 to 60 seconds.
+///
 /// Discord's server also sends an estimate (REMB), but it only grows past
 /// what it receives once the sender probes with padding, as libwebrtc does.
 /// Without probing, following it held 1080p streams at 1.5 Mbit/s on a
@@ -91,16 +98,21 @@ const RESEND_SHARE: u64 = 4;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RateControl {
     bitrate: u64,
-    /// The bitrate heavy loss last came at, until [`FORGET_CEILING`]
-    /// seconds pass without loss.
+    /// The bitrate heavy loss last came at. The bitrate stays below
+    /// [`CEILING_HOLD`] of it, and it rises a tenth after each
+    /// [`RAISE_CEILING`] seconds without loss.
     ceiling: Option<u64>,
     /// Seconds in a row with hardly any loss.
     clear: u32,
 }
 
-/// Seconds without loss after which the rate control forgets where loss
-/// came, and grows at full speed again.
-const FORGET_CEILING: u32 = 60;
+/// Seconds without loss after which the ceiling heavy loss left rises a
+/// tenth, so a path that got better is found again, a step at a time.
+const RAISE_CEILING: u32 = 90;
+/// The share of the ceiling the bitrate stays under. Creeping on at 1% a
+/// second past where loss came ran into the same loss 20 to 40 seconds
+/// later, each time freezing viewers.
+const CEILING_HOLD: f64 = 0.9;
 
 impl RateControl {
     pub fn new(cap: u64) -> Self {
@@ -115,11 +127,12 @@ impl RateControl {
         self.bitrate
     }
 
-    /// Takes a second's `loss`, a fraction of the packets sent, and gives the
-    /// bit/s to aim for from now on, at most `cap`. Within 15% of where heavy
-    /// loss last came it grows 1% a second instead of 8%, so it doesn't run
-    /// into the same loss every few seconds.
-    pub fn update(&mut self, loss: Option<f64>, cap: u64) -> u64 {
+    /// Takes a second's `loss`, a fraction of the packets sent, and the
+    /// bit/s the server acknowledged lately, and gives the bit/s to aim for
+    /// from now on, at most `cap`. Within 15% of where heavy loss last came
+    /// it grows 1% a second instead of 8%, and not past [`CEILING_HOLD`]
+    /// of it.
+    pub fn update(&mut self, loss: Option<f64>, cap: u64, acked: Option<f64>) -> u64 {
         let rate = self.bitrate as f64;
         let next = match loss {
             Some(loss) if loss > 0.10 => {
@@ -133,13 +146,24 @@ impl RateControl {
             }
             Some(_) => {
                 self.clear += 1;
-                if self.clear >= FORGET_CEILING {
-                    self.ceiling = None;
+                if self.clear >= RAISE_CEILING {
+                    self.clear = 0;
+                    self.ceiling = self
+                        .ceiling
+                        .map(|ceiling| ceiling + ceiling / 10)
+                        .filter(|&ceiling| ceiling < cap);
                 }
                 let near = self
                     .ceiling
                     .is_some_and(|ceiling| rate >= ceiling as f64 * 0.85);
-                if near { rate * 1.01 + 1000.0 } else { rate * 1.08 + 1000.0 }
+                let mut next = if near { rate * 1.01 + 1000.0 } else { rate * 1.08 + 1000.0 };
+                if let Some(ceiling) = self.ceiling {
+                    next = next.min((ceiling as f64 * CEILING_HOLD).max(rate));
+                }
+                if let Some(acked) = acked {
+                    next = next.min((1.5 * acked + 10_000.0).max(rate));
+                }
+                next
             }
             // Too few packets to tell.
             None => rate,
@@ -211,18 +235,20 @@ impl Loss {
 }
 
 /// The most bit/s a stream of `height` lines may take, as Discord's client
-/// decides it: 3.5 Mbit/s up to 720p, 9 Mbit/s to 1080p, and 20 Mbit/s
-/// above, so 1440p keeps its detail. Op 12 announces it.
+/// decides it at 60 fps: 3.5 Mbit/s up to 720p, 9 Mbit/s to 1080p, and
+/// 20 Mbit/s above, so 1440p keeps its detail. Op 12 announces it.
 pub fn max_bitrate(height: u32, fps: u32) -> u32 {
     let base: u64 = match height {
         ..=720 => 3_500_000,
         ..=1080 => 9_000_000,
         _ => 20_000_000,
     };
-    // Past 60 fps the cap grows with the rate, to four times at 240 fps and
+    // Past 60 fps the cap grows with the rate, to twice at 240 fps and
     // above, so each frame keeps enough bits for small text; at most
-    // 40 Mbit/s. The server's bandwidth estimate still lowers it.
-    (base * u64::from(fps.clamp(60, 240)) / 60).min(40_000_000) as u32
+    // 40 Mbit/s. Growing to four times sent 1080p144 at 21.6 Mbit/s, past
+    // what viewers' connections took: they asked again for a third of the
+    // packets while the server got them all. The rate control lowers it.
+    (base * u64::from(180 + fps.clamp(60, 240) - 60) / 180).min(40_000_000) as u32
 }
 
 /// Op 5's speaking flags for a stream's sound: shared sound, not a
@@ -296,6 +322,10 @@ struct Shared {
     video_bytes: AtomicU64,
     keyframe_requests: AtomicU64,
     resent: AtomicU64,
+    /// Sending: frames the encoder skipped while the network was behind,
+    /// and encoded frames dropped on a full queue, since last logged.
+    skipped: AtomicU32,
+    dropped: AtomicU32,
 }
 
 impl Shared {
@@ -312,6 +342,8 @@ impl Shared {
             video_bytes: AtomicU64::new(0),
             keyframe_requests: AtomicU64::new(0),
             resent: AtomicU64::new(0),
+            skipped: AtomicU32::new(0),
+            dropped: AtomicU32::new(0),
         })
     }
 }
@@ -409,6 +441,7 @@ impl StreamSender {
     pub fn send(&self, frame: Frame) {
         if self.frames.try_send(frame).is_err() {
             self.shared.keyframe.store(true, Ordering::Relaxed);
+            self.shared.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -431,10 +464,15 @@ impl StreamSender {
 
     /// Whether frames wait to be sent: more than half the queue. The
     /// encoder skips a frame then, which, unlike a frame dropped after
-    /// encoding, needs no keyframe for viewers to go on.
+    /// encoding, needs no keyframe for viewers to go on; it's counted as
+    /// skipped for the log.
     pub fn backlogged(&self) -> bool {
         let queued = self.frames.max_capacity() - self.frames.capacity();
-        queued * 2 > self.frames.max_capacity()
+        let behind = queued * 2 > self.frames.max_capacity();
+        if behind {
+            self.shared.skipped.fetch_add(1, Ordering::Relaxed);
+        }
+        behind
     }
 
     /// The bit/s to encode at: the cap for the stream's size and rate,
@@ -698,6 +736,8 @@ async fn send(
     // The bytes resent since the rate control last looked.
     let mut resent_bytes: u64 = 0;
     let mut rated = tokio::time::interval_at(Instant::now() + RATE_EVERY, RATE_EVERY);
+    // Frames skipped or dropped are logged at most this often, summed.
+    let mut held_back = tokio::time::interval_at(Instant::now() + HELD_BACK_EVERY, HELD_BACK_EVERY);
     send_json(
         &mut connection.ws,
         5,
@@ -941,7 +981,7 @@ async fn send(
             _ = rated.tick() => {
                 resent_bytes = 0;
                 let (lost, upload, viewers) = loss.take_both();
-                rate.update(lost, u64::from(max_bitrate(size.1, fps)));
+                rate.update(lost, u64::from(max_bitrate(size.1, fps)), delay.acked());
                 let after = if delay_heard { rate.bitrate().min(delay.bitrate()) } else { rate.bitrate() };
                 shared.target.store(after, Ordering::Relaxed);
                 // A change of a tenth or more, not every step of 8%.
@@ -958,6 +998,19 @@ async fn send(
                         upload_loss_percent = percent(upload),
                         viewer_nack_percent = percent(viewers),
                         "stream bitrate"
+                    );
+                }
+            }
+            _ = held_back.tick() => {
+                let skipped = shared.skipped.swap(0, Ordering::Relaxed);
+                let dropped = shared.dropped.swap(0, Ordering::Relaxed);
+                if skipped > 0 || dropped > 0 {
+                    tracing::info!(
+                        skipped,
+                        dropped,
+                        seconds = HELD_BACK_EVERY.as_secs(),
+                        kbps = shared.target.load(Ordering::Relaxed) / 1000,
+                        "stream frames held back while the network was behind"
                     );
                 }
             }
@@ -980,6 +1033,8 @@ async fn send(
 /// How often the rate control looks at the loss, about as often as the
 /// server's receiver reports come.
 const RATE_EVERY: Duration = Duration::from_secs(1);
+/// How often frames skipped or dropped are logged, when there were any.
+const HELD_BACK_EVERY: Duration = Duration::from_secs(10);
 
 /// How many encoded frames may wait to be sent at `fps`: about a tenth of a
 /// second's, and at least four.
@@ -1343,33 +1398,55 @@ mod tests {
         let mut rate = RateControl::new(cap);
         assert_eq!(rate.bitrate(), START_BITRATE, "starts where Discord's estimate does");
         assert_eq!(RateControl::new(3_500_000).bitrate(), 3_500_000, "or lower, at 720p30's cap");
-        assert_eq!(rate.update(None, cap), START_BITRATE, "no reports hold it");
-        assert_eq!(rate.update(Some(0.0), cap), 4_321_000, "a clear path grows it 8%");
+        assert_eq!(rate.update(None, cap, None), START_BITRATE, "no reports hold it");
+        assert_eq!(rate.update(Some(0.0), cap, None), 4_321_000, "a clear path grows it 8%");
         for _ in 0..60 {
-            rate.update(Some(0.0), cap);
+            rate.update(Some(0.0), cap, None);
         }
         assert_eq!(rate.bitrate(), cap, "up to the cap, in about 20 s");
-        assert_eq!(rate.update(Some(0.05), cap), cap, "some loss holds it");
-        assert_eq!(rate.update(Some(0.20), cap), cap * 9 / 10, "heavy loss lowers it");
+        assert_eq!(rate.update(Some(0.05), cap, None), cap, "some loss holds it");
+        assert_eq!(rate.update(Some(0.30), cap, None), cap * 85 / 100, "heavy loss lowers it");
         let lowered = rate.bitrate();
         assert_eq!(
-            rate.update(Some(0.01), cap),
+            rate.update(Some(0.01), cap, None),
             lowered * 101 / 100 + 1000,
             "and it grows back slowly near where loss came"
         );
-        for _ in 0..FORGET_CEILING {
-            rate.update(Some(0.0), cap);
+        for _ in 0..60 {
+            rate.update(Some(0.0), cap, None);
         }
-        rate.update(Some(0.5), cap);
-        let far = rate.update(Some(0.5), cap);
-        assert_eq!(rate.update(Some(0.0), cap), far * 108 / 100 + 1000, "far below it, at full speed");
+        assert_eq!(rate.bitrate(), (cap as f64 * CEILING_HOLD) as u64, "but stays under it");
+        for _ in 0..RAISE_CEILING {
+            rate.update(Some(0.0), cap, None);
+        }
+        assert!(rate.bitrate() > (cap as f64 * CEILING_HOLD) as u64, "until the path held a while");
+        rate.update(Some(0.5), cap, None);
+        let far = rate.update(Some(0.5), cap, None);
+        assert_eq!(rate.update(Some(0.0), cap, None), far * 108 / 100 + 1000, "far below it, at full speed");
         for _ in 0..100 {
-            rate.update(Some(1.0), cap);
+            rate.update(Some(1.0), cap, None);
         }
         assert_eq!(rate.bitrate(), MIN_BITRATE, "a screen's floor");
         rate = RateControl::new(cap);
         rate.cap(3_000_000);
         assert_eq!(rate.bitrate(), 3_000_000, "a smaller quality's cap");
+    }
+
+    #[test]
+    fn the_bitrate_grows_only_while_the_encoder_uses_it() {
+        let cap = u64::from(max_bitrate(1080, 144));
+        let mut rate = RateControl::new(cap);
+        for _ in 0..60 {
+            rate.update(Some(0.0), cap, Some(2_000_000.0));
+        }
+        assert_eq!(rate.bitrate(), START_BITRATE, "a calm screen sending 2 Mbit/s holds it");
+        for _ in 0..60 {
+            rate.update(Some(0.0), cap, Some(8_000_000.0));
+        }
+        assert_eq!(rate.bitrate(), 12_010_000, "one and a half times what gets through");
+        assert_eq!(max_bitrate(1080, 144), 13_200_000);
+        assert_eq!(max_bitrate(1080, 60), 9_000_000);
+        assert_eq!(max_bitrate(1080, 240), 18_000_000);
     }
 
     #[test]

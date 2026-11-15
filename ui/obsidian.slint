@@ -36,7 +36,7 @@ import "fonts/DisplayName-Journal.ttf";
 // Discord Obsidian's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion } from "theme.slint";
+import { Theme, Tip, BadgeTip, ReactionHover, StreamHover, Middle, Popup, PopupMotion } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "obsidian/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
@@ -44,7 +44,7 @@ import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, 
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls, Logged } from "messages.slint";
+import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, SendingIndicator, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls, Logged } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -199,6 +199,8 @@ export component ObsidianWindow inherits Window {
     in-out property <int> invite-age;
     in-out property <int> invite-uses;
     callback open-invite(string);
+    /// A channel's settings, from its row's gear.
+    callback open-channel-settings(string);
     callback make-invite(int, int);
     callback close-invite;
     // Join a Server, from the "+" at the foot of the server rail or a
@@ -1306,6 +1308,9 @@ export component ObsidianWindow inherits Window {
     callback navigate-server(string);
     /// A folder on the rail was clicked: open or close it.
     callback toggle-folder(string);
+    /// A server or folder dragged on the rail was dropped on another: above
+    /// it (1), into it (2) or below it (3).
+    callback drop-server(string, string, int);
     callback select-room(string);
     /// Go to wherever a conversation is listed and open it, as an unread DM
     /// on the rail does.
@@ -1380,6 +1385,18 @@ export component ObsidianWindow inherits Window {
     callback watch-stream(string);
     /// Someone in a voice channel was clicked in the channel list.
     callback show-voice-person(string, string);
+    /// The "Streaming Now" card shows the stream someone shares in a voice
+    /// channel, by the channel and their user id, which asks Discord for its
+    /// preview; empty ids hide it.
+    callback preview-stream(string, string);
+    /// The card's preview, once Discord gave one, and whether it's still
+    /// asked for.
+    in property <string> stream-card-url;
+    in property <bool> stream-card-asked;
+    property <bool> stream-card-shown;
+    /// The pointer is on the card's Watch Stream, whose own touch area the
+    /// card's leaves for.
+    property <bool> stream-card-watch;
     /// A channel category's heading was clicked; see RoomList.
     callback toggle-category(string);
     /// Dragging a Discord server's channels and categories; see RoomList.
@@ -2396,6 +2413,7 @@ export component ObsidianWindow inherits Window {
                         apply-update => { root.apply-update(); }
                         navigate-server(id) => { root.navigate-server(id); }
                         toggle-folder(id) => { root.toggle-folder(id); }
+                        drop-server(id, target, zone) => { root.drop-server(id, target, zone); }
                         open-dm(id) => { root.open-conversation(id); }
                         open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                         can-join: root.can-join-server;
@@ -2492,6 +2510,8 @@ export component ObsidianWindow inherits Window {
                                 open-voice(id) => { root.open-conversation(id); }
                                 wave(user) => { root.message-from-profile(user, "\u{1F44B}"); }
                                 open-chat(id) => { root.open-chat(id); }
+                                invite-to(id) => { root.open-invite(id); }
+                                edit-channel(id) => { root.open-channel-settings(id); }
                                 open-friends => { root.open-friends(); }
                                 open-requests => { root.open-requests(); }
                                 open-link(link) => { root.open-link(link); }
@@ -3253,6 +3273,11 @@ export component ObsidianWindow inherits Window {
                                                         root.anchor(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, 0px, 0px, true);
                                                         root.open-menu(message);
                                                     }
+                                                }
+                                                // In the last row's space below it, as the text starts,
+                                                // so sending doesn't change the row's height.
+                                                if message.delivery == "Sending..." && index == root.messages.length - 1: SendingIndicator {
+                                                    x: 72px; y: parent.height - (root.detached ? 52px : 20px) + 1px;
                                                 }
                                                 col := VerticalLayout {
                                                     padding-top: message.day != "" || message.unread-start ? 12px : message.first ? ClientStyle.message-group-gap : 1px;
@@ -4627,6 +4652,95 @@ export component ObsidianWindow inherits Window {
         accessible-role: text; accessible-label: "Zoom " + root.zoom-note;
         zoom-text := Text { text: root.zoom-note; color: Theme.text; font-size: 15px; font-weight: 700; }
     }
+    // Discord's "Streaming Now" card, beside someone streaming in a voice
+    // channel's list a moment after the pointer rests on them: the stream's
+    // latest preview, and Watch Stream. It goes a moment after the pointer
+    // leaves both the row and the card.
+    Timer {
+        interval: 250ms;
+        running: StreamHover.user != "" && StreamHover.on-row && !root.stream-card-shown;
+        triggered => {
+            root.stream-card-shown = true;
+            root.preview-stream(StreamHover.room, StreamHover.user);
+        }
+    }
+    Timer {
+        interval: 300ms;
+        running: root.stream-card-shown && !StreamHover.on-row && !StreamHover.on-card && !root.stream-card-watch;
+        triggered => {
+            root.stream-card-shown = false;
+            StreamHover.on-card = false;
+            root.preview-stream("", "");
+        }
+    }
+    property <string> stream-hovered: StreamHover.room + " " + StreamHover.user;
+    changed stream-hovered => {
+        if root.stream-card-shown && StreamHover.on-row { root.preview-stream(StreamHover.room, StreamHover.user); }
+    }
+    if root.stream-card-shown: Rectangle {
+        property <length> w: 288px;
+        property <length> h: 16px + 20px + 12px + (self.w - 32px) * 9 / 16 + 12px + 36px + 16px;
+        x: max(8px, min(root.width - self.w - 8px, StreamHover.x + 8px));
+        y: max(8px, min(root.height - self.h - 8px, StreamHover.y - 24px));
+        width: self.w; height: self.h;
+        border-radius: 8px; background: Theme.tooltip;
+        border-width: 1px; border-color: Theme.outline;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000099; drop-shadow-offset-y: 4px;
+        card-touch := TouchArea {
+            changed has-hover => { StreamHover.on-card = self.has-hover; }
+        }
+        VerticalLayout {
+            padding: 16px; spacing: 12px;
+            HorizontalLayout {
+                height: 20px;
+                Text {
+                    text: "Streaming Now"; color: Theme.secondary; font-size: 14px; font-weight: 600;
+                    vertical-alignment: center; horizontal-stretch: 1;
+                }
+                Middle { Rectangle {
+                    width: live-word.preferred-width + 12px; height: 18px; border-radius: 9px; background: Theme.danger;
+                    live-word := Text { text: "LIVE"; color: Theme.on-danger; font-size: 11px; font-weight: 800; letter-spacing: 0.4px; }
+                } }
+            }
+            Rectangle {
+                height: self.width * 9 / 16; border-radius: 8px; clip: true;
+                background: Theme.text.with-alpha(0.07);
+                property <image> preview: root.stream-card-url != "" ? PictureStore.picture(root.stream-card-url, PictureStore.revision) : @image-url("");
+                changed preview => { if root.stream-card-url != "" && self.preview.width == 0 { PictureStore.request(root.stream-card-url); } }
+                init => { if root.stream-card-url != "" && self.preview.width == 0 { PictureStore.request(root.stream-card-url); } }
+                if self.preview.width > 0: Image { width: parent.width; height: parent.height; source: parent.preview; image-fit: cover; }
+                if self.preview.width == 0: Text {
+                    text: root.stream-card-asked ? "" : "Stream just started. Get in here!";
+                    color: Theme.text; font-size: 14px; font-weight: 500;
+                    horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+                    width: parent.width - 24px;
+                }
+            }
+            watch := Rectangle {
+                height: 36px; border-radius: 6px;
+                background: watch-touch.pressed ? #1a6334 : watch-touch.has-hover ? #1a6334 : #248046;
+                animate background { duration: Theme.quick; }
+                accessible-role: button; accessible-label: "Watch Stream";
+                accessible-action-default => { watch-touch.clicked(); }
+                HorizontalLayout {
+                    alignment: center; spacing: 8px;
+                    Middle { Image { source: @image-url("icons/screen-share.svg"); width: 18px; height: 18px; colorize: #ffffff; } }
+                    Text { text: "Watch Stream"; color: #ffffff; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                }
+                watch-touch := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    changed has-hover => { root.stream-card-watch = self.has-hover; }
+                    clicked => {
+                        root.show-voice-person(StreamHover.room, StreamHover.user);
+                        root.stream-card-shown = false;
+                        StreamHover.on-card = false; StreamHover.on-row = false;
+                        root.stream-card-watch = false;
+                        root.preview-stream("", "");
+                    }
+                }
+            }
+        }
+    }
     // Who reacted, over the reaction the pointer stays on: its emoji, then
     // the names, wrapping. Clicking it opens the Reactions window there.
     property <string> hovered-reaction: ReactionHover.item + " " + ReactionHover.key;
@@ -4637,9 +4751,12 @@ export component ObsidianWindow inherits Window {
         running: ReactionHover.key != "" && !ReactionHover.on-chip && !ReactionHover.on-tip;
         triggered => { ReactionHover.item = ""; ReactionHover.key = ""; ReactionHover.on-tip = false; }
     }
-    reaction-measure := Text { visible: false; text: root.reaction-tip-text; font-size: 14px; font-weight: 500; }
     if ReactionHover.key != "" && root.reaction-tip-text != "": Rectangle {
-        property <length> words-width: min(288px - 32px - 44px, reaction-measure.preferred-width);
+        // The names' width unwrapped, up to Discord's 288 px: a Text's
+        // preferred width doesn't depend on its width. A hidden Text
+        // measured it as nothing once Slint wraps `visible: false`, and
+        // the names stood one letter to a line.
+        property <length> words-width: min(288px - 32px - 44px, reaction-words.preferred-width);
         property <length> w: words-width + 32px + 44px;
         property <length> h: max(32px, reaction-words.preferred-height) + 32px;
         x: max(8px, min(root.width - self.w - 8px, ReactionHover.x - self.w / 2));

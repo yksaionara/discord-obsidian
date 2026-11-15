@@ -107,6 +107,18 @@ export global BadgeTip {
 // client shows it: after the pointer stays on its chip, and until it has left
 // both the chip and the tooltip for a moment. `x` and `y` are the chip's top
 // centre.
+// Someone streaming whom the pointer rests on in a voice channel's list:
+// the "Streaming Now" card shows beside their row, at its right edge `x`
+// and its top `y`, while the pointer stays on the row or the card.
+export global StreamHover {
+    in-out property <string> room;
+    in-out property <string> user;
+    in-out property <length> x;
+    in-out property <length> y;
+    in-out property <bool> on-row;
+    in-out property <bool> on-card;
+}
+
 export global ReactionHover {
     in-out property <string> item;
     in-out property <string> key;

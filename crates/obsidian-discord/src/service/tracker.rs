@@ -1209,6 +1209,17 @@ impl Tracker {
         }
     }
 
+    /// Shows the server list as these entries put it, before the settings
+    /// say so: an entry with an empty `id` is a server outside any folder.
+    pub(crate) fn set_server_list(&mut self, entries: Vec<settings::Folder>) {
+        self.order = entries.iter().flat_map(|entry| entry.servers.iter().cloned()).collect();
+        self.folders = entries
+            .into_iter()
+            .filter(|entry| !entry.id.is_empty() && !entry.servers.is_empty())
+            .collect();
+        self.sort_servers();
+    }
+
     /// A server to change, copied first if a snapshot shares it.
     fn server_mut(&mut self, id: &str) -> Option<&mut Server> {
         self.servers

@@ -12,7 +12,8 @@
 //! is building (overuse), draining (underuse), or neither. The rate then
 //! drops to 85% of what the server acknowledged receiving on overuse, holds
 //! on underuse, and otherwise grows: 8% a second, or 2% within 10% of the
-//! capacity the last overuse showed. So the stream backs off as a queue
+//! capacity the last overuse showed, and never past one and a half times
+//! what the server acknowledged. So the stream backs off as a queue
 //! starts to build, before packets are lost, where a loss-based estimate
 //! only learns of a full path from the loss.
 //!
@@ -391,10 +392,14 @@ impl DelayBased {
                 let near = self.capacity.is_some_and(|capacity| self.bitrate >= 0.9 * capacity);
                 let growth: f64 = if near { 1.02 } else { 1.08 };
                 let mut next = self.bitrate * growth.powf(elapsed) + 1000.0 * elapsed;
-                // Past what's known to get through, only as fast as what's
-                // acknowledged shows it does, as libwebrtc limits it.
-                if let (Some(capacity), Some(acked)) = (self.capacity, acked) {
-                    next = next.min(capacity.max(1.5 * acked + 10_000.0));
+                // Only as fast as what's acknowledged shows gets through, as
+                // libwebrtc's AIMD limits it, overuse or not: a calm screen
+                // sends far below its target, and growing past what it
+                // sends let the next busy scene burst into loss. Up to the
+                // capacity the last overuse showed, it may grow on.
+                if let Some(acked) = acked {
+                    let limit = 1.5 * acked + 10_000.0;
+                    next = next.min(self.capacity.map_or(limit, |capacity| capacity.max(limit)));
                 }
                 self.bitrate = self.bitrate.max(next);
             }
@@ -499,6 +504,28 @@ mod tests {
         assert_eq!(estimate.signal(), Signal::Normal);
         assert!(estimate.bitrate() > 5_000_000, "{}", estimate.bitrate());
         assert!(run(4_000_000, 60, 0, 20_000_000).bitrate() <= 20_000_000, "up to the cap");
+    }
+
+    #[test]
+    fn grows_no_further_than_what_gets_through() {
+        // A calm screen: 250-byte packets, 2 Mbit/s acknowledged.
+        let mut estimate = DelayBased::new(4_000_000);
+        for second in 0..30 {
+            let mut arrivals = vec![];
+            for frame in 0..100 {
+                for packet in 0..10 {
+                    let at = second * 1_000_000 + frame * 10_000 + packet * 100;
+                    arrivals.push((at, at + 20_000, 250));
+                }
+            }
+            for report in arrivals.chunks(100) {
+                estimate.update(report, report[0].0, 500_000, 20_000_000);
+            }
+        }
+        assert_eq!(estimate.signal(), Signal::Normal);
+        // It grows only in the quarter second before what's acknowledged
+        // can be measured.
+        assert!(estimate.bitrate() < 4_100_000, "above 1.5 times 2 Mbit/s already: held, {}", estimate.bitrate());
     }
 
     #[test]

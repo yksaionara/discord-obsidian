@@ -413,18 +413,20 @@ such as an "h" isn't cut off; speech goes out that much later until the gate
 closes. It stays shut for the first 200 ms after the microphone opens, while
 the suppressor learns the noise.
 
-The mic test in Settings › Voice & video, "Let's check", plays the
+The mic test in Settings › Voice & video, its "Mic Test" button, plays the
 microphone back as a call would send it, as Discord's does: the same
 processing, gate and volumes, at the speaker volume, on the chosen
-speakers, through a stream the system lists as "Mic test". Its bar shows the
+speakers, through a stream the system lists as "Mic test". Its row of ticks shows the
 level the gate hears, over the sensitivity slider's 80 dB, green while the
 gate is open. It's the gate meter above playing back (`GateMeter::test`), so
 the microphone goes through the processing once while both show, and a new
 microphone or speakers starts it again on them. One 10 ms block plays for
-each one heard, with at most two waiting and 30 ms queued for the speakers:
-the 100 ms the gate sends on opening would otherwise add to the delay for
-good. What it plays goes to its echo canceller, so speakers it can hear don't
-feed back. It stops when it's stopped, when settings close or show another
+each one heard, with 30 ms queued for the speakers, so the 100 ms the gate
+sends on opening, the start of the word, plays and the delay it adds goes
+again in the next pause. What it plays isn't given to its echo canceller, as
+Discord's test doesn't: it's the voice the microphone heard a moment before,
+so the canceller took the voice itself for echo and played back almost none
+of it. Speakers the microphone hears may feed back, as in Discord. It stops when it's stopped, when settings close or show another
 section, and when Discord is unlinked.
 
 The declicker (`crates/obsidian-core/src/declick.rs`, on unless

@@ -206,7 +206,7 @@ fn screens_and_windows() -> Vec<Shareable> {
         let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
         #[cfg(not(windows))]
         let console = 0;
-        let windows = sources(DesktopCaptureSourceType::Window)
+        let mut windows: Vec<Shareable> = sources(DesktopCaptureSourceType::Window)
             .into_iter()
             .filter_map(|window| {
                 let title = window.title();
@@ -214,8 +214,103 @@ fn screens_and_windows() -> Vec<Shareable> {
                     source: Source::Window(window.id()),
                     title,
                 })
-            });
+            })
+            .collect();
+        // libwebrtc leaves out minimized windows, and those slow to answer:
+        // a game in full screen minimizes as soon as the share dialog takes
+        // the focus, so it wasn't there to pick. They come after the others.
+        #[cfg(windows)]
+        {
+            let listed: std::collections::HashSet<u64> = windows
+                .iter()
+                .filter_map(|shared| match shared.source {
+                    Source::Window(id) => Some(id),
+                    _ => None,
+                })
+                .collect();
+            windows.extend(
+                top_windows()
+                    .into_iter()
+                    .filter(|(id, _)| !listed.contains(id) && *id != console)
+                    .map(|(id, title)| Shareable {
+                        source: Source::Window(id),
+                        title,
+                    }),
+            );
+        }
         screens.chain(windows).collect()
+    }
+}
+
+/// The windows a person could mean to share, as the taskbar shows them, by
+/// handle and title, in the order they're stacked: visible, minimized or not,
+/// titled, neither tool windows nor owned by another (unless they ask for the
+/// taskbar), not cloaked as a suspended Store app's are, and not this
+/// process's.
+#[cfg(windows)]
+fn top_windows() -> Vec<(u64, String)> {
+    use windows::Win32::{
+        Foundation::{HWND, LPARAM},
+        Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
+        UI::WindowsAndMessaging::{
+            EnumWindows, GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongW, GetWindowTextLengthW,
+            GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, WS_EX_APPWINDOW,
+            WS_EX_TOOLWINDOW,
+        },
+    };
+    unsafe extern "system" fn each(hwnd: HWND, found: LPARAM) -> windows::core::BOOL {
+        // SAFETY: `found` is the Vec `top_windows` passes, alive for the
+        // call; the rest only read the window.
+        unsafe {
+            let found = &mut *(found.0 as *mut Vec<HWND>);
+            found.push(hwnd);
+        }
+        true.into()
+    }
+    let mut handles: Vec<HWND> = Vec::new();
+    let me = std::process::id();
+    // SAFETY: EnumWindows calls `each` on this thread before it returns,
+    // with the pointer to `handles`; each call after reads one window.
+    unsafe {
+        let _ = EnumWindows(Some(each), LPARAM(&mut handles as *mut Vec<HWND> as isize));
+        handles
+            .into_iter()
+            .filter_map(|hwnd| {
+                if !IsWindowVisible(hwnd).as_bool() {
+                    return None;
+                }
+                let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+                let owned = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid());
+                if style & WS_EX_TOOLWINDOW.0 != 0 || (owned && style & WS_EX_APPWINDOW.0 == 0) {
+                    return None;
+                }
+                let mut cloaked = 0u32;
+                if DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_CLOAKED,
+                    &mut cloaked as *mut u32 as *mut core::ffi::c_void,
+                    size_of::<u32>() as u32,
+                )
+                .is_ok()
+                    && cloaked != 0
+                {
+                    return None;
+                }
+                let mut process = 0u32;
+                GetWindowThreadProcessId(hwnd, Some(&mut process));
+                if process == me {
+                    return None;
+                }
+                let length = GetWindowTextLengthW(hwnd);
+                if length <= 0 {
+                    return None;
+                }
+                let mut title = vec![0u16; length as usize + 1];
+                let copied = GetWindowTextW(hwnd, &mut title);
+                let title = String::from_utf16_lossy(&title[..copied.max(0) as usize]);
+                (!title.trim().is_empty()).then_some((hwnd.0 as usize as u64, title))
+            })
+            .collect()
     }
 }
 
@@ -555,6 +650,8 @@ struct Video {
     measured: (Instant, u64),
     /// When the encoder last gave a keyframe.
     keyframed: Option<Instant>,
+    /// When the last frame was encoded, for [`steady_fps`].
+    encoded: Option<Instant>,
 }
 
 impl Video {
@@ -608,6 +705,23 @@ fn kbps(height: u32, fps: u32, target: Option<u64>) -> u32 {
     target.map_or(cap, |target| {
         (target / 1000).clamp(500, u64::from(cap)) as u32
     })
+}
+
+/// The frames a second to encode a stream of `height` lines asked for at
+/// `fps`, at `target` bit/s: all of them while each frame gets at least half
+/// what a frame of 60 fps gets at the cap, and fewer, down to 30, as the rate
+/// control lowers the bitrate. 1080p144, capped at 13.2 Mbit/s, sends every
+/// frame from 11 Mbit/s up, 66 a second at 5 Mbit/s and 30 below 2.3: 144
+/// frames a second squeezed into 5 Mbit/s each lost the detail of text, and
+/// cost viewers' processors four times the decoding of 30. A frame rate
+/// asked for under 30 stays as it is.
+fn steady_fps(height: u32, fps: u32, target: u64) -> u32 {
+    if target == 0 {
+        return fps;
+    }
+    let least_per_frame = u64::from(stream_connection::max_bitrate(height, 60)) / 60 / 2;
+    let affordable = (target / least_per_frame.max(1)) as u32;
+    affordable.clamp(30.min(fps), fps.max(1))
 }
 
 /// Whether a frame of `size` is near enough the encoder's `encoding` to be
@@ -697,6 +811,7 @@ impl Sink {
                 sound,
                 measured: (Instant::now(), 0),
                 keyframed: None,
+                encoded: None,
             });
         }
         let reopen = std::mem::take(&mut self.reopen);
@@ -737,7 +852,13 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, self.fps, Some(video.sender.target_bitrate()));
+        let target = video.sender.target_bitrate();
+        // Fewer frames while the bitrate is low, each keeping enough bits,
+        // as libwebrtc keeps a screen's resolution and lowers its frame rate.
+        // The encoders size each frame for the rate they opened at, so they
+        // aim higher by as much as frames are left out.
+        let rate = steady_fps(height, self.fps, target);
+        let wanted = kbps(height, self.fps, Some(target * u64::from(self.fps.max(1)) / u64::from(rate.max(1))));
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
@@ -753,6 +874,13 @@ impl Sink {
         if video.sender.backlogged() {
             return Ok(());
         }
+        let gap = Duration::from_secs_f64(1.0 / f64::from(rate));
+        if let Some(encoded) = video.encoded
+            && encoded.elapsed() + gap / 4 < gap
+        {
+            return Ok(());
+        }
+        video.encoded = Some(Instant::now());
         let pts = self.started.elapsed().as_micros() as u64 * encode::CLOCK / 1_000_000;
         // A keyframe asked for within a second of the last waits its turn.
         let keyframe = video
@@ -1232,6 +1360,27 @@ fn capture_screen(
                     source = next;
                     continue;
                 }
+                // A game's window Windows won't capture, as one running as
+                // administrator: its screen is shared while it's in front,
+                // and the last picture stays meanwhile. WebRTC's capturer
+                // gave games black or nothing.
+                Err(error)
+                    if error.downcast_ref::<crate::duplication::Unavailable>().is_some()
+                        && duplicating
+                        && crate::duplication::minimized_or_filling(window) =>
+                {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "window capture can't open the game; sharing its screen while it's in front"
+                    );
+                    match wait_for_front(window, &sink, &mut max_width, &mut max_height, stop, report)? {
+                        Some(next) => {
+                            source = next;
+                            continue;
+                        }
+                        None => return Ok(()),
+                    }
+                }
                 Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
                     tracing::warn!(error = format!("{error:#}"), "sharing the window through WebRTC's capturer");
                     window_capturing = false;
@@ -1394,6 +1543,38 @@ fn capture_duplicated(
         })
     };
     capture_frames(&mut duplication, &leave, sink, max_width, max_height, stop, report)
+}
+
+/// Waits for the game window `window`, which window capture can't open, to
+/// fill its screen in front, giving it back then to duplicate, or the
+/// source asked for instead; none once stopped. A new quality applies when
+/// sharing goes on.
+#[cfg(windows)]
+fn wait_for_front(
+    window: u64,
+    sink: &Arc<Mutex<Sink>>,
+    max_width: &mut u32,
+    max_height: &mut u32,
+    stop: &AtomicBool,
+    report: &mut dyn FnMut(Report),
+) -> Result<Option<Source>> {
+    let lock = || sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    while !stop.load(Ordering::Relaxed) {
+        if !crate::duplication::window_exists(window) {
+            bail!("That screen or window is gone.");
+        }
+        if crate::duplication::fronted_screen(window).is_some() {
+            return Ok(Some(Source::Window(window)));
+        }
+        if let Some(next) = lock().check(report)? {
+            return Ok(Some(next));
+        }
+        if let Some((width, height)) = lock().requality.take() {
+            (*max_width, *max_height) = (width, height);
+        }
+        std::thread::sleep(FRONT_CHECK / 5);
+    }
+    Ok(None)
 }
 
 /// Shares the window `window` through Windows' window capture until
@@ -1812,6 +1993,12 @@ fn glance(
         if stop.load(Ordering::Relaxed) {
             return;
         }
+        // A minimized window, as a game in full screen is while the dialog
+        // has the focus, draws nothing to picture: its tile shows its icon.
+        #[cfg(windows)]
+        if window && crate::duplication::minimized(id) {
+            continue;
+        }
         match glance_at(id, window, stop) {
             Ok(Some(mut picture)) => {
                 let (width, height) = fit(picture.width(), picture.height(), max_width, max_height);
@@ -2135,6 +2322,22 @@ impl Drop for Worker {
 mod tests {
     use super::*;
 
+    /// Lists this desktop's windows as libwebrtc and as the share dialog
+    /// find them: a minimized one is only in the second. Reads the desktop
+    /// only. `cargo test -p obsidian-core lists_minimized -- --ignored --nocapture`
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn lists_minimized_windows_libwebrtc_leaves_out() {
+        use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
+        let libwebrtc: Vec<(u64, String)> = sources(DesktopCaptureSourceType::Window)
+            .into_iter()
+            .map(|window| (window.id(), window.title()))
+            .collect();
+        println!("libwebrtc: {libwebrtc:#?}");
+        println!("all: {:#?}", top_windows());
+    }
+
     #[test]
     fn the_worker_is_the_running_obsidian() {
         // Here that's the test binary, which lists its tests and exits.
@@ -2163,10 +2366,22 @@ mod tests {
     }
 
     #[test]
+    fn lowers_the_frame_rate_before_the_detail() {
+        assert_eq!(steady_fps(1080, 144, 13_200_000), 144, "at the cap, every frame");
+        assert_eq!(steady_fps(1080, 144, 11_000_000), 144);
+        assert_eq!(steady_fps(1080, 144, 5_000_000), 66);
+        assert_eq!(steady_fps(1080, 144, 1_000_000), 30, "never below 30");
+        assert_eq!(steady_fps(1080, 60, 5_000_000), 60);
+        assert_eq!(steady_fps(720, 15, 500_000), 15, "a rate asked under 30 stays");
+        assert_eq!(steady_fps(1080, 144, 0), 144, "before the rate control says");
+    }
+
+    #[test]
     fn aims_for_discords_bitrates() {
         assert_eq!(kbps(720, 30, None), 3500);
         assert_eq!(kbps(1080, 60, None), 9000);
-        assert_eq!(kbps(1080, 240, None), 36000, "more for more frames");
+        assert_eq!(kbps(1080, 240, None), 18000, "more for more frames");
+        assert_eq!(kbps(1080, 144, None), 13200);
         assert_eq!(kbps(1440, 360, None), 40000, "up to 40 Mbit/s");
         assert_eq!(kbps(1440, 60, None), 20000, "1440p keeps its detail");
         assert_eq!(kbps(1080, 60, Some(4_000_000)), 4000, "lowered for loss");

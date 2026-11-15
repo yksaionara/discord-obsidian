@@ -38,7 +38,7 @@ pub(super) fn poll_card(
             emoji: answer
                 .emoji
                 .as_deref()
-                .map(|key| custom_emoji::text(key, emoji))
+                .map(|key| crate::emoji_text::text(&custom_emoji::text(key, emoji)))
                 .unwrap_or_default()
                 .into(),
             picked: if results {

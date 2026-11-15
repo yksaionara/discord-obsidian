@@ -295,7 +295,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 - Send through the SDK's persistent send queue. A message appears at once,
   dimmed; if it hasn't gone after 450 ms, three accent dots that rise in turn
   and the word Sending fade in under it (`SendingIndicator`), and they only
-  redraw while they show. After a connection problem it shows "Not sent yet",
+  redraw while they show. They're drawn in the space the timeline keeps
+  below its last message, so the message doesn't move as it's sent; one
+  queued behind it is only dimmed. After a connection problem it shows "Not sent yet",
   with a clock, and goes out
   by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
   probing the homeserver. A refused message shows "Not sent" with a warning
@@ -419,6 +421,23 @@ The window follows Discord's arrangement:
   server's unread channels read at
   once, leaving DMs as they are, and Discord gets them as bulk
   acknowledgements; Shift+click marks every unread DM read too.
+  Servers and folders are dragged along the rail as in Discord: a press
+  that moves 6 px picks one up, which follows the pointer, a little
+  see-through. Over another server's top or bottom quarter a green line
+  shows where it lands; over its middle the server opens round in green,
+  and dropping makes a folder of the two; over a folder's middle, or an
+  open folder's lower half, it joins the folder, and between a folder's
+  servers it lands there. A folder goes only beside others; below the last
+  server drops at the end, and the list scrolls near its ends. A folder
+  its last server leaves goes. The menu's Move up and Move down move one
+  place the same way. Discord's servers and folders change on Discord
+  (`DiscordCommand::SetServerList`): the whole `guild_folders` setting,
+  which a PATCH of `/users/@me/settings-proto/1` replaces, so every client
+  of the account shows the new list, and the rail shows it at once, before
+  Discord answers. A new folder gets a random id under 2^31, as Discord's
+  client gives them. With only Discord's servers on the rail, Discord's
+  list is the order and this device keeps none; Matrix's servers keep
+  their place on this device (`server_order` in `layout.json`).
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
@@ -459,7 +478,16 @@ The window follows Discord's arrangement:
   someone opens their profile card beside the row, as Discord's popout does;
   someone listed only in a voice channel gets one from the name and avatar the
   channel gives, which their Discord profile fills in. Clicking someone's LIVE
-  tag opens their channel's call and watches them. Outside that call it asks
+  tag opens their channel's call and watches them. A quarter second on
+  someone streaming, not this account, shows Discord's "Streaming Now" card
+  beside their row: a LIVE tag, the stream's latest preview (`GET
+  /streams/{stream key}/preview`, `DiscordCommand::StreamPreview`, shown
+  through the picture store), or "Stream just started. Get in here!" before
+  the streamer's client uploaded one, and a green Watch Stream that does
+  what the LIVE tag does. It goes a moment after the pointer leaves the row
+  and the card. A server channel's row, hovered or selected, shows
+  Discord's buttons after a voice channel's chat button: Create Invite and
+  Edit Channel, each where the channel's menu offers it. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the
   switch prompt asks, and the stream opens once the call connects and shows
   them sharing. Cancelling, leaving, a failed join or opening another room

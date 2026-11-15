@@ -50,6 +50,7 @@ mod session;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
+pub use server_order::Drop as ServerDrop;
 pub use browse::{BrowseChannels, BrowsedChannel, BrowsedKind};
 pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
@@ -400,6 +401,18 @@ pub enum Compose {
     Edit { item: String, draft: String },
 }
 
+/// The "Streaming Now" card over someone streaming: see
+/// [`AppState::stream_card`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StreamCard {
+    pub room: String,
+    pub user: String,
+    /// The preview's address, once Discord gave one.
+    pub url: Option<String>,
+    /// Waiting for Discord's answer.
+    pub asked: bool,
+}
+
 #[derive(Default)]
 pub struct AppState {
     pub voice: voice::State,
@@ -517,6 +530,10 @@ pub struct AppState {
     /// it, as clicking them in the channel list asks: the voice channel and
     /// their user id. Discord drops a watch made before.
     pub pending_watch: Option<(String, String)>,
+    /// The "Streaming Now" card over someone streaming in a voice channel's
+    /// list: the channel, their user id, and their stream's latest preview
+    /// once Discord said, empty when there's none yet.
+    pub stream_card: Option<StreamCard>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
     /// The preview call's microphone was on when deafening, so undeafening
@@ -1629,6 +1646,17 @@ pub enum Action {
     SetServerOrder(Vec<String>),
     /// Moves a server or folder one place up or down the rail.
     MoveServer { id: String, up: bool },
+    /// Shows the "Streaming Now" card for the stream `user` shares in the
+    /// voice channel `room`, asking Discord for its preview; `None` hides it.
+    PreviewStream(Option<(String, String)>),
+    /// Drops a server or folder dragged on the rail beside, or a server
+    /// into, `target`, a server or folder there, as Discord's server list
+    /// takes a drag: Discord's servers and folders change on Discord.
+    DropServer {
+        id: String,
+        target: String,
+        drop: ServerDrop,
+    },
     /// Close a Discord DM; it comes back when either side writes.
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
@@ -3046,11 +3074,40 @@ impl Application {
                 if self.state.preview { self.rearrange_servers() } else { vec![] }
             }
             Action::MoveServer { id, up } => {
-                match server_order::moved(&self.state.servers, &id, up) {
-                    Some(order) => {
-                        self.state.server_order = order;
-                        self.rearrange_servers()
-                    }
+                match server_order::moved_entries(&self.state.servers, &id, up) {
+                    Some(entries) => self.place_servers(entries),
+                    None => vec![],
+                }
+            }
+            Action::PreviewStream(None) => {
+                self.state.stream_card = None;
+                vec![]
+            }
+            Action::PreviewStream(Some((room, user))) => {
+                if self.state.stream_card.as_ref().is_some_and(|card| card.room == room && card.user == user) {
+                    return vec![];
+                }
+                self.state.stream_card = Some(StreamCard {
+                    room: room.clone(),
+                    user: user.clone(),
+                    url: None,
+                    asked: !self.state.preview,
+                });
+                if self.state.preview {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(DiscordCommand::StreamPreview { room, user }))]
+            }
+            Action::DropServer { id, target, drop } => {
+                let taken: Vec<&str> = self
+                    .state
+                    .servers
+                    .iter()
+                    .filter_map(|server| server.folder.as_ref().map(|folder| folder.id.as_str()))
+                    .collect();
+                let new_folder = server_order::new_folder_id(&taken);
+                match server_order::dropped(&self.state.servers, &id, &target, drop, &new_folder) {
+                    Some(entries) => self.place_servers(entries),
                     None => vec![],
                 }
             }
@@ -3997,6 +4054,15 @@ impl Application {
             }
             Event::CustomStatusSet(Ok(())) => {
                 self.state.status_editor = None;
+            }
+            Event::StreamPreview { room, user, url } => {
+                if let Some(card) = self.state.stream_card.as_mut()
+                    && card.room == room
+                    && card.user == user
+                {
+                    card.url = url;
+                    card.asked = false;
+                }
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {

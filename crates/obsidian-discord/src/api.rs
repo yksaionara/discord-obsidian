@@ -1199,6 +1199,18 @@ impl Api {
 
     /// Shares the game this account plays, everywhere it's signed in, or
     /// stops sharing it.
+    /// Puts the server list, its order and folders, in the settings: all
+    /// of it, as a PATCH replaces the whole field.
+    pub async fn set_server_list(&self, entries: &[settings::Folder]) -> Result<()> {
+        let body = json!({"settings": settings::write_server_list(entries)});
+        self.json(with_json(
+            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
+            &body,
+        ))
+        .await
+        .map(drop)
+    }
+
     pub async fn set_show_game(&self, shown: bool) -> Result<()> {
         let body = json!({"settings": settings::write_show_game(shown)});
         self.json(with_json(
@@ -2009,6 +2021,18 @@ impl Api {
         let body = json!({"recipients": [me]});
         self.empty(with_json(self.request(Method::POST, &path), &body))
             .await
+    }
+
+    /// The address of a live stream's latest preview, as Discord's client
+    /// shows it when the pointer rests on someone streaming; none before
+    /// the streamer's client uploaded one.
+    pub async fn stream_preview_url(&self, stream_key: &str) -> Result<Option<String>> {
+        let path = format!("/streams/{stream_key}/preview");
+        match self.json(self.request(Method::GET, &path)).await {
+            Ok(body) => Ok(body["url"].as_str().filter(|url| !url.is_empty()).map(str::to_owned)),
+            Err(error) if error.downcast_ref::<Refused>().is_some_and(Refused::gone) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// Shows `thumbnail`, a JPEG as a data URI, as the preview of this

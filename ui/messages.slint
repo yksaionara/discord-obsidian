@@ -232,7 +232,9 @@ component VideoControls inherits Rectangle {
     property <length> fixed: 4px + 28px + 6px + 32px + 6px + 28px + 6px;
     property <bool> show-mute: VideoPlayer.sound && root.width >= root.fixed + 34px;
     property <bool> show-time: root.width >= root.fixed + (root.show-mute ? 34px : 0px) + clock.preferred-width + 6px;
-    clock := Text { visible: false; text: VideoPlayer.time; font-size: 12px; }
+    // Measures the time, unseen: `visible: false` would wrap it, and the
+    // wrapper has no preferred width.
+    clock := Text { color: transparent; accessible-role: none; text: VideoPlayer.time; font-size: 12px; }
     HorizontalLayout {
         padding-left: 4px; padding-right: 6px; spacing: 6px;
         Middle {
@@ -2104,8 +2106,11 @@ export component VideoViewer inherits Rectangle {
 // for the conversation's timeline and a thread's beside it.
 // A message on its way: three dots that rise in turn and the word Sending,
 // which fade in only after a moment, so a quick send just settles from dim
-// to solid. The dots redraw only while this shows.
-component SendingIndicator inherits Rectangle {
+// to solid. The dots redraw only while this shows. The timeline draws it in
+// the space below its last message, over the row rather than in it: a row
+// that grew while sending pushed the message up, and it dropped back once
+// sent.
+export component SendingIndicator inherits Rectangle {
     property <bool> shown;
     height: 18px; width: dots.width + 6px + word.preferred-width;
     opacity: root.shown ? 1 : 0;
@@ -2352,10 +2357,6 @@ export component MessageContent inherits VerticalLayout {
                     enabled: message.can-react && root.composer-enabled;
                     clicked => { root.react(message.item, reaction.key); }
                 }
-            }
-            if message.delivery == "Sending...": HorizontalLayout {
-                spacing: 4px; alignment: start; padding-top: 2px;
-                Middle { SendingIndicator { } }
             }
             if message.delivery != "" && message.delivery != "Sending...": HorizontalLayout {
                 spacing: 6px; alignment: start;

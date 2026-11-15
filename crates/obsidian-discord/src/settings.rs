@@ -2,7 +2,7 @@
 //! disturb or invisible, and a custom status; and its server list's order and
 //! folders.
 //! The settings are a protobuf message, `PreloadedUserSettings`, in base64;
-//! Discord Obsidian reads its `status` and `guild_folders` fields and writes only `status`,
+//! Discord Obsidian reads its `status` and `guild_folders` fields and writes them,
 //! by hand. `status` also says whether the account shares the game it plays.
 //!
 //! Each session tells the gateway its presence, so Discord Obsidian sends the status the
@@ -265,10 +265,11 @@ pub(crate) fn write_server_order(folders: &[&[u64]]) -> String {
     write_server_list(&entries)
 }
 
-/// Base64 settings holding only a server list. An entry with an empty `id`
-/// is a server outside any folder.
-#[cfg(test)]
-pub(crate) fn write_server_list(entries: &[Folder]) -> String {
+/// Base64 settings holding only a server list, the whole of it, as a PATCH
+/// puts it in place of the old: the folders and the servers outside them,
+/// in the order the rail shows them. An entry with an empty `id` is a
+/// server outside any folder.
+pub fn write_server_list(entries: &[Folder]) -> String {
     let mut message = Vec::new();
     for entry in entries {
         let packed: Vec<u8> = entry

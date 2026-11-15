@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use crate::chat::ChatServer;
+use crate::chat::{ChatServer, ServerFolder, ServerListEntry};
 
 /// One place on the rail: a server alone, or a folder's servers.
 struct Place {
@@ -98,6 +98,163 @@ pub fn moved(servers: &[Arc<ChatServer>], id: &str, up: bool) -> Option<Vec<Stri
     )
 }
 
+/// Where a server or folder dragged on the rail lands, against the one
+/// it's dropped on: above it, below it, or, for a server, into it, as
+/// Discord's server list makes a folder of two servers dropped together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drop {
+    Before,
+    After,
+    Into,
+}
+
+/// The rail as places a drop can change: each folder with its servers, and
+/// each server outside one.
+fn entries(servers: &[Arc<ChatServer>]) -> Vec<ServerListEntry> {
+    places(servers)
+        .into_iter()
+        .map(|place| ServerListEntry {
+            folder: place.folder.then(|| place.servers[0].folder.clone()).flatten(),
+            servers: place.servers.iter().map(|server| server.id.clone()).collect(),
+        })
+        .collect()
+}
+
+fn key(entry: &ServerListEntry) -> &str {
+    entry
+        .folder
+        .as_ref()
+        .map_or_else(|| entry.servers[0].as_str(), |folder| folder.id.as_str())
+}
+
+/// The rail with `id`, a server or folder, dropped on `target` as `drop`
+/// says; none when nothing would change or it can't go there. A server
+/// dropped into one outside any folder makes a folder of the two, with
+/// `new_folder` its id; dropped into a folder, or into a server in one, it
+/// joins that folder. A folder goes only beside others, as folders don't
+/// hold folders. A folder its last server leaves goes.
+pub fn dropped(
+    servers: &[Arc<ChatServer>],
+    id: &str,
+    target: &str,
+    drop: Drop,
+    new_folder: &str,
+) -> Option<Vec<ServerListEntry>> {
+    if id == target {
+        return None;
+    }
+    let before = entries(servers);
+    let mut entries = before.clone();
+    // Take what's dragged out.
+    let dragged = match entries
+        .iter()
+        .position(|entry| entry.folder.is_some() && key(entry) == id)
+    {
+        Some(at) => entries.remove(at),
+        None => {
+            let at = entries
+                .iter()
+                .position(|entry| entry.servers.iter().any(|server| server == id))?;
+            entries[at].servers.retain(|server| server != id);
+            if entries[at].servers.is_empty() {
+                entries.remove(at);
+            }
+            ServerListEntry {
+                folder: None,
+                servers: vec![id.to_owned()],
+            }
+        }
+    };
+    let folder_dragged = dragged.folder.is_some();
+    if let Some(at) = entries.iter().position(|entry| key(entry) == target) {
+        match (drop, folder_dragged, entries[at].folder.is_some()) {
+            (Drop::Before, ..) => entries.insert(at, dragged),
+            (Drop::After, ..) => entries.insert(at + 1, dragged),
+            (Drop::Into, true, _) => return None,
+            (Drop::Into, false, true) => entries[at].servers.push(id.to_owned()),
+            (Drop::Into, false, false) => {
+                let alone = entries[at].servers[0].clone();
+                entries[at] = ServerListEntry {
+                    folder: Some(ServerFolder {
+                        id: new_folder.to_owned(),
+                        name: None,
+                        color: None,
+                    }),
+                    servers: vec![alone, id.to_owned()],
+                };
+            }
+        }
+    } else {
+        // A server in a folder.
+        let at = entries.iter().position(|entry| {
+            entry.folder.is_some() && entry.servers.iter().any(|server| server == target)
+        })?;
+        if folder_dragged {
+            match drop {
+                Drop::Before => entries.insert(at, dragged),
+                Drop::After => entries.insert(at + 1, dragged),
+                Drop::Into => return None,
+            }
+        } else {
+            let inside = &mut entries[at].servers;
+            let place = inside.iter().position(|server| server == target)?;
+            let place = if drop == Drop::Before { place } else { place + 1 };
+            inside.insert(place, id.to_owned());
+        }
+    }
+    (entries != before).then_some(entries)
+}
+
+/// The rail with `id` one place up or down among its neighbours, as
+/// [`dropped`] gives it: on the rail, or in its folder. None at an end.
+pub fn moved_entries(servers: &[Arc<ChatServer>], id: &str, up: bool) -> Option<Vec<ServerListEntry>> {
+    let order = moved(servers, id, up)?;
+    let rank = |key: &str| order.iter().position(|kept| kept == key);
+    let mut entries = entries(servers);
+    entries.sort_by_key(|entry| rank(key(entry)));
+    for entry in entries.iter_mut().filter(|entry| entry.folder.is_some()) {
+        entry.servers.sort_by_key(|server| rank(server));
+    }
+    Some(entries)
+}
+
+/// The order [`arrange`] keeps for `entries`, for the rail on this device:
+/// each place's key, a folder's servers after it.
+pub fn order_of(entries: &[ServerListEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .flat_map(|entry| {
+            std::iter::once(key(entry).to_owned()).chain(
+                entry
+                    .servers
+                    .iter()
+                    .filter(|_| entry.folder.is_some())
+                    .cloned(),
+            )
+        })
+        .collect()
+}
+
+/// An id for a new Discord folder, none of `taken`: a random number, as
+/// Discord's client gives its folders, below 2^31.
+pub fn new_folder_id(taken: &[&str]) -> String {
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos() as u64);
+    loop {
+        // splitmix64: spreads the clock's bits over the number.
+        seed = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut mixed = seed;
+        mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        mixed ^= mixed >> 31;
+        let id = format!("discord-folder:{}", (mixed % (1 << 31)).max(1));
+        if !taken.contains(&id.as_str()) {
+            return id;
+        }
+    }
+}
+
 /// Whether `id` is a folder on the rail.
 pub fn is_folder(servers: &[Arc<ChatServer>], id: &str) -> bool {
     servers
@@ -129,6 +286,46 @@ mod tests {
 
     fn ids(servers: &[Arc<ChatServer>]) -> Vec<&str> {
         servers.iter().map(|server| server.id.as_str()).collect()
+    }
+
+    /// The rail as `entries` say: a folder as its id and its servers in
+    /// brackets, a server by its id.
+    fn shape(entries: &[ServerListEntry]) -> Vec<String> {
+        entries
+            .iter()
+            .map(|entry| match &entry.folder {
+                Some(folder) => format!("{}[{}]", folder.id, entry.servers.join(",")),
+                None => entry.servers.join(","),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn servers_drop_beside_and_into_each_other_as_on_discord() {
+        let rail = vec![
+            server("a", None),
+            server("b", Some("f")),
+            server("c", Some("f")),
+            server("d", None),
+        ];
+        let drop = |id, target, drop| dropped(&rail, id, target, drop, "new").map(|entries| shape(&entries));
+        assert_eq!(drop("d", "a", Drop::Before).unwrap(), ["d", "a", "f[b,c]"]);
+        assert_eq!(drop("a", "d", Drop::After).unwrap(), ["f[b,c]", "d", "a"]);
+        assert_eq!(drop("a", "d", Drop::Into).unwrap(), ["f[b,c]", "new[d,a]"], "two servers make a folder");
+        assert_eq!(drop("d", "f", Drop::Into).unwrap(), ["a", "f[b,c,d]"], "into a folder, last");
+        assert_eq!(drop("d", "b", Drop::Before).unwrap(), ["a", "f[d,b,c]"], "into a folder, between");
+        assert_eq!(drop("c", "a", Drop::Before).unwrap(), ["c", "a", "f[b]", "d"], "out of a folder");
+        assert_eq!(drop("f", "a", Drop::Before).unwrap(), ["f[b,c]", "a", "d"], "a folder, whole");
+        assert_eq!(drop("f", "d", Drop::Into), None, "folders hold no folders");
+        assert_eq!(drop("a", "a", Drop::Before), None);
+        assert_eq!(drop("a", "f", Drop::Before), None, "already there");
+        // The folder's last server leaves: the folder goes.
+        let rail = vec![server("a", None), server("b", Some("f"))];
+        assert_eq!(shape(&dropped(&rail, "b", "a", Drop::After, "new").unwrap()), ["a", "b"]);
+        let entries = dropped(&rail, "a", "b", Drop::Before, "new").unwrap();
+        assert_eq!(shape(&entries), ["f[a,b]"]);
+        assert_eq!(order_of(&entries), ["f", "a", "b"]);
+        assert_eq!(shape(&moved_entries(&rail, "f", true).unwrap()), ["f[b]", "a"]);
     }
 
     #[test]

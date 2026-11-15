@@ -1023,6 +1023,41 @@ impl Application {
 
     /// Puts the rail in the order this device keeps: from the networks'
     /// lists, or the preview's own servers, which no network sends.
+    /// Puts the rail as `entries` say, after a server or folder moved on it.
+    /// Discord's servers and folders change on Discord, everywhere the
+    /// account is signed in, and show so at once; with only Discord's on
+    /// the rail, Discord's list is the order, and this device keeps none of
+    /// its own. Others, Matrix's and the preview's, keep the order on this
+    /// device; they join no folder.
+    pub(super) fn place_servers(&mut self, entries: Vec<chat::ServerListEntry>) -> Vec<Effect> {
+        let discord = |id: &str| id.starts_with(crate::discord::PREFIX);
+        let mut effects = vec![];
+        if !self.state.preview && self.state.discord_user.is_some() {
+            let only_discord = entries
+                .iter()
+                .all(|entry| entry.servers.iter().all(|server| discord(server)));
+            let listed: Vec<chat::ServerListEntry> = entries
+                .iter()
+                .filter_map(|entry| {
+                    let servers: Vec<String> =
+                        entry.servers.iter().filter(|server| discord(server)).cloned().collect();
+                    (!servers.is_empty()).then(|| chat::ServerListEntry {
+                        folder: entry.folder.clone(),
+                        servers,
+                    })
+                })
+                .collect();
+            effects.push(Effect::Backend(Command::Discord(DiscordCommand::SetServerList(listed))));
+            if only_discord {
+                self.state.server_order.clear();
+                return effects;
+            }
+        }
+        self.state.server_order = server_order::order_of(&entries);
+        effects.extend(self.rearrange_servers());
+        effects
+    }
+
     pub(super) fn rearrange_servers(&mut self) -> Vec<Effect> {
         if !self.state.preview {
             return self.show_lists();

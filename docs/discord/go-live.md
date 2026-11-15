@@ -47,7 +47,15 @@ live only once frames flow, so a cancelled dialog shares nothing. Windows has
 no such dialog, so Discord Obsidian's share dialog, laid out as Discord's, lists the
 screens and windows libwebrtc's capturers find (`stream_worker::shareable`)
 under Applications and Entire Screen tabs, and cameras under Devices, and the
-worker captures the one picked by its id; see the
+worker captures the one picked by its id. libwebrtc leaves out minimized
+windows, and a game in full screen minimizes as soon as the dialog takes the
+focus, so Valorant was never there to pick: on Windows the windows the
+taskbar would show come after libwebrtc's (`top_windows`: visible, minimized
+or not, titled, not tool windows or owned, not cloaked, not Discord
+Obsidian's), and the window of the game Discord sees being played comes
+first, matched by its title. A minimized window gets no picture, only its
+icon. Window capture opens on a minimized window and gives frames once it's
+back; see the
 [Windows guide](../windows-beta.md#go-live-on-windows). A glance worker
 (`Job::Glance`) pictures each screen and window, 448 by 252 points, and each
 window's app icon comes from the window itself (`src/window_icon.rs`); the
@@ -161,9 +169,13 @@ out at the chosen rate at most, and only when the
 screen changed, with the last one again every 100 ms while nothing does. The
 pointer, which duplication leaves out, is drawn onto the screen's picture
 while a frame is scaled and sent, and taken off again after; the worker keeps
-one picture at the screen's size, not a copy for each frame. Cameras,
-screens duplication can't open, and windows Windows can't capture go
-through WebRTC's capturer. A frame within 4% of the stream's size each way, as a window
+one picture at the screen's size, not a copy for each frame. A game's
+window that window capture can't open, minimized or filling its screen, as
+one running as administrator may be, waits for the game to fill its screen
+in front and shares that screen through duplication meanwhile, the last
+picture staying while it's away (`wait_for_front`); WebRTC's capturer gave
+games black or nothing. Cameras, screens duplication can't open, and other
+windows Windows can't capture go through WebRTC's capturer. A frame within 4% of the stream's size each way, as a window
 gaining or losing a row gives, is scaled to it instead of opening the
 encoder again with a keyframe. While sharing, the worker asks Windows for
 1 ms timers (`timeBeginPeriod`), which it otherwise rounds to 15.6 ms in
@@ -178,8 +190,8 @@ beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. Larger screens, and those of another shape, are scaled down to fit. Discord Obsidian
 sends them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 9 Mbit/s up to 1080p and 20 Mbit/s above, growing past 60 fps with the rate
-to four times that at 240 fps and above, at most 40 Mbit/s, the cap op 12
-announces, with the frame rate as its
+to twice that at 240 fps and above (1080p144 at 13.2 Mbit/s), at most
+40 Mbit/s, the cap op 12 announces, with the frame rate as its
 `max_framerate`; a change of quality announces the new rate. The stream
 starts at 4 Mbit/s, about the server's own first estimate, or the cap if
 that's lower, and follows the packets lost on the way, as libwebrtc's
@@ -188,10 +200,14 @@ each second it takes the larger of the loss the server's receiver reports
 give for the video and the share of packets viewers' NACKs name, each once,
 and grows 8% while under 2% is lost, reaching a 1080p144 cap in about 20 s,
 holds up to 10% and while nothing reports, and above that drops by half the
-fraction lost, never below 500 kbit/s. It remembers the bitrate heavy loss
-came at, and within 15% of it grows 1% a second instead, until a minute
-passes without loss: growing at full speed ran into the same loss every
-8 seconds, each time freezing viewers. Starting at a 1080p360 stream's
+fraction lost, never below 500 kbit/s. It grows only while the encoder uses
+what it has: never past one and a half times what the server acknowledged
+receiving, as libwebrtc limits an application-limited sender; a calm screen
+sends far below its target. It remembers the bitrate heavy loss came at:
+within 15% of it it grows 1% a second, and it stays under 90% of it until
+90 seconds pass without loss, when that ceiling rises a tenth. Growing at
+full speed ran into the same loss every 8 seconds, and creeping on at 1% a
+second every 30 to 60, each time freezing viewers. Starting at a 1080p360 stream's
 36 Mbit/s cap lost three packets in four on a home connection.
 
 Discord's server also sends transport-wide congestion control feedback
@@ -205,13 +221,19 @@ queueing delay they gained; a trendline over the last 20 groups' delay,
 against a threshold that adapts to the path, says when a queue builds. Then
 the rate drops to 85% of what the server acknowledged receiving, holds while
 the queue drains, and otherwise grows 8% a second, or 2% within a tenth of
-the capacity the last overuse showed, and past that capacity only as fast as
-what's acknowledged shows it gets through. So the stream backs off as a queue
+the capacity the last overuse showed, and never past one and a half times
+what's acknowledged, beyond that capacity. So the stream backs off as a queue
 starts to build, before packets are lost, where the loss-based estimate only
 learns of a full path from loss. The stream aims for the lower of the two,
 as libwebrtc does, and for the loss-based one alone until feedback comes,
 which is logged ("following the server's transport-wide feedback"). The
 encoder follows when the target and its bitrate differ by more than a tenth.
+While the target is low, fewer frames go, each with enough bits, as
+libwebrtc keeps a screen's resolution and lowers its frame rate
+(`steady_fps`): every frame while each gets at least half what a 60 fps
+frame gets at the cap, and down to 30 a second below that, 1080p144 sending
+66 at 5 Mbit/s. The encoders size each frame for the rate they opened at,
+so they're asked for as much more as frames are left out.
 
 The server's own estimate (REMB) is logged but not followed, which is where
 Discord Obsidian chooses to differ from Discord's client: it only grows past
@@ -272,7 +294,9 @@ With `OBSIDIAN_LOG=debug`, Discord Obsidian logs every 5 s while sharing what it
 RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
 (`lsr`), its bitrate estimate (REMB), keyframe requests, and the bitrate
-aimed for. Each change of a tenth or more in the bitrate is logged at info
+aimed for. Frames the worker skipped or dropped while the network was
+behind are logged at info, summed every 10 s when there were any (`stream
+frames held back`). Each change of a tenth or more in the bitrate is logged at info
 (`stream bitrate`), with each estimate (`delay_kbps`, `loss_kbps`), what the
 delay last said and the bitrate the server acknowledged, the loss, and each
 measure of it: what the server reports reached it from here (`upload_loss_percent`), and the share of packets viewers asked for again (`viewer_nack_percent`), which counts what was lost on the way to them too. The voice connection logs the voice server's RTCP too, to compare

@@ -286,6 +286,9 @@ impl Adapter {
             .set_revision(self.app.state.picture_changes as i32);
         self.show_viewer(window);
         self.show_profile(window);
+        let card = self.app.state.stream_card.as_ref();
+        window.set_stream_card_url(card.and_then(|card| card.url.as_deref()).unwrap_or_default().into());
+        window.set_stream_card_asked(card.is_some_and(|card| card.asked));
         window.set_can_go_back(self.app.state.can_go_back());
         window.set_can_go_forward(self.app.state.can_go_forward());
         if window.get_inbox_open() {
@@ -806,6 +809,15 @@ impl Adapter {
                     String::new()
                 };
                 let (detail, detail_emoji) = dm_detail(room);
+                let hover_choices = if !room.direct && room.network == Network::Discord {
+                    let choices = self.app.menu_choices(&room.id);
+                    (
+                        choices.contains(&MenuChoice::Invite),
+                        choices.contains(&MenuChoice::EditChannel),
+                    )
+                } else {
+                    (false, false)
+                };
                 let voice = room
                     .person
                     .as_deref()
@@ -813,7 +825,13 @@ impl Adapter {
                     .and_then(|person| in_voice.get(person));
                 RoomRow {
                     id: room.id.clone().into(),
-                    name: room.name.clone().into(),
+                    // A channel's emoji in Twemoji, as Discord draws them;
+                    // a DM's name keeps its letters for its name style.
+                    name: if room.direct {
+                        room.name.clone().into()
+                    } else {
+                        crate::emoji_text::text(&room.name).into()
+                    },
                     category: folds_by.unwrap_or(&heading).into(),
                     heading: heading.into(),
                     icon: self.icons.room(room),
@@ -863,6 +881,9 @@ impl Adapter {
                         index < in_pinned
                     },
                     muted: room.muted,
+                    // Discord's hover buttons, where its menu offers them.
+                    can_invite: !room.direct && room.network == Network::Discord && hover_choices.0,
+                    can_edit: !room.direct && room.network == Network::Discord && hover_choices.1,
                     people: if room.people.is_empty() {
                         ModelRc::default()
                     } else {
@@ -1195,11 +1216,12 @@ impl Adapter {
     /// the Reactions window.
     fn show_reactions(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
+        // In Twemoji, as Discord draws them, not the system's emoji font.
         let emoji_of = |item: &str, key: &str| -> String {
-            state.message(item).map_or_else(
+            crate::emoji_text::text(&state.message(item).map_or_else(
                 || key.to_owned(),
                 |message| custom_emoji::text(key, &message.emoji),
-            )
+            ))
         };
         match state.reaction_tip() {
             Some((tip, reaction)) => {
@@ -1486,7 +1508,12 @@ impl Adapter {
         let state = &self.app.state;
         let room = state.selected_room();
         window.set_room_selected(room.is_some());
-        window.set_room_name(room.map_or("", |room| room.name.as_str()).into());
+        window.set_room_name(
+            room.map_or_else(String::new, |room| {
+                if room.direct { room.name.clone() } else { crate::emoji_text::text(&room.name) }
+            })
+            .into(),
+        );
         window.set_room_direct(room.is_some_and(|room| room.direct));
         window.set_room_presence(presence_name(room.and_then(|room| room.presence)).into());
         let (activity, activity_emoji) =

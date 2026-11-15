@@ -4,7 +4,7 @@ import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } fro
 import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
 import { Composer, StagedFile, StagedTile, MentionRow, MentionList, EmojiSuggestions } from "composer.slint";
-import { EmojiCell, EmojiButton, MessageRow, MessageContent, HistoryEdge } from "messages.slint";
+import { EmojiCell, EmojiButton, MessageRow, MessageContent, SendingIndicator, HistoryEdge } from "messages.slint";
 
 /// A Discord thread beside the open channel, in place of its member list, as
 /// Discord opens a thread from a message: its messages and a composer, with a
@@ -205,6 +205,10 @@ export component ThreadPanel inherits Rectangle {
                                 root.active-item = message.item;
                                 root.open-menu(message, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, 0px, 0px);
                             }
+                        }
+                        // In the last row's space below it: see the timeline's.
+                        if message.delivery == "Sending..." && index == root.messages.length - 1: SendingIndicator {
+                            x: 72px; y: parent.height - 20px + 1px;
                         }
                         col := VerticalLayout {
                             padding-top: message.day != "" ? 12px : message.first ? 14px : 1px;
