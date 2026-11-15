@@ -89,7 +89,7 @@ impl Heartbeats {
     }
 
     /// The `qos` of the next heartbeat, moving on to the state after it.
-    pub fn next(&mut self) -> Value {
+    pub fn take_next(&mut self) -> Value {
         let sent = self.current.take();
         self.current = match self.upcoming.take() {
             Some(upcoming) => Some(upcoming.into()),
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn beats_without_qos_until_the_first_report() {
         let mut beats = Heartbeats::default();
-        assert_eq!(beats.next(), Value::Null);
+        assert_eq!(beats.take_next(), Value::Null);
         assert!(!beats.active());
     }
 
@@ -176,11 +176,11 @@ mod tests {
         // Away again before the beat: the beat still says it was used.
         assert!(!beats.report(AWAY));
         assert_eq!(
-            beats.next(),
+            beats.take_next(),
             json!({"active": true, "ver": 31, "reasons": ["foregrounded"]})
         );
         assert_eq!(
-            beats.next(),
+            beats.take_next(),
             json!({"active": false, "ver": 31, "reasons": []})
         );
         assert!(!beats.active());
@@ -192,10 +192,10 @@ mod tests {
         beats.report(FRONT);
         assert!(!beats.report(CALL), "already active");
         assert_eq!(
-            beats.next()["reasons"],
+            beats.take_next()["reasons"],
             json!(["foregrounded", "rtc_connected"])
         );
-        assert_eq!(beats.next()["reasons"], json!(["rtc_connected"]));
+        assert_eq!(beats.take_next()["reasons"], json!(["rtc_connected"]));
         assert!(beats.active());
     }
 

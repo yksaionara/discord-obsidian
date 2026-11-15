@@ -844,7 +844,7 @@ impl Connection {
     /// Sends a heartbeat as the web client does: op 40, with the last
     /// sequence number and what [`Heartbeats`] reports.
     async fn beat(&mut self) -> Result<()> {
-        let qos = self.heartbeats.next();
+        let qos = self.heartbeats.take_next();
         self.write(QOS_HEARTBEAT, &json!({"seq": self.sequence, "qos": qos}))
             .await
     }
