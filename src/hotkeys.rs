@@ -1,8 +1,9 @@
 //! Shortcuts that toggle mute and deafen from any app, a game included: a
-//! low-level keyboard hook on Windows, which only runs while one is set.
-//! Elsewhere they work while the window has the focus. Each shortcut is a key
-//! with the Ctrl, Shift and Alt it needs held; the key passes on to the app
-//! in front as it came.
+//! low-level keyboard hook on Windows, which only runs while one is set and
+//! leaves keys to the window while Discord Obsidian is in front. The window
+//! hears them itself whenever it has the focus, on every system. Each
+//! shortcut is a key with the Ctrl, Shift and Alt it needs held; the key
+//! passes on to the app in front as it came.
 use serde::{Deserialize, Serialize};
 use slint::winit_030::winit::{
     event::{ElementState, KeyEvent},
@@ -71,7 +72,6 @@ impl Shortcut {
     }
 
     /// Whether a key press in the window is this shortcut.
-    #[cfg_attr(windows, allow(dead_code))]
     pub fn matches(&self, event: &KeyEvent, ctrl: bool, shift: bool, alt: bool) -> bool {
         use slint::winit_030::winit::platform::scancode::PhysicalKeyExtScancode;
         event.physical_key.to_scancode() == Some(self.key.scancode)
@@ -120,9 +120,8 @@ impl Watcher {
         &self.shortcuts
     }
 
-    /// What a key press in the focused window toggles, where no hook hears
-    /// it already.
-    #[cfg(not(windows))]
+    /// What a key press in the focused window toggles; the hook leaves keys
+    /// pressed there to the window.
     pub fn focused(&self, event: &KeyEvent, ctrl: bool, shift: bool, alt: bool) -> Option<Toggle> {
         if event.repeat || event.state != ElementState::Pressed {
             return None;
@@ -141,7 +140,7 @@ impl Watcher {
     /// Where the shortcuts work, for settings.
     pub fn note() -> &'static str {
         if cfg!(windows) {
-            "Works in every app, games included."
+            "Works in every app, games included, and in this one."
         } else {
             "Works while the Discord window is in front."
         }
@@ -161,11 +160,15 @@ mod windows {
 
     use windows_sys::Win32::{
         Foundation::{LPARAM, LRESULT, WPARAM},
-        System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
+        System::{
+            LibraryLoader::GetModuleHandleW,
+            Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        },
         UI::{
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_MENU, VK_SHIFT},
             WindowsAndMessaging::{
-                CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG,
+                CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+                HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG,
                 PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
                 WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
@@ -249,8 +252,20 @@ mod windows {
         unsafe { GetAsyncKeyState(i32::from(key)) as u16 & 0x8000 != 0 }
     }
 
-    /// Toggles on a shortcut's key going down with its modifiers held, and
-    /// passes every key on.
+    /// Whether one of Discord Obsidian's own windows is in front, which hears
+    /// the shortcuts through its key events.
+    fn ours_in_front() -> bool {
+        let mut process = 0;
+        // SAFETY: GetForegroundWindow may return null, which
+        // GetWindowThreadProcessId answers with 0; `process` outlives it.
+        unsafe {
+            GetWindowThreadProcessId(GetForegroundWindow(), &mut process);
+            process == GetCurrentProcessId()
+        }
+    }
+
+    /// Toggles on a shortcut's key going down with its modifiers held, unless
+    /// Discord Obsidian's window is in front, and passes every key on.
     unsafe extern "system" fn proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if code == HC_ACTION as i32 {
             // SAFETY: for HC_ACTION, lparam points at the key's details.
@@ -268,6 +283,7 @@ mod windows {
                             | u32::from(held(VK_MENU)) * ALT;
                         if modifiers == MODIFIERS[index].load(Ordering::Relaxed)
                             && !DOWN[index].swap(true, Ordering::Relaxed)
+                            && !ours_in_front()
                             && let Some(pressed) = PRESSED
                                 .lock()
                                 .unwrap_or_else(|poisoned| poisoned.into_inner())

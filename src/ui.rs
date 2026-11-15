@@ -631,9 +631,8 @@ fn watch_window(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
-                // Without a hook, the shortcuts work while the window has the
-                // focus.
-                #[cfg(not(windows))]
+                // The mute and deafen shortcuts, while the window has the
+                // focus; Windows' hook leaves these keys to it.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
                     && let Some(state) = adapter.upgrade()
                 {
