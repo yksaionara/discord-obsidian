@@ -1436,6 +1436,12 @@ pub fn server(guild: &Value) -> Option<Server> {
     threads.sort_by_cached_key(|thread| std::cmp::Reverse(thread.id.parse::<u64>().unwrap_or(0)));
     threads.dedup_by(|later, earlier| later.id == earlier.id);
     server.threads = threads;
+    // A live stage's topic shows under it, as a voice channel's status does.
+    for stage in guild["stage_instances"].as_array().into_iter().flatten() {
+        if let Some(channel) = stage["channel_id"].as_str() {
+            server.set_voice_status(channel, stage["topic"].as_str());
+        }
+    }
     Some(server)
 }
 

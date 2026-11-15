@@ -24,6 +24,9 @@ Matched now:
   server opens, `CHANNEL_INFO` and `VOICE_CHANNEL_STATUS_UPDATE`.
 - `GUILD_SCHEDULED_EVENT_USER_ADD/REMOVE` keep interested counts current.
 - `CHANNEL_PINS_UPDATE` reloads pins while they're open.
+- Stage topics show under stage channels (`STAGE_INSTANCE_*`), and
+  `GUILD_MEMBER_ADD` teaches the new member's name. The member count stays
+  as READY said, since counting would copy the server on every join.
 - Apps' buttons press (`POST /interactions`, type 3), and
   `INTERACTION_SUCCESS`/`FAILURE` answer them.
 
@@ -43,8 +46,6 @@ quests, Activities, notification center, OAuth, game servers and developer
 features. The ones a chat-and-voice client shows to users:
 
 - `CHANNEL_PINS_ACK`: the pins' unread state
-- `GUILD_MEMBER_ADD`: someone joins while the member list is open
-- `STAGE_INSTANCE_CREATE/UPDATE/DELETE`: Stage topics
 - `SESSIONS_REPLACE`: your own other sessions, used for your shown status
   and "active on mobile"
 - `INTERACTION_MODAL_CREATE`: app modals

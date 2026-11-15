@@ -484,6 +484,31 @@ impl Tracker {
                 server.put_event(scheduled, *event == Event::GuildScheduledEventDelete);
                 true
             }
+            Event::StageInstanceCreate
+            | Event::StageInstanceUpdate
+            | Event::StageInstanceDelete => {
+                let (Some(server), Some(channel)) = (
+                    data["guild_id"]
+                        .as_str()
+                        .and_then(|guild| self.server_mut(guild)),
+                    data["channel_id"].as_str(),
+                ) else {
+                    return false;
+                };
+                let topic = data["topic"]
+                    .as_str()
+                    .filter(|_| *event != Event::StageInstanceDelete);
+                server.set_voice_status(channel, topic)
+            }
+            // Its name is learnt for messages and mentions. The server's
+            // member count, which only a profile's mutual servers show, stays
+            // as READY said: counting would copy the server on every join.
+            Event::GuildMemberAdd => {
+                if let Some(guild) = data["guild_id"].as_str() {
+                    self.learn_member(guild, data);
+                }
+                false
+            }
             Event::VoiceChannelStatusUpdate => {
                 let (Some(server), Some(id)) = (
                     data["guild_id"]
@@ -1909,6 +1934,28 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn shows_a_live_stages_topic_and_learns_who_joins() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "member_count": 5, "channels": [
+                {"id": "13", "name": "Town hall", "type": 13, "position": 0},
+            ], "stage_instances": [{"channel_id": "13", "guild_id": "10", "topic": "Q&A"}]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let topic = |tracker: &Tracker| tracker.servers[0].voice_channels[0].status.clone();
+        assert_eq!(topic(&tracker).as_deref(), Some("Q&A"));
+        let stage = json!({"guild_id": "10", "channel_id": "13", "topic": "Roadmap"});
+        tracker.apply(&Event::StageInstanceUpdate, &stage);
+        assert_eq!(topic(&tracker).as_deref(), Some("Roadmap"));
+        tracker.apply(&Event::StageInstanceDelete, &stage);
+        assert_eq!(topic(&tracker), None, "an ended stage shows none");
+
+        let member = json!({"guild_id": "10", "user": {"id": "2", "username": "ann"}, "roles": [], "nick": "Annie"});
+        assert!(!tracker.apply(&Event::GuildMemberAdd, &member), "nothing shown changes");
+        assert_eq!(tracker.servers[0].member_count, Some(5));
+    }
 
     #[test]
     fn keeps_voice_channels_statuses() {

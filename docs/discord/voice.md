@@ -9,7 +9,9 @@ Scope for the beta:
   any after it by name. READY leaves them out, so the first time a server
   opens, Discord Obsidian asks with op 43 `REQUEST_CHANNEL_INFO` (fields
   `status` and `voice_start_time`), as the web client does. CHANNEL_INFO
-  answers, and VOICE_CHANNEL_STATUS_UPDATE keeps them current.
+  answers, and VOICE_CHANNEL_STATUS_UPDATE keeps them current. A live
+  stage's topic shows the same way, from GUILD_CREATE's `stage_instances`
+  and STAGE_INSTANCE_CREATE, UPDATE and DELETE.
 - DM and group DM calls, both incoming with ringing and outgoing.
 - One connection at a time across Discord Obsidian and Discord. Joining Discord voice asks
   to leave a Discord Obsidian call, and the other way round.

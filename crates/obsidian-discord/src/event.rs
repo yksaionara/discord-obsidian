@@ -126,6 +126,12 @@ events! {
     /// A message was pinned or unpinned in a channel: `{guild_id?,
     /// channel_id, last_pin_timestamp}`.
     ChannelPinsUpdate = "CHANNEL_PINS_UPDATE",
+    /// A stage went live, changed its topic or ended: a stage instance.
+    StageInstanceCreate = "STAGE_INSTANCE_CREATE",
+    StageInstanceUpdate = "STAGE_INSTANCE_UPDATE",
+    StageInstanceDelete = "STAGE_INSTANCE_DELETE",
+    /// Someone joined a server: a member with `guild_id`.
+    GuildMemberAdd = "GUILD_MEMBER_ADD",
     /// What became of an interaction this session sent, by its nonce:
     /// Discord took it, the app answered, or it failed.
     InteractionCreate = "INTERACTION_CREATE",
@@ -256,6 +262,10 @@ mod tests {
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
             ("VOICE_CHANNEL_STATUS_UPDATE", Event::VoiceChannelStatusUpdate),
             ("CHANNEL_PINS_UPDATE", Event::ChannelPinsUpdate),
+            ("STAGE_INSTANCE_CREATE", Event::StageInstanceCreate),
+            ("STAGE_INSTANCE_UPDATE", Event::StageInstanceUpdate),
+            ("STAGE_INSTANCE_DELETE", Event::StageInstanceDelete),
+            ("GUILD_MEMBER_ADD", Event::GuildMemberAdd),
             ("INTERACTION_CREATE", Event::InteractionCreate),
             ("INTERACTION_SUCCESS", Event::InteractionSuccess),
             ("INTERACTION_FAILURE", Event::InteractionFailure),
