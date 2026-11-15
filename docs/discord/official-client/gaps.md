@@ -7,23 +7,27 @@ web build 673764.
 
 ## Wire differences a server can see
 
-| Area | Official client (web path) | Discord Obsidian | Source |
-|---|---|---|---|
-| Gateway heartbeat | op **40** `QOS_HEARTBEAT` `{seq, qos: {active, ver: 31, reasons}}` on every beat | op 1 with the bare sequence | `gateway.rs` `HEARTBEAT` |
-| Heartbeat when activity changes | an extra beat when the client goes from inactive to active | none | |
-| Identify `qos_token` | sent (base64 `QosToken` protobuf), and `derived` is kept per user once the server has signed it | absent | `gateway.rs` identify |
-| First gateway heartbeat | after random `0..interval` | after random `0..interval` | same |
-| Voice gateway version | `?v=9`, or `v=10` with the SFU-update experiment | `?v=8` | `voice_connection.rs` `VERSION` |
-| Voice heartbeat interval | **capped at 5 s on the web** (desktop uses the server's value) | the server's value, kept between 1 s and 300 s | `voice_connection.rs` `heartbeat()` |
-| Voice op 16 after READY | sends `{}` when server v ≥ 6 | not sent | `voice_connection.rs` |
-| Gateway encoding | `json` + `zlib-stream` on the web | `json` + `zlib-stream` | same |
-| Capabilities | 1734653 (1767421 with channel obfuscation) | 1734653 | same |
+Matched now:
 
-The heartbeat opcode is the biggest tell. Every client running the current
-bundle sends op 40, so op 1 marks a client that isn't one. Matching it
-takes `{seq, qos}` with `qos: null` until the first activity report, then
-`{active, ver: 31, reasons}`, where `reasons` lists `foregrounded` while the
-window is in front and `rtc_connected` while a call is connected.
+- Heartbeats go as op 40 `QOS_HEARTBEAT` `{seq, qos}`, `qos` reporting
+  `foregrounded` and `rtc_connected` since the last beat, with an extra
+  beat when the client goes from unused to used (`qos.rs`, `gateway.rs`).
+- IDENTIFY sends `qos_token`, and keeps READY's signed `qos_token` per
+  account for the next identify (`cache.rs` `discord-qos-token`).
+- The voice gateway is `?v=9`. It sends op 16 after READY from a version 6
+  server, caps the heartbeat at 5 s as the web client does, and sends
+  SELECT_PROTOCOL's address, port and mode at the top level with an
+  `rtc_connection_id` (`voice_connection.rs`).
+- `VOICE_STATE_UPDATE_BATCH` and `PRESENCES_REPLACE` are handled, split
+  into the single events.
+
+Still different:
+
+| Area | Official client (web path) | Discord Obsidian |
+|---|---|---|
+| Voice transport | the web client speaks WebRTC (`protocol: "webrtc"`, SDP); desktop speaks UDP | UDP with RTP, as desktop does, while presenting as the web client |
+| Voice v10 | with the SFU-update experiment, plus op 33 | not asked for |
+| SELECT_PROTOCOL `experiments` | the voice server's experiments the client supports | `[]` |
 
 ## Gateway events Discord Obsidian doesn't handle
 

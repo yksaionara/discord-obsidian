@@ -936,6 +936,13 @@ impl Tracker {
     /// Whether this account's voice state in `guild` belongs to this
     /// session, so that leaving there ends this session's call rather than
     /// another client's.
+    /// Whether this session is in a voice channel or call anywhere.
+    pub(super) fn in_a_call_here(&self) -> bool {
+        self.voice
+            .iter()
+            .any(|((_, user), entry)| *user == self.me && !self.elsewhere(entry))
+    }
+
     pub(super) fn in_voice_here(&self, guild: &str) -> bool {
         self.voice
             .get(&(guild.to_owned(), self.me.clone()))

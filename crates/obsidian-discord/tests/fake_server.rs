@@ -4298,16 +4298,32 @@ async fn resumes_the_gateway() {
     let mut live = discord.live();
     // Discord asks the gateway to reconnect: the session resumes, without a
     // new identify, and carries on.
+    let sessions = || -> serde_json::Value {
+        serde_json::from_str(&self::control(server, "GET", "/_control/sessions", "")).unwrap()
+    };
+    // It identified as the web client does, not in use yet.
+    assert_eq!(sessions()["qosToken"], "CgA=");
     post_control(server, "/_control/gateway-reconnect", "");
     timeout(WAIT, async {
-        while self::control(server, "GET", "/_control/sessions", "")
-            != r#"{"identifies":1,"resumes":1}"#
-        {
+        while {
+            let counts = sessions();
+            counts["identifies"] != 1 || counts["resumes"] != 1
+        } {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await
     .expect("the session didn't resume");
+    // The window coming to the front beats at once, as op 40, saying so.
+    discord.set_foreground(true);
+    timeout(WAIT, async {
+        while sessions()["qos"]["reasons"] != serde_json::json!(["foregrounded"]) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("no heartbeat said the window came to the front");
+    assert_eq!(sessions()["qos"]["ver"], 31);
     post_control(server, "/_control/typing", "");
     live_where(&mut live, |event| {
         matches!(event, Live::Typing { .. }).then_some(())

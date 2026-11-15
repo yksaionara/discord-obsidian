@@ -22,9 +22,13 @@ use crate::{
     websocket,
 };
 
-/// The voice gateway version Discord's clients use, as Discord-video-stream
-/// does.
-const VERSION: u8 = 8;
+/// The voice gateway version the web client asks for; it asks for 10 only
+/// with an experiment for moving the UDP endpoint mid-call
+/// (`docs/discord/official-client/voice-gateway.md`).
+const VERSION: u8 = 9;
+/// The longest heartbeat interval the web client keeps to on a voice server
+/// of version 4 or later, whatever the server asks.
+const WEB_HEARTBEAT: f64 = 5_000.0;
 pub(crate) const HANDSHAKE: Duration = Duration::from_secs(15);
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -310,6 +314,16 @@ fn discovered(answer: &[u8]) -> Result<(IpAddr, u16)> {
     Ok((ip, u16::from_be_bytes([answer[72], answer[73]])))
 }
 
+/// The interval the web client beats at, from HELLO's: a tenth of it on a
+/// server of version 3 or older, and otherwise at most [`WEB_HEARTBEAT`].
+fn web_interval(milliseconds: f64, version: u64) -> f64 {
+    if version <= 3 {
+        milliseconds * 0.1
+    } else {
+        milliseconds.min(WEB_HEARTBEAT)
+    }
+}
+
 /// Who a connection identifies as, and with which server.
 pub(crate) struct Identity {
     pub endpoint: String,
@@ -370,17 +384,26 @@ impl Connection {
         let mut early = vec![];
         let mut seq = None;
         let handshake = async {
-            let (mut interval, mut ready) = (None, None);
+            let (mut interval, mut ready, mut server_version) = (None, None, 3);
             while interval.is_none() || ready.is_none() {
                 match receive(&mut ws, &mut seq).await? {
-                    Incoming::Json(8, hello) => interval = hello["heartbeat_interval"].as_f64(),
+                    Incoming::Json(8, hello) => {
+                        server_version = hello["v"].as_u64().unwrap_or(3);
+                        interval = hello["heartbeat_interval"]
+                            .as_f64()
+                            .map(|interval| web_interval(interval, server_version));
+                    }
                     Incoming::Json(2, data) => ready = Some(data),
                     Incoming::Json(op, data) => early.push((op, data)),
                     Incoming::Dave(event) => dave_early.push(event),
                 }
             }
-            let (interval, ready) = (interval.unwrap_or(41_250.0), ready.unwrap_or_default());
+            let (interval, ready) = (interval.unwrap_or(WEB_HEARTBEAT), ready.unwrap_or_default());
             tracing::debug!(%ready, "the voice server is ready");
+            // As the web client does, it asks which voice backend serves it.
+            if server_version >= 6 {
+                send_json(&mut ws, 16, json!({})).await?;
+            }
             let ssrc = ready["ssrc"]
                 .as_u64()
                 .context("the voice server sent no SSRC")? as u32;
@@ -419,8 +442,13 @@ impl Connection {
                 1,
                 json!({
                     "protocol": "udp",
-                    "codecs": codecs,
                     "data": {"address": address.to_string(), "port": port, "mode": mode},
+                    "address": address.to_string(),
+                    "port": port,
+                    "mode": mode,
+                    "codecs": codecs,
+                    "rtc_connection_id": crate::client::uuid(0),
+                    "experiments": [],
                 }),
             )
             .await?;
@@ -513,7 +541,8 @@ impl Connection {
                     Incoming::Json(9, _) => break,
                     Incoming::Json(8, hello) => {
                         if let Some(interval) = hello["heartbeat_interval"].as_f64() {
-                            self.interval = heartbeat(interval);
+                            let version = hello["v"].as_u64().unwrap_or(3);
+                            self.interval = heartbeat(web_interval(interval, version));
                         }
                     }
                     Incoming::Json(op, data) => self.early.push((op, data)),
@@ -643,13 +672,20 @@ mod tests {
     fn plain_websockets_only_on_this_machine() {
         assert_eq!(
             gateway_url("c-ams.discord.media:443").unwrap().as_str(),
-            "wss://c-ams.discord.media/?v=8"
+            "wss://c-ams.discord.media/?v=9"
         );
         assert_eq!(
             gateway_url("ws://127.0.0.1:9/voice").unwrap().as_str(),
-            "ws://127.0.0.1:9/voice/?v=8"
+            "ws://127.0.0.1:9/voice/?v=9"
         );
         assert!(gateway_url("ws://example.com/voice").is_err());
+    }
+
+    #[test]
+    fn beats_as_often_as_the_web_client() {
+        assert_eq!(web_interval(13_750.0, 9), 5_000.0);
+        assert_eq!(web_interval(3_000.0, 9), 3_000.0);
+        assert_eq!(web_interval(41_250.0, 3), 4_125.0);
     }
 
     /// As version 8 sends them: `seq` after `d`.

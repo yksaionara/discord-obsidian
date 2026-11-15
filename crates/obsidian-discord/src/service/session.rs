@@ -53,6 +53,11 @@ pub(super) struct Shared {
     /// kept through reconnecting.
     pub(super) viewing: Option<(String, String)>,
     pub(super) beside: Option<(String, String)>,
+    /// Whether Discord Obsidian's window is in front.
+    pub(super) foreground: bool,
+    /// What the gateway reports about whether Discord Obsidian is in use,
+    /// kept for the next connection.
+    pub(super) qos: crate::gateway::Qos,
 }
 
 pub(super) async fn run(
@@ -71,6 +76,12 @@ pub(super) async fn run(
         let api = shared.api.clone();
         tokio::spawn(async move { api.learn_build_number().await });
     }
+    if let Some(user) = crate::qos::user_of(&token) {
+        shared.qos.derived = tokio::task::spawn_blocking(move || crate::cache::qos_token(&user))
+            .await
+            .ok()
+            .flatten();
+    }
     loop {
         snapshots.send_modify(|snapshot| Arc::make_mut(snapshot).status = Status::Connecting);
         let connect = async {
@@ -84,7 +95,13 @@ pub(super) async fn run(
                 &mut shared.presence,
                 shared.activity.borrow().as_deref().filter(|_| playing),
             );
-            Gateway::connect(&token, shared.presence.clone(), &mut reconnects).await
+            Gateway::connect(
+                &token,
+                shared.presence.clone(),
+                &mut reconnects,
+                shared.qos.clone(),
+            )
+            .await
         };
         let connected = tokio::select! {
             connected = connect => connected,
@@ -92,6 +109,7 @@ pub(super) async fn run(
         };
         let (error, up) = match connected {
             Ok((gateway, ready)) => {
+                keep_qos_token(&mut shared.qos, &ready);
                 if let Some(refreshed) = ready::auth_token(&ready) {
                     token = refreshed.to_owned();
                     relogin(&shared.api, &token).await;
@@ -184,6 +202,7 @@ fn refuse(request: Request, shared: &mut Shared) {
         Request::Inactive(since, show_idle) => {
             shared.inactive = since.map(|since| (since, show_idle));
         }
+        Request::Foreground(foreground) => shared.foreground = foreground,
         // The settings changed already; what finds the game stops or
         // runs now, and the next READY says the same.
         Request::ShowGame(shown) => {
@@ -196,6 +215,20 @@ fn refuse(request: Request, shared: &mut Shared) {
         }
         _ => {}
     }
+}
+
+/// Keeps the signed `qos_token` READY carries, for this connection's
+/// account, as the web client keeps it; a READY without one forgets it.
+fn keep_qos_token(qos: &mut crate::gateway::Qos, ready: &Value) {
+    let Some(user) = ready::user_id(ready).map(str::to_owned) else {
+        return;
+    };
+    let token = ready["qos_token"].as_str().map(str::to_owned);
+    if token == qos.derived {
+        return;
+    }
+    qos.derived.clone_from(&token);
+    tokio::task::spawn_blocking(move || crate::cache::keep_qos_token(&user, token.as_deref()));
 }
 
 enum Ended {
@@ -307,6 +340,7 @@ impl Session<'_> {
     async fn connect(&mut self) -> Result<()> {
         // This session shows the status the settings hold, as Discord's own apps do.
         self.show_presence().await?;
+        self.report_activity();
         self.shared.lists.publish_group(&self.tracker);
         self.ask_previews();
         self.shared
@@ -515,6 +549,11 @@ impl Session<'_> {
                 self.shared.inactive = since.map(|since| (since, show_idle));
                 self.show_presence().await
             }
+            Request::Foreground(foreground) => {
+                self.shared.foreground = foreground;
+                self.report_activity();
+                Ok(())
+            }
             Request::ShowGame(shown) => {
                 // As with the status, the settings update that follows agrees.
                 self.tracker.show_game = shown;
@@ -655,6 +694,9 @@ impl Session<'_> {
             self.show_presence().await?;
         }
         self.shared.lists.group_event(&self.tracker, &dispatch);
+        if *event == Event::VoiceStateUpdate && data["user_id"] == self.tracker.me.as_str() {
+            self.report_activity();
+        }
         if self.streams.waiting() {
             if event.is_stream() {
                 self.streams.apply(&self.tracker, &dispatch);
@@ -688,6 +730,19 @@ impl Session<'_> {
                 }
             }
         });
+    }
+
+    /// Tells the gateway whether Discord Obsidian is in use when that changed:
+    /// its window is in front, or this session is in a call.
+    fn report_activity(&mut self) {
+        let activity = crate::qos::Activity {
+            foregrounded: self.shared.foreground,
+            rtc_connected: self.tracker.in_a_call_here(),
+        };
+        if self.shared.qos.activity != Some(activity) {
+            self.shared.qos.activity = Some(activity);
+            self.gateway.set_activity(activity);
+        }
     }
 
     async fn show_presence(&mut self) -> Result<()> {

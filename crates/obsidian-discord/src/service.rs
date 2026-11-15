@@ -640,6 +640,8 @@ enum Request {
     /// Nobody has used Discord Obsidian since then, in Unix milliseconds, or someone
     /// is using it again; and whether it may show idle.
     Inactive(Option<u64>, bool),
+    /// Discord Obsidian's window came to the front, or left it.
+    Foreground(bool),
     /// This gateway session's id, from READY.
     Session(oneshot::Sender<Option<String>>),
     /// Asks for these servers' soundboard sounds.
@@ -819,6 +821,8 @@ impl Discord {
                 inactive: None,
                 viewing: None,
                 beside: None,
+                foreground: false,
+                qos: crate::gateway::Qos::default(),
             },
         ));
         Ok(Self {
@@ -2036,6 +2040,12 @@ impl Discord {
     /// setting.
     pub fn set_inactive(&self, since: Option<u64>, show_idle: bool) {
         let _ = self.requests.send(Request::Inactive(since, show_idle));
+    }
+
+    /// Tells the session whether Discord Obsidian's window is in front, which
+    /// its heartbeats report as the web client's do.
+    pub fn set_foreground(&self, foreground: bool) {
+        let _ = self.requests.send(Request::Foreground(foreground));
     }
 
     /// The GIF picker's home: trending terms with a GIF each.

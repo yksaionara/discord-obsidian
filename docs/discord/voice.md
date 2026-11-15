@@ -126,8 +126,11 @@ Calls run on the connection Go Live uses (`voice_connection.rs`, shared by
 `stream_connection.rs` and `call_connection.rs`), not on songbird with video
 added. Video in songbird would have meant patching most of its driver, which
 speaks version 4 of the voice gateway and has DAVE for Opus only, and keeping
-those patches through its releases, while Discord Obsidian already had a version 8
-connection carrying video with DAVE. It also leaves one libopus, libwebrtc's.
+those patches through its releases, while Discord Obsidian already had a voice
+gateway connection carrying video with DAVE. It speaks version 9, as the web
+client does: it asks for the backend version (op 16) after READY, beats
+every 5 seconds at most, as the web client caps it, and sends SELECT_PROTOCOL's
+address, port and mode at the top level too, with an `rtc_connection_id`. It also leaves one libopus, libwebrtc's.
 `obsidian_core` drives a call through `Call`, `Microphone`, `Track` and
 `Listener`, and the fake voice server exchanges audio both ways to test it.
 

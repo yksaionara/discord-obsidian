@@ -3550,7 +3550,16 @@ impl Application {
                 self.state.hide_nameplates = hide;
                 vec![]
             }
-            Action::WindowFocused(focused) => self.window_focused(focused),
+            Action::WindowFocused(focused) => {
+                let mut effects = self.window_focused(focused);
+                let signed_out = self.state.account.is_none() && !self.state.busy;
+                if !self.state.preview && !signed_out {
+                    effects.push(Effect::Backend(Command::Discord(
+                        DiscordCommand::Foreground(focused),
+                    )));
+                }
+                effects
+            }
             Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
             Action::SkipCallPrompt(skip) => {
                 self.state.skip_call_prompt = skip;

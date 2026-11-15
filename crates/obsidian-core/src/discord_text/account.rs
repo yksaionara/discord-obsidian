@@ -369,6 +369,12 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::Foreground(foreground)) = command {
+        if let Ok(discord) = discord {
+            discord.set_foreground(foreground);
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::Inactive { since, show_idle }) = command {
         if let Ok(discord) = discord {
             discord.set_inactive(since, show_idle);

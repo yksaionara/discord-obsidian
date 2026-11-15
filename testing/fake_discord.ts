@@ -246,7 +246,9 @@
 // A gateway session whose connection drops resumes with op 6, getting the
 // events it missed; a close with 1000 or 1001 ends it instead. POST
 // /_control/gateway-reconnect sends op 7, and GET /_control/sessions counts
-// identifies and resumes. POST /_control/refresh-token with a token ends
+// identifies and resumes, and op 40 heartbeats with the last `qos` they
+// carried and the last identify's `qos_token`. The voice gateway is version
+// 9 and answers op 16 with its backend. POST /_control/refresh-token with a token ends
 // the session with op 9, and the READY after it refreshes the login to that
 // token in auth_token, as Discord does; from then on only that token works.
 // The API sets a device cookie, as Discord's does, and
@@ -2065,7 +2067,15 @@ let generalTopic: string | null =
 /** How often clients asked for a member list, for GET /_control/list-requests. */
 let listRequests = 0;
 /** How often clients identified and resumed, for GET /_control/sessions. */
-const sessionCounts = { identifies: 0, resumes: 0 };
+const sessionCounts = {
+  identifies: 0,
+  resumes: 0,
+  // Heartbeats as the web client sends them (op 40), the last `qos` they
+  // carried, and the `qos_token` of the last identify.
+  qosHeartbeats: 0,
+  qos: null as unknown,
+  qosToken: null as string | null,
+};
 
 function send(ws: Socket, op: number, d: unknown, t: string | null = null) {
   const s = op === 0 ? ++ws.data.sequence : null;
@@ -3056,6 +3066,11 @@ function gatewayMessage(ws: Socket, text: string) {
     case 1: // Heartbeat
       send(ws, 11, null);
       break;
+    case 40: // Heartbeat with what the client reports about being in use
+      sessionCounts.qosHeartbeats++;
+      sessionCounts.qos = d.qos ?? null;
+      send(ws, 11, null);
+      break;
     case 2: // Identify
       if (d.token !== apiToken) {
         console.error("gateway: identify with an unexpected token; closing");
@@ -3064,6 +3079,7 @@ function gatewayMessage(ws: Socket, text: string) {
       }
       ws.data.identified = true;
       sessionCounts.identifies++;
+      sessionCounts.qosToken = typeof d.qos_token === "string" ? d.qos_token : null;
       if (refreshingTo) {
         apiToken = refreshingTo;
         refreshingTo = null;
@@ -4721,6 +4737,9 @@ function voiceMessage(ws: Socket, text: string) {
     case 3: // Heartbeat
       if (voiceLink.ping) setTimeout(() => reply(6, d), voiceLink.ping);
       else reply(6, d);
+      break;
+    case 16: // Which voice backend serves the call
+      reply(16, { voice: "fake", rtc_worker: "fake" });
       break;
     default: // Speaking and client details need no answer.
       break;
@@ -8888,7 +8907,7 @@ const server = Bun.serve<SocketData>({
       }
       if (ws.data.voice) {
         voiceSockets.add(ws);
-        ws.send(JSON.stringify({ op: 8, d: { heartbeat_interval: 13_750 } }));
+        ws.send(JSON.stringify({ op: 8, d: { v: 9, heartbeat_interval: 13_750 } }));
         return;
       }
       sockets.add(ws);

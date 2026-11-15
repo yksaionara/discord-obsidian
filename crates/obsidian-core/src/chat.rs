@@ -2722,6 +2722,9 @@ pub enum DiscordCommand {
         since: Option<u64>,
         show_idle: bool,
     },
+    /// Discord Obsidian's window came to the front, or left it, which the
+    /// gateway's heartbeats report as the web client's do.
+    Foreground(bool),
     /// Connect the Discord account that was just linked.
     Start,
     /// Forget the linked Discord account on this device, ending its session

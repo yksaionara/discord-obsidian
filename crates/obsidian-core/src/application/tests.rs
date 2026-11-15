@@ -10387,6 +10387,21 @@ fn going_idle_while_signed_out_tells_nobody() {
 }
 
 #[test]
+fn the_window_coming_to_the_front_tells_discord_once_signed_in() {
+    let foreground = |effects: &[Effect]| {
+        effects.iter().find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::Foreground(front))) => Some(*front),
+            _ => None,
+        })
+    };
+    let mut app = Application::default();
+    assert_eq!(foreground(&app.dispatch(Action::WindowFocused(true))), None);
+    let mut app = connected();
+    assert_eq!(foreground(&app.dispatch(Action::WindowFocused(true))), Some(true));
+    assert_eq!(foreground(&app.dispatch(Action::WindowFocused(false))), Some(false));
+}
+
+#[test]
 fn discord_emoji_favourites_and_uses_rank_and_last_through_partial_updates() {
     let mut app = connected();
     let now = crate::clock::now_ms();

@@ -18,6 +18,9 @@ settings](server-settings.md) with channel settings and two-factor
 authentication, and [DMs, friends and profiles](people.md) with presence and
 game detection. The [later list](#later) has what's left to do, and
 [adding a feature](adding-a-feature.md) walks a new one through each layer.
+[The official client](official-client/README.md) covers what Discord's own app
+sends and how, as read from its shipped code. Its
+[gaps](official-client/gaps.md) page lists where Discord Obsidian differs.
 
 Discord Obsidian connects to Discord directly, so a person who links their Discord account
 doesn't need the Discord desktop app. Discord Obsidian joins Discord voice as that person,
@@ -83,6 +86,17 @@ Discord Obsidian follows the rules Discord documents for every client:
   at most 10 IDENTIFYs an hour: an account that keeps identifying gets flagged,
   so past that Discord Obsidian stops reconnecting and says so until it restarts. The first
   heartbeat comes after a random part of the interval, as Discord asks.
+- **Heartbeats as the web client's.** Heartbeats go as op 40,
+  `{seq, qos: {active, ver: 31, reasons}}`, as Discord's current client
+  sends them, not op 1. `reasons` lists `foregrounded` while the window is
+  in front and `rtc_connected` while this session is in a call. A beat
+  reports everything since the last one, and one goes at once when someone
+  starts using Discord Obsidian again. IDENTIFY carries the `qos_token`
+  protobuf, `{client_provided: {is_active}}`, with the signed part READY
+  last handed out appended. That part is kept per account in
+  `discord-qos-token` beside the cache. `VOICE_STATE_UPDATE_BATCH` and
+  `PRESENCES_REPLACE` reach the rest of Discord Obsidian as one
+  VOICE_STATE_UPDATE or PRESENCE_UPDATE each.
 - **Typing.** Mention search waits 300 ms after the last key before it asks
   Discord for members, so typing a name sends one search, not one per letter.
 - **Cookies.** Discord Obsidian keeps the cookies Discord's servers set and sends them

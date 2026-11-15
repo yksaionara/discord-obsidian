@@ -35,13 +35,20 @@ use tokio_tungstenite::{
     },
 };
 
-use crate::{client, event::Event, member_list, websocket};
+use crate::{
+    client,
+    event::Event,
+    member_list,
+    qos::{self, Activity, Heartbeats},
+    websocket,
+};
 
 const URL: &str = "wss://gateway.discord.gg";
 /// What the web client asks of the gateway: JSON, compressed as one zlib
 /// stream for the whole connection.
 const QUERY: &str = "/?encoding=json&v=9&compress=zlib-stream";
-/// The capability bits the web client sends, as used by mautrix-discord.
+/// The capability bits the web client sends, without the channel-obfuscation
+/// experiment's bit 15 (`docs/discord/official-client/gateway.md`).
 const CAPABILITIES: u64 = 1734653;
 
 const DISPATCH: u64 = 0;
@@ -61,6 +68,9 @@ const STREAM_WATCH: u64 = 20;
 const STREAM_SET_PAUSED: u64 = 22;
 const REQUEST_SOUNDBOARD_SOUNDS: u64 = 31;
 const GUILD_SUBSCRIPTIONS_BULK: u64 = 37;
+/// The heartbeat the web client sends, with what [`qos`] reports, in place of
+/// op 1's.
+const QOS_HEARTBEAT: u64 = 40;
 
 /// Discord closed the gateway, with its close code.
 #[derive(Debug)]
@@ -233,8 +243,20 @@ pub struct Dispatch {
 /// A command for the connection's task.
 enum Command {
     Send(u64, Value),
+    /// Whether someone is using Discord Obsidian changed.
+    Activity(Activity),
     /// Close the connection, which ends the session.
     Close,
+}
+
+/// What IDENTIFY and the first heartbeats say about whether Discord Obsidian
+/// is in use, carried from one connection to the next.
+#[derive(Clone, Debug, Default)]
+pub struct Qos {
+    /// The last activity reported, if any yet.
+    pub activity: Option<Activity>,
+    /// The signed `qos_token` Discord sent in this account's last READY.
+    pub derived: Option<String>,
 }
 
 /// The gateway session. Its connection runs in a task of its own, which
@@ -286,6 +308,7 @@ impl Gateway {
         token: &str,
         presence: Value,
         reconnects: &mut Reconnects,
+        qos: Qos,
     ) -> Result<(Self, Value)> {
         let url = match client::test_server() {
             Some(server) => {
@@ -297,7 +320,7 @@ impl Gateway {
             None => format!("{URL}{QUERY}"),
         };
         let limiter = Limiter::new(SEND_LIMIT, SEND_WINDOW);
-        Self::connect_to(&url, token, presence, reconnects, limiter).await
+        Self::connect_to(&url, token, presence, reconnects, limiter, qos).await
     }
 
     async fn connect_to(
@@ -306,7 +329,13 @@ impl Gateway {
         presence: Value,
         reconnects: &mut Reconnects,
         limiter: Limiter,
+        qos: Qos,
     ) -> Result<(Self, Value)> {
+        let mut heartbeats = Heartbeats::default();
+        if let Some(activity) = qos.activity {
+            heartbeats.report(activity);
+        }
+        let qos_token = qos::token(heartbeats.active(), qos.derived.as_deref());
         let mut connection = Connection {
             socket: open(url).await?,
             inflater: Inflater::default(),
@@ -321,6 +350,7 @@ impl Gateway {
             presences: Limiter::new(PRESENCE_LIMIT, presence_window()),
             presence: None,
             resumes: 0,
+            heartbeats,
         };
         connection.greeted().await?;
         reconnects.identify(Instant::now())?;
@@ -331,6 +361,7 @@ impl Gateway {
             "presence": presence,
             "compress": false,
             "client_state": {"guild_versions": {}},
+            "qos_token": qos_token,
         });
         connection.write(IDENTIFY, &identify).await?;
 
@@ -368,6 +399,12 @@ impl Gateway {
             }
         }
         anyhow!("the Discord gateway connection stopped")
+    }
+
+    /// Tells the gateway whether someone is using Discord Obsidian, which its
+    /// heartbeats report.
+    pub fn set_activity(&mut self, activity: Activity) {
+        let _ = self.commands.send(Command::Activity(activity));
     }
 
     /// Tells Discord this session's status and activities.
@@ -554,6 +591,29 @@ impl Gateway {
     }
 }
 
+/// Events carrying several of another, as the one event each that the rest
+/// of Discord Obsidian acts on, moved out rather than copied.
+fn split(dispatch: Dispatch) -> Vec<Dispatch> {
+    let (one, mut list) = match dispatch.event {
+        Event::VoiceStateUpdateBatch => {
+            let mut data = dispatch.data;
+            (Event::VoiceStateUpdate, data["voice_states"].take())
+        }
+        Event::PresencesReplace => (Event::PresenceUpdate, dispatch.data),
+        _ => return vec![dispatch],
+    };
+    match list.as_array_mut() {
+        Some(items) => std::mem::take(items)
+            .into_iter()
+            .map(|data| Dispatch {
+                event: one.clone(),
+                data,
+            })
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 /// Keeps commands under Discord's limit on what a connection sends.
 struct Limiter {
     limit: usize,
@@ -608,6 +668,8 @@ struct Connection {
     presence: Option<Value>,
     /// Resumes tried since Discord last confirmed one.
     resumes: u32,
+    /// What the heartbeats report about whether Discord Obsidian is in use.
+    heartbeats: Heartbeats,
 }
 
 impl Connection {
@@ -650,7 +712,7 @@ impl Connection {
                     if !self.acked {
                         bail!("Discord's gateway stopped answering heartbeats");
                     }
-                    self.write(HEARTBEAT, &json!(self.sequence)).await?;
+                    self.beat().await?;
                     self.acked = false;
                     self.next_heartbeat += self.interval;
                 }
@@ -668,6 +730,12 @@ impl Connection {
                 }
                 command = commands.recv(), if held.is_none() => match command {
                     Some(Command::Send(PRESENCE_UPDATE, data)) => self.presence = Some(data),
+                    Some(Command::Activity(activity)) => {
+                        // Someone starting to use it is told at once.
+                        if self.heartbeats.report(activity) {
+                            self.beat().await?;
+                        }
+                    }
                     Some(Command::Send(op, data)) => {
                         if free_at > Instant::now() {
                             tracing::warn!("holding back a gateway command to stay under Discord's limit");
@@ -681,7 +749,9 @@ impl Connection {
                 },
                 message = self.receive() => {
                     if let Some(dispatch) = self.handle(message?).await? {
-                        let _ = events.send(Ok(dispatch));
+                        for dispatch in split(dispatch) {
+                            let _ = events.send(Ok(dispatch));
+                        }
                     }
                 }
             }
@@ -716,7 +786,11 @@ impl Connection {
                 }
                 return Ok(Some(Dispatch { event, data }));
             }
-            Some(HEARTBEAT) => self.write(HEARTBEAT, &json!(self.sequence)).await?,
+            // Asked for one, it beats now and starts the interval again.
+            Some(HEARTBEAT) => {
+                self.beat().await?;
+                self.next_heartbeat = Instant::now() + self.interval;
+            }
             Some(HEARTBEAT_ACK) => self.acked = true,
             Some(RECONNECT) => bail!("Discord asked the gateway to reconnect"),
             // `d` says whether the session may resume.
@@ -732,10 +806,18 @@ impl Connection {
         Ok(None)
     }
 
+    /// Sends a heartbeat as the web client does: op 40, with the last
+    /// sequence number and what [`Heartbeats`] reports.
+    async fn beat(&mut self) -> Result<()> {
+        let qos = self.heartbeats.next();
+        self.write(QOS_HEARTBEAT, &json!({"seq": self.sequence, "qos": qos}))
+            .await
+    }
+
     /// Sends a command on this connection, counting it against the send
     /// limit unless it's a heartbeat.
     async fn write(&mut self, op: u64, data: &Value) -> Result<()> {
-        if op != HEARTBEAT {
+        if op != HEARTBEAT && op != QOS_HEARTBEAT {
             self.limiter.sent.push_back(Instant::now());
         }
         let payload = json!({"op": op, "d": data}).to_string();
@@ -989,7 +1071,7 @@ mod tests {
         async fn session(&self, interval: Duration, limiter: Limiter) -> (Gateway, Peer) {
             let mut reconnects = Reconnects::default();
             let (connected, peer) = tokio::join!(
-                Gateway::connect_to(&self.url, "token", json!({}), &mut reconnects, limiter),
+                Gateway::connect_to(&self.url, "token", json!({}), &mut reconnects, limiter, Qos::default()),
                 async {
                     let mut peer = self.accept(interval).await;
                     assert_eq!(peer.command().await["op"], IDENTIFY);
@@ -1022,6 +1104,7 @@ mod tests {
             presences: Limiter::new(PRESENCE_LIMIT, presence_window()),
             presence: None,
             resumes: 0,
+            heartbeats: Heartbeats::default(),
         };
         let message = json!({
             "op": DISPATCH,
@@ -1078,7 +1161,7 @@ mod tests {
                     continue;
                 };
                 let command: Value = serde_json::from_str(&text).unwrap();
-                if command["op"] != HEARTBEAT {
+                if command["op"] != QOS_HEARTBEAT {
                     return command;
                 }
                 self.heartbeats += 1;
@@ -1223,7 +1306,7 @@ mod tests {
             std::future::pending::<()>().await;
         });
         let started = Instant::now();
-        let error = Gateway::connect_to(&url, "", json!({}), &mut Reconnects::default(), limiter())
+        let error = Gateway::connect_to(&url, "", json!({}), &mut Reconnects::default(), limiter(), Qos::default())
             .await
             .err()
             .unwrap();
@@ -1239,7 +1322,7 @@ mod tests {
             let _socket = tokio_tungstenite::accept_async(stream).await.unwrap();
             std::future::pending::<()>().await;
         });
-        let error = Gateway::connect_to(&url, "", json!({}), &mut Reconnects::default(), limiter())
+        let error = Gateway::connect_to(&url, "", json!({}), &mut Reconnects::default(), limiter(), Qos::default())
             .await
             .err()
             .unwrap();
@@ -1319,10 +1402,81 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap();
-        assert!(heartbeat.to_text().unwrap().contains(r#""op":1"#));
+        assert!(heartbeat.to_text().unwrap().contains(r#""op":40"#));
         // No acknowledgement: by the next one, Discord Obsidian connects again.
         let mut peer = discord.accept(SLOW_HEARTBEAT).await;
         assert_eq!(peer.command().await["op"], RESUME);
+    }
+
+    #[test]
+    fn passes_batches_on_as_one_event_each() {
+        let batch = Dispatch {
+            event: Event::VoiceStateUpdateBatch,
+            data: json!({"voice_states": [{"user_id": "1"}, {"user_id": "2"}]}),
+        };
+        let split = split(batch);
+        assert_eq!(split.len(), 2);
+        assert!(split.iter().all(|one| one.event == Event::VoiceStateUpdate));
+        assert_eq!(split[1].data["user_id"], "2");
+        let replaced = split_presences(json!([{"user": {"id": "3"}, "status": "idle"}]));
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(replaced[0].event, Event::PresenceUpdate);
+        // Anything else goes as it came.
+        let other = Dispatch {
+            event: Event::TypingStart,
+            data: json!({}),
+        };
+        assert_eq!(super::split(other).len(), 1);
+    }
+
+    fn split_presences(data: Value) -> Vec<Dispatch> {
+        super::split(Dispatch {
+            event: Event::PresencesReplace,
+            data,
+        })
+    }
+
+    #[tokio::test]
+    async fn heartbeats_report_who_is_using_it_as_the_web_client_does() {
+        let discord = Discord::new().await;
+        let mut reconnects = Reconnects::default();
+        let qos = Qos {
+            activity: Some(Activity::default()),
+            derived: None,
+        };
+        let (connected, mut peer) = tokio::join!(
+            Gateway::connect_to(&discord.url, "token", json!({}), &mut reconnects, limiter(), qos),
+            async {
+                let mut peer = discord.accept(SLOW_HEARTBEAT).await;
+                let identify = peer.command().await;
+                assert_eq!(identify["d"]["qos_token"], "CgA=", "not in use");
+                let ready = json!({"session_id": "session", "resume_gateway_url": discord.url});
+                peer.dispatch("READY", ready).await;
+                peer
+            },
+        );
+        let (mut gateway, _) = connected.unwrap();
+        // Someone starting to use it beats at once, long before the interval.
+        gateway.set_activity(Activity {
+            foregrounded: true,
+            rtc_connected: false,
+        });
+        let beat: Value = loop {
+            let message = timeout(Duration::from_secs(5), peer.socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if let Message::Text(text) = message {
+                break serde_json::from_str(&text).unwrap();
+            }
+        };
+        assert_eq!(beat["op"], QOS_HEARTBEAT);
+        assert_eq!(beat["d"]["seq"], 1);
+        assert_eq!(
+            beat["d"]["qos"],
+            json!({"active": true, "ver": 31, "reasons": ["foregrounded"]})
+        );
     }
 
     #[test]
@@ -1402,7 +1556,7 @@ mod tests {
             timeout(Duration::from_millis(200), peer.socket.next()).await
         };
         let (connected, sent) = tokio::join!(
-            Gateway::connect_to(&discord.url, "", json!({}), &mut reconnects, limiter()),
+            Gateway::connect_to(&discord.url, "", json!({}), &mut reconnects, limiter(), Qos::default()),
             accept,
         );
         let error = connected.err().unwrap();

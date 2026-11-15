@@ -248,6 +248,38 @@ fn build_number_file() -> Option<PathBuf> {
     Some(file()?.with_file_name("discord-build-number"))
 }
 
+/// The signed `qos_token` Discord last sent this account in READY, with
+/// whose it is, as `user_id token`, which the next IDENTIFY sends back as the
+/// web client does. It reads the disk, so the async side calls it off its
+/// threads.
+pub(crate) fn qos_token(user_id: &str) -> Option<String> {
+    let kept = std::fs::read_to_string(qos_token_file()?).ok()?;
+    let (user, token) = kept.trim().split_once(' ')?;
+    (user == user_id && !token.is_empty()).then(|| token.to_owned())
+}
+
+/// Keeps `token` for [`qos_token`], or forgets the one kept with `None`.
+pub(crate) fn keep_qos_token(user_id: &str, token: Option<&str>) {
+    let Some(file) = qos_token_file() else {
+        return;
+    };
+    let written = match token {
+        Some(token) => std::fs::write(&file, format!("{user_id} {token}
+")),
+        None => match std::fs::remove_file(&file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            done => done,
+        },
+    };
+    if let Err(error) = written {
+        tracing::warn!(%error, "could not keep Discord's QoS token");
+    }
+}
+
+fn qos_token_file() -> Option<PathBuf> {
+    Some(file()?.with_file_name("discord-qos-token"))
+}
+
 fn pictures() -> Option<PathBuf> {
     Some(file()?.with_file_name("discord-pictures"))
 }

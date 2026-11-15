@@ -100,6 +100,12 @@ events! {
     ChannelRecipientAdd = "CHANNEL_RECIPIENT_ADD",
     ChannelRecipientRemove = "CHANNEL_RECIPIENT_REMOVE",
     VoiceStateUpdate = "VOICE_STATE_UPDATE",
+    /// Several voice states at once, `{voice_states: [...]}`, which the
+    /// gateway passes on as a VOICE_STATE_UPDATE each.
+    VoiceStateUpdateBatch = "VOICE_STATE_UPDATE_BATCH",
+    /// Friends' presences all at once, a list, passed on as a PRESENCE_UPDATE
+    /// each.
+    PresencesReplace = "PRESENCES_REPLACE",
     VoiceServerUpdate = "VOICE_SERVER_UPDATE",
     /// Calls in DMs and group DMs.
     CallCreate = "CALL_CREATE",
