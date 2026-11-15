@@ -1,0 +1,2216 @@
+message discord_protos.common.v1.LocalizedSnowflake { // 991023.js
+  scalar<6> default = 1;
+  map<6> localizations = 2;
+}
+
+message discord_protos.common.v1.LocalizedString { // 991023.js
+  scalar<9> default = 1;
+  map<9> localizations = 2;
+}
+
+message discord_protos.common.v1.MuteNotificationSettings { // 894139.js
+  message<() => o.D> end_time = 1;
+  message<() => l.as> selected_time_window = 2;
+}
+
+message discord_protos.discord_experimentation.v1.Always { // 637450.js
+  scalar<8> value = 1;
+  scalar<6> experiment_id = 1;
+  repeated scalar<5> variation_ids = 2;
+}
+
+message discord_protos.discord_experimentation.v1.Bucket { // 637450.js
+  scalar<5> start = 1;
+  scalar<5> stop = 2;
+  enum type = 3;
+  enum assignment_mode = 5;
+  enum exposure_mode = 6;
+}
+
+message discord_protos.discord_experimentation.v1.Bucket.AllocationAssignmentMode { // 637450.js
+
+}
+
+message discord_protos.discord_experimentation.v1.Bucket.AllocationExposureMode { // 637450.js
+
+}
+
+message discord_protos.discord_experimentation.v1.ClientDesignId { // 637450.js
+  repeated scalar<5> design_ids = 1;
+}
+
+message discord_protos.discord_experimentation.v1.ClientIP { // 637450.js
+  repeated scalar<9> blocks = 1;
+}
+
+message discord_protos.discord_experimentation.v1.ClientLocale { // 637450.js
+  repeated scalar<9> locales = 1;
+}
+
+message discord_protos.discord_experimentation.v1.ClientLocation { // 637450.js
+  repeated message<() => es> locations = 1;
+  scalar<9> city = 1;
+  scalar<9> subdivision = 2;
+  scalar<9> country = 3;
+}
+
+message discord_protos.discord_experimentation.v1.ClientLocation.ISORegion { // 637450.js
+  scalar<9> iso_country = 1;
+  scalar<9> iso_subdivision = 2;
+}
+
+message discord_protos.discord_experimentation.v1.ClientLocation.Location { // 637450.js
+  message<() => er> iso_region = 1;
+  scalar<8> is_eu = 2;
+  message<() => en> place = 3;
+}
+
+message discord_protos.discord_experimentation.v1.ClientOperatingSystem { // 637450.js
+  message<() => ep> ios_version = 1;
+  message<() => ep> android_version = 2;
+  message<() => ep> macos_version = 3;
+  message<() => ep> windows_version = 4;
+  message<() => ep> playstation_version = 5;
+  message<() => ep> xbox_version = 6;
+  message<() => ep> linux_version = 7;
+  repeated message<() => eR> ranges = 1;
+  scalar<8> work_around_pyoto_bug = 2;
+  message<() => eT> os_version = 3;
+  scalar<8> allow_sdk_fallback = 4;
+}
+
+message discord_protos.discord_experimentation.v1.ClientPlatform { // 637450.js
+  message<() => eU> ios_version = 1;
+  message<() => eU> android_version = 2;
+  message<() => eU> web_version = 3;
+  message<() => eU> native_version = 4;
+  scalar<8> allow_non_native_web = 6;
+  message<() => eH> client_required_changes = 5;
+  repeated message<() => eG> ranges = 1;
+  scalar<8> work_around_pyoto_bug = 2;
+}
+
+message discord_protos.discord_experimentation.v1.ClientRequiredChanges { // 637450.js
+  repeated scalar<9> commit_hashes = 1;
+  repeated scalar<5> pr_numbers = 2;
+}
+
+message discord_protos.discord_experimentation.v1.ClientSystemLocale { // 637450.js
+  repeated scalar<9> locales = 1;
+}
+
+message discord_protos.discord_experimentation.v1.DebugConfig { // 637450.js
+  scalar<8> enable_decision_logging = 1;
+  scalar<1> metrics_sample_rate = 2;
+  scalar<8> log_context_on_failure = 3;
+  scalar<8> log_raw_headers = 4;
+  scalar<8> tag_filter_metrics = 5;
+  scalar<1> decision_log_sample_rate = 6;
+}
+
+message discord_protos.discord_experimentation.v1.Experiment { // 637450.js
+  scalar<6> id = 1;
+  scalar<9> name = 2;
+  message<() => tE.D> created_at = 3;
+  scalar<6> creator_id = 4;
+  scalar<5> version = 5;
+  message<() => tE.D> edited_at = 6;
+  scalar<6> editor_id = 7;
+  scalar<9> title = 8;
+  scalar<9> description = 9;
+  message<() => P.hU> hypothesis = 10;
+  message<() => P.hU> tech_spec_link = 11;
+  scalar<5> revision = 12;
+  scalar<9> hash_key = 13;
+  enum unit_type = 14;
+  repeated message<() => tV> variations = 15;
+  repeated message<() => G> rules = 16;
+  enum phase = 18;
+  repeated enum surfaces = 19;
+  scalar<9> owning_team_id = 20;
+  scalar<6> cached_notification_channel_id = 21;
+  enum exposure_tracking = 22;
+  enum assignment_mode = 25;
+  scalar<8> enable_edit_raw_json_ui = 23;
+  message<() => P.as> dynamic_config_size_limit_override = 46;
+  message<() => P.as> experiment_size_limit_override = 53;
+  scalar<5> winning_variation_id = 24;
+  scalar<9> extra_outcome_context = 34;
+  enum type = 26;
+  scalar<8> is_template = 27;
+  repeated scalar<5> field_numbers_to_copy = 28;
+  repeated scalar<9> engine_feature_flags = 29;
+  message<() => t$> debug_config = 30;
+  message<() => tE.D> expected_end_date = 31;
+  scalar<8> is_automated_change = 32;
+  scalar<8> suppress_editor_mention = 44;
+  message<() => tE.D> archive_at = 33;
+  message<() => P.as> guild_experiment_version = 35;
+  enum custom_unit_prefix = 36;
+  repeated enum exposure_points = 45;
+  scalar<9> dynamic_config_model = 47;
+  repeated scalar<9> growthbook_tags = 37;
+  scalar<8> allocate_right_to_left = 38;
+  scalar<8> is_managed = 39;
+  message<() => tw> number_line_settings = 43;
+  enum eligibility_persistence = 42;
+  message<() => tz> lifecycle_plan = 48;
+  scalar<8> is_feature_flag = 49;
+  scalar<8> is_official_holdout = 50;
+  message<() => tF> holdout_scope = 52;
+  message<() => tx> change_source = 51;
+}
+
+message discord_protos.discord_experimentation.v1.Experiment.ChangeSource { // 637450.js
+  enum kind = 1;
+  scalar<9> proposal_id = 2;
+  scalar<9> agent_product = 3;
+  scalar<9> conversation_id = 4;
+  scalar<9> skill = 5;
+  scalar<9> skill_version = 6;
+  scalar<9> conversation_type = 7;
+}
+
+message discord_protos.discord_experimentation.v1.Experiment.NumberLineSettings { // 637450.js
+  enum mode = 1;
+  scalar<6> linked_id = 2;
+  scalar<8> shared_control = 3;
+}
+
+message discord_protos.discord_experimentation.v1.Filter { // 637450.js
+  message<() => eP> client_version = 2;
+  message<() => eh> client_os = 3;
+  message<() => H> staff = 4;
+  message<() => W> user_in_guild = 5;
+  message<() => K> user_ids = 6;
+  message<() => q> client_locale = 7;
+  message<() => ee> client_location = 8;
+  message<() => e_> client_ip = 9;
+  message<() => X> user_locale = 10;
+  message<() => eW> bot = 11;
+  message<() => eK> user_age_range = 12;
+  message<() => eq> user_id_range = 13;
+  message<() => eJ> user_has_flag = 14;
+  message<() => e0> unit_id_in_range_by_hash = 15;
+  message<() => e2> client_release_channel = 16;
+  message<() => e7> always = 17;
+  message<() => J> client_system_locale = 18;
+  message<() => e4> unit_id_in_experiment = 19;
+  message<() => te> user_premium_type = 20;
+  message<() => tn> unit_id_matches_filter_snapshot = 21;
+  message<() => tr> guild_ids = 22;
+  message<() => to> guild_id_range = 23;
+  message<() => ts> guild_member_count_range = 25;
+  message<() => tc> guild_has_feature = 26;
+  message<() => eo> user_location = 27;
+  message<() => eA> user_ip = 28;
+  message<() => t_> installation_ids = 29;
+  message<() => ec> user_store_country = 31;
+  message<() => e6> client_design_id = 32;
+  scalar<8> negate = 30;
+}
+
+message discord_protos.discord_experimentation.v1.GuildIds { // 637450.js
+  repeated scalar<6> guild_ids = 1;
+}
+
+message discord_protos.discord_experimentation.v1.GuildMemberCountRange { // 637450.js
+  message<() => P.ZQ> min_count = 1;
+  message<() => P.ZQ> max_count = 2;
+  message<() => eX> min_id = 1;
+  message<() => eX> max_id = 2;
+  repeated scalar<9> features = 1;
+}
+
+message discord_protos.discord_experimentation.v1.HoldoutScope { // 637450.js
+  enum level = 1;
+  enum fiscal_half = 2;
+  scalar<5> fiscal_year = 3;
+}
+
+message discord_protos.discord_experimentation.v1.InstallationIds { // 637450.js
+  repeated scalar<6> installation_ids = 1;
+}
+
+message discord_protos.discord_experimentation.v1.LifecyclePlan { // 637450.js
+  message<() => tQ> measurement_plan = 1;
+  message<() => tZ> rollout_plan = 2;
+}
+
+message discord_protos.discord_experimentation.v1.LifecyclePlan.MeasurementPlan { // 637450.js
+  enum status = 1;
+  repeated message<() => t1> ramp_steps = 2;
+}
+
+message discord_protos.discord_experimentation.v1.LifecyclePlan.RampStep { // 637450.js
+  repeated message<() => t3> variation_buckets = 1;
+  message<() => v> hold_duration = 2;
+  scalar<8> require_manual_approval = 3;
+  message<() => tE.D> started_at = 4;
+  enum status = 5;
+  message<() => tE.D> paused_at = 6;
+  message<() => v> paused_duration = 7;
+}
+
+message discord_protos.discord_experimentation.v1.LifecyclePlan.RolloutPlan { // 637450.js
+  enum status = 1;
+  repeated message<() => t1> ramp_steps = 2;
+}
+
+message discord_protos.discord_experimentation.v1.LifecyclePlan.VariationBuckets { // 637450.js
+  scalar<5> variation_id = 1;
+  repeated message<() => tj> buckets = 2;
+}
+
+message discord_protos.discord_experimentation.v1.OSVersion { // 637450.js
+  repeated message<() => eS> ranges = 1;
+}
+
+message discord_protos.discord_experimentation.v1.OSVersionRange { // 637450.js
+  message<() => eC> lower_bound = 1;
+  message<() => eC> upper_bound = 2;
+}
+
+message discord_protos.discord_experimentation.v1.OSVersionRangeBound { // 637450.js
+  scalar<9> version = 1;
+  scalar<8> inclusive = 2;
+}
+
+message discord_protos.discord_experimentation.v1.Override { // 637450.js
+  scalar<5> variation_id = 1;
+}
+
+message discord_protos.discord_experimentation.v1.PlatformVersionRange { // 637450.js
+  message<() => ek> lower_bound = 1;
+  message<() => ek> upper_bound = 2;
+}
+
+message discord_protos.discord_experimentation.v1.PlatformVersionRangeBound { // 637450.js
+  message<() => eB> version = 1;
+  scalar<8> inclusive = 2;
+}
+
+message discord_protos.discord_experimentation.v1.PlatformVersionSpecifier { // 637450.js
+  scalar<13> major = 1;
+  message<() => P.ZQ> minor = 2;
+  message<() => P.ol> build = 3;
+}
+
+message discord_protos.discord_experimentation.v1.Rule { // 637450.js
+  enum type = 1;
+  repeated message<() => B> filters = 2;
+  message<() => k> override = 3;
+  enum subtype = 5;
+  scalar<9> hash = 6;
+  message<() => P.hU> title = 7;
+}
+
+message discord_protos.discord_experimentation.v1.SDKVersionRange { // 637450.js
+  message<() => ey> lower_bound = 1;
+  message<() => ey> upper_bound = 2;
+}
+
+message discord_protos.discord_experimentation.v1.SDKVersionRangeBound { // 637450.js
+  message<() => eb> version = 1;
+  scalar<8> inclusive = 2;
+}
+
+message discord_protos.discord_experimentation.v1.SDKVersionSpecifier { // 637450.js
+  scalar<5> version = 1;
+}
+
+message discord_protos.discord_experimentation.v1.StaffUsers { // 637450.js
+  scalar<8> work_accounts = 1;
+  scalar<8> personal_accounts = 2;
+  repeated scalar<6> guild_ids = 1;
+}
+
+message discord_protos.discord_experimentation.v1.UnitIdMatchesFilterSnapshot { // 637450.js
+  scalar<9> filter_snapshot_name = 1;
+  repeated scalar<6> target_filter_values = 2;
+}
+
+message discord_protos.discord_experimentation.v1.UserIDRange { // 637450.js
+  message<() => eX> min_id = 1;
+  message<() => eX> max_id = 2;
+  scalar<6> mask = 1;
+  scalar<9> hash_key = 1;
+  scalar<13> stop_ring_position = 2;
+  scalar<13> start_ring_position = 3;
+  repeated scalar<9> release_channels = 1;
+}
+
+message discord_protos.discord_experimentation.v1.UserIP { // 637450.js
+  repeated scalar<9> blocks = 1;
+  scalar<8> prefer_client_ip = 2;
+}
+
+message discord_protos.discord_experimentation.v1.UserIds { // 637450.js
+  repeated scalar<6> user_ids = 1;
+}
+
+message discord_protos.discord_experimentation.v1.UserIsBot { // 637450.js
+  scalar<8> is_bot = 1;
+  message<() => P.ZQ> min_age_years = 1;
+  message<() => P.ZQ> max_age_years = 2;
+  scalar<6> value = 1;
+}
+
+message discord_protos.discord_experimentation.v1.UserLocale { // 637450.js
+  repeated scalar<9> locales = 1;
+}
+
+message discord_protos.discord_experimentation.v1.UserLocation { // 637450.js
+  repeated message<() => es> locations = 1;
+  scalar<8> prefer_client_ip = 2;
+  repeated scalar<9> iso_countries = 1;
+}
+
+message discord_protos.discord_experimentation.v1.UserPremiumType { // 637450.js
+  repeated scalar<5> premium_types = 1;
+}
+
+message discord_protos.discord_experimentation.v1.Variation { // 637450.js
+  scalar<5> id = 1;
+  scalar<9> label = 2;
+  scalar<5> target_allocation = 3;
+  repeated message<() => tj> buckets = 4;
+  enum type = 5;
+  message<() => P.hU> configuration = 6;
+  scalar<6> owning_experiment_id = 7;
+  scalar<5> owning_slot_id = 8;
+}
+
+message discord_protos.discord_kkv_store_value_models.v1.AcknowledgedApplicationDisclosure { // 257474.js
+  enum disclosure_type = 1;
+  message<() => o.D> acked_at = 2;
+}
+
+message discord_protos.discord_kkv_store_value_models.v1.AcknowledgedApplicationDisclosures { // 257474.js
+  repeated message<() => _> acked_disclosures = 1;
+}
+
+message discord_protos.discord_kkv_store_value_models.v1.ApplicationUserRoleConnection { // 257474.js
+  map<9> metadata = 1;
+  scalar<9> platform_name = 2;
+  scalar<9> platform_username = 3;
+  scalar<6> version = 4;
+}
+
+message discord_protos.discord_notifications.v1.ChannelNotificationSettings { // 894139.js
+  scalar<6> channel_id = 1;
+  scalar<13> message_notifications = 7;
+  message<() => c> mute = 3;
+  scalar<8> collapsed = 4;
+}
+
+message discord_protos.discord_notifications.v1.DeclarativeNotifSetting { // 894139.js
+  scalar<8> toggle = 1;
+  scalar<13> radio = 2;
+}
+
+message discord_protos.discord_notifications.v1.DeclarativeSettings { // 894139.js
+  message<() => u.u> versions = 1;
+  map<() => T> values = 2;
+}
+
+message discord_protos.discord_notifications.v1.EmailNotificationSettings { // 894139.js
+  map<8> categories = 1;
+}
+
+message discord_protos.discord_notifications.v1.GuildNotificationSettings { // 894139.js
+  scalar<8> suppress_everyone = 1;
+  scalar<13> message_notifications = 2;
+  scalar<8> mobile_push = 3;
+  message<() => c> mute = 4;
+  repeated message<() => C> channel_overrides = 5;
+  scalar<8> suppress_roles = 6;
+  scalar<13> version = 7;
+  scalar<8> hide_muted_channels = 8;
+  scalar<8> mute_scheduled_events = 9;
+  scalar<13> notify_highlights = 10;
+}
+
+message discord_protos.discord_notifications.v1.UserNotificationSettings { // 894139.js
+  scalar<6> user_id = 1;
+  message<() => A> email_settings = 2;
+  message<() => l.ol> flags = 6;
+  map<() => S> guilds = 4;
+  scalar<13> version = 5;
+  message<() => h> data = 7;
+}
+
+message discord_protos.discord_notifications.v1.UserNotificationSettingsData { // 894139.js
+  map<8> muted_games = 1;
+  message<() => p> declarative_settings = 2;
+}
+
+message discord_protos.discord_surveys.v1.Answer { // 741405.js
+  message<() => eV> choices = 1;
+  message<() => eQ> ranked = 2;
+  message<() => eM> text = 3;
+  message<() => ez> number = 4;
+  message<() => eY> matrix = 5;
+  message<() => e1> conjoint = 6;
+  message<() => e3> maxdiff = 7;
+}
+
+message discord_protos.discord_surveys.v1.AnsweredCondition { // 741405.js
+  scalar<13> question_id = 1;
+}
+
+message discord_protos.discord_surveys.v1.Choice { // 741405.js
+  scalar<13> id = 1;
+  message<() => g.X> text = 2;
+  scalar<1> value = 3;
+  scalar<8> pinned = 4;
+  scalar<8> exclusive = 5;
+  scalar<8> allow_text = 6;
+  message<() => f.ZQ> text_max_length = 7;
+  scalar<8> excluded_from_score = 8;
+}
+
+message discord_protos.discord_surveys.v1.ChoiceSource { // 741405.js
+  repeated message<() => ee> choices = 1;
+  message<() => H> choices_from = 2;
+  repeated message<() => ee> extra_choices = 3;
+  scalar<8> randomize_choices = 4;
+}
+
+message discord_protos.discord_surveys.v1.ChoicesAnswer { // 741405.js
+  scalar<13> question_id = 1;
+  repeated scalar<13> choice_ids = 2;
+  map<9> text_by_choice_id = 3;
+}
+
+message discord_protos.discord_surveys.v1.ChoicesFrom { // 741405.js
+  scalar<13> question_id = 1;
+  scalar<8> selected = 2;
+}
+
+message discord_protos.discord_surveys.v1.CompareCondition { // 741405.js
+  scalar<13> question_id = 1;
+  scalar<13> score_id = 2;
+  enum op = 3;
+  scalar<1> value = 4;
+}
+
+message discord_protos.discord_surveys.v1.Condition { // 741405.js
+  message<() => eb> all_of = 1;
+  message<() => eb> any_of = 2;
+  message<() => eb> none_of = 3;
+  message<() => ev> selected = 4;
+  message<() => e$> matrix_selected = 5;
+  message<() => eO> ranked_within = 6;
+  message<() => eI> answered = 7;
+  message<() => eL> compare = 8;
+  message<() => eU> score_band = 10;
+  message<() => eR> displayed = 11;
+}
+
+message discord_protos.discord_surveys.v1.ConditionList { // 741405.js
+  repeated message<() => ey> conditions = 1;
+}
+
+message discord_protos.discord_surveys.v1.ConjointAnswer { // 741405.js
+  scalar<13> page_id = 1;
+  repeated scalar<17> chosen_concept_indexes = 2;
+}
+
+message discord_protos.discord_surveys.v1.ConjointExclusion { // 741405.js
+  message<() => C> first = 1;
+  message<() => C> second = 2;
+}
+
+message discord_protos.discord_surveys.v1.ConjointFeature { // 741405.js
+  scalar<13> id = 1;
+  message<() => g.X> label = 2;
+  repeated message<() => L> levels = 3;
+  scalar<9> price_currency = 4;
+}
+
+message discord_protos.discord_surveys.v1.ConjointLevel { // 741405.js
+  scalar<13> id = 1;
+  message<() => g.X> text = 2;
+  scalar<9> image_url = 3;
+  message<() => g.X> image_alt_text = 4;
+  message<() => f.$b> price = 5;
+}
+
+message discord_protos.discord_surveys.v1.ConjointPage { // 741405.js
+  scalar<9> export_label = 1;
+  message<() => g.X> text = 2;
+  repeated message<() => R> features = 3;
+  scalar<13> task_count = 4;
+  scalar<13> concepts_per_task = 5;
+  scalar<8> include_none_option = 6;
+  repeated message<() => U> exclusions = 7;
+  scalar<8> randomize_feature_order = 8;
+  enum display = 9;
+  message<() => g.X> concept_label = 10;
+}
+
+message discord_protos.discord_surveys.v1.DisplayedCondition { // 741405.js
+  scalar<13> question_id = 1;
+}
+
+message discord_protos.discord_surveys.v1.EndIf { // 741405.js
+  message<() => ey> condition = 1;
+  message<() => g.X> message = 2;
+}
+
+message discord_protos.discord_surveys.v1.FeatureLevel { // 741405.js
+  scalar<13> feature_id = 1;
+  scalar<13> level_id = 2;
+}
+
+message discord_protos.discord_surveys.v1.InfoQuestion { // 741405.js
+
+}
+
+message discord_protos.discord_surveys.v1.MatrixAnswer { // 741405.js
+  scalar<13> question_id = 1;
+  repeated message<() => eJ> rows = 2;
+}
+
+message discord_protos.discord_surveys.v1.MatrixQuestion { // 741405.js
+  repeated message<() => el> rows = 1;
+  repeated message<() => ee> scale = 2;
+  scalar<8> randomize_rows = 3;
+}
+
+message discord_protos.discord_surveys.v1.MatrixRow { // 741405.js
+  scalar<13> id = 1;
+  message<() => g.X> text = 2;
+  scalar<8> pinned = 3;
+}
+
+message discord_protos.discord_surveys.v1.MatrixRowAnswer { // 741405.js
+  scalar<13> row_id = 1;
+  scalar<13> choice_id = 2;
+}
+
+message discord_protos.discord_surveys.v1.MatrixSelectedCondition { // 741405.js
+  scalar<13> question_id = 1;
+  scalar<13> row_id = 2;
+  repeated scalar<13> choice_ids = 3;
+}
+
+message discord_protos.discord_surveys.v1.MaxDiffAnswer { // 741405.js
+  scalar<13> page_id = 1;
+  repeated message<() => e5> picks_per_set = 2;
+  enum anchor = 3;
+}
+
+message discord_protos.discord_surveys.v1.MaxDiffItem { // 741405.js
+  scalar<13> id = 1;
+  message<() => g.X> text = 2;
+}
+
+message discord_protos.discord_surveys.v1.MaxDiffPage { // 741405.js
+  scalar<9> export_label = 1;
+  message<() => g.X> text = 2;
+  repeated message<() => P> items = 3;
+  scalar<13> items_per_set = 4;
+  scalar<13> set_count = 5;
+  message<() => g.X> most_label = 6;
+  message<() => g.X> least_label = 7;
+  message<() => g.X> anchor_question_text = 8;
+}
+
+message discord_protos.discord_surveys.v1.MaxDiffPick { // 741405.js
+  scalar<13> most_item_id = 1;
+  scalar<13> least_item_id = 2;
+}
+
+message discord_protos.discord_surveys.v1.MultiChoiceQuestion { // 741405.js
+  message<() => G> choice_source = 1;
+  message<() => f.ZQ> min_selected = 2;
+  message<() => f.ZQ> max_selected = 3;
+}
+
+message discord_protos.discord_surveys.v1.NumberAnswer { // 741405.js
+  scalar<13> question_id = 1;
+  scalar<17> value = 2;
+}
+
+message discord_protos.discord_surveys.v1.Page { // 741405.js
+  scalar<13> id = 1;
+  message<() => ey> show_if = 2;
+  message<() => $> end_if = 3;
+  message<() => O> questions = 4;
+  message<() => I> conjoint = 5;
+  message<() => S> maxdiff = 6;
+}
+
+message discord_protos.discord_surveys.v1.PageGroup { // 741405.js
+  repeated scalar<13> page_ids = 1;
+  message<() => f.ZQ> shown_page_count = 2;
+}
+
+message discord_protos.discord_surveys.v1.Progress { // 741405.js
+  scalar<13> page_index = 1;
+  scalar<13> estimated_page_count = 2;
+}
+
+message discord_protos.discord_surveys.v1.Question { // 741405.js
+  scalar<13> id = 1;
+  scalar<9> export_label = 2;
+  message<() => g.X> text = 3;
+  scalar<8> required = 4;
+  message<() => ey> show_if = 5;
+  scalar<8> pinned = 6;
+  message<() => A> single_choice = 7;
+  message<() => A> dropdown = 8;
+  message<() => X> multi_choice = 9;
+  message<() => Z> rank = 10;
+  message<() => et> free_text = 11;
+  message<() => er> scale = 12;
+  message<() => eo> matrix = 13;
+  message<() => ec> info = 14;
+}
+
+message discord_protos.discord_surveys.v1.QuestionPage { // 741405.js
+  repeated message<() => q> questions = 1;
+  scalar<8> randomize_questions = 2;
+}
+
+message discord_protos.discord_surveys.v1.RankQuestion { // 741405.js
+  message<() => G> choice_source = 1;
+  message<() => f.ZQ> rank_top = 2;
+}
+
+message discord_protos.discord_surveys.v1.RankedAnswer { // 741405.js
+  scalar<13> question_id = 1;
+  repeated scalar<13> ranked_choice_ids = 2;
+}
+
+message discord_protos.discord_surveys.v1.RankedWithinCondition { // 741405.js
+  scalar<13> question_id = 1;
+  scalar<13> choice_id = 2;
+  scalar<13> top_count = 3;
+}
+
+message discord_protos.discord_surveys.v1.RenderedChoice { // 741405.js
+  scalar<13> id = 1;
+  scalar<9> text = 2;
+  scalar<8> exclusive = 3;
+  scalar<8> allow_text = 4;
+  message<() => f.ZQ> text_max_length = 5;
+}
+
+message discord_protos.discord_surveys.v1.RenderedChoiceQuestion { // 741405.js
+  repeated message<() => nd> choices = 1;
+  message<() => f.ZQ> min_selected = 2;
+  message<() => f.ZQ> max_selected = 3;
+}
+
+message discord_protos.discord_surveys.v1.RenderedConjoint { // 741405.js
+  scalar<9> text = 1;
+  enum display = 2;
+  repeated message<() => nj> features = 3;
+  repeated message<() => nB> tasks = 4;
+  scalar<8> include_none_option = 5;
+}
+
+message discord_protos.discord_surveys.v1.RenderedConjointConcept { // 741405.js
+  scalar<9> label = 1;
+  repeated message<() => n_> levels = 2;
+}
+
+message discord_protos.discord_surveys.v1.RenderedConjointFeature { // 741405.js
+  scalar<13> id = 1;
+  scalar<9> label = 2;
+  scalar<9> price_currency = 3;
+}
+
+message discord_protos.discord_surveys.v1.RenderedConjointLevel { // 741405.js
+  scalar<9> text = 1;
+  scalar<9> image_url = 2;
+  scalar<9> image_alt_text = 3;
+  message<() => f.$b> price = 4;
+}
+
+message discord_protos.discord_surveys.v1.RenderedConjointTask { // 741405.js
+  repeated message<() => nN> concepts = 1;
+}
+
+message discord_protos.discord_surveys.v1.RenderedInfoQuestion { // 741405.js
+
+}
+
+message discord_protos.discord_surveys.v1.RenderedMatrixQuestion { // 741405.js
+  repeated message<() => nu> rows = 1;
+  repeated message<() => nu> scale = 2;
+}
+
+message discord_protos.discord_surveys.v1.RenderedMaxDiff { // 741405.js
+  scalar<9> text = 1;
+  scalar<9> most_label = 2;
+  scalar<9> least_label = 3;
+  repeated message<() => nD> sets = 4;
+  scalar<9> anchor_question_text = 5;
+}
+
+message discord_protos.discord_surveys.v1.RenderedMaxDiffSet { // 741405.js
+  repeated message<() => nu> items = 1;
+}
+
+message discord_protos.discord_surveys.v1.RenderedOption { // 741405.js
+  scalar<13> id = 1;
+  scalar<9> text = 2;
+}
+
+message discord_protos.discord_surveys.v1.RenderedPage { // 741405.js
+  enum status = 1;
+  scalar<13> page_id = 2;
+  scalar<13> revision = 3;
+  message<() => e7> progress = 4;
+  message<() => ni> questions = 5;
+  message<() => nT> conjoint = 6;
+  message<() => nW> maxdiff = 7;
+  scalar<9> end_message = 8;
+  repeated message<() => eK> submitted_answers = 9;
+  repeated message<() => nn> errors = 10;
+}
+
+message discord_protos.discord_surveys.v1.RenderedQuestion { // 741405.js
+  scalar<13> id = 1;
+  scalar<9> text = 2;
+  scalar<8> required = 3;
+  message<() => ns> single_choice = 4;
+  message<() => ns> dropdown = 5;
+  message<() => ns> multi_choice = 6;
+  message<() => nm> rank = 7;
+  message<() => ng> free_text = 8;
+  message<() => nk> scale = 9;
+  message<() => nw> matrix = 10;
+  message<() => nx> info = 11;
+}
+
+message discord_protos.discord_surveys.v1.RenderedQuestionList { // 741405.js
+  repeated message<() => na> questions = 1;
+}
+
+message discord_protos.discord_surveys.v1.RenderedRankQuestion { // 741405.js
+  repeated message<() => nu> choices = 1;
+  message<() => f.ZQ> rank_top = 2;
+}
+
+message discord_protos.discord_surveys.v1.RenderedScaleQuestion { // 741405.js
+  scalar<17> min_value = 1;
+  scalar<17> max_value = 2;
+  scalar<9> min_label = 3;
+  scalar<9> max_label = 4;
+  scalar<8> nps = 5;
+}
+
+message discord_protos.discord_surveys.v1.RenderedTextQuestion { // 741405.js
+  scalar<8> multiline = 1;
+  message<() => f.ZQ> max_length = 2;
+}
+
+message discord_protos.discord_surveys.v1.ScaleQuestion { // 741405.js
+  scalar<17> min_value = 1;
+  scalar<17> max_value = 2;
+  message<() => g.X> min_label = 3;
+  message<() => g.X> max_label = 4;
+  scalar<8> nps = 5;
+}
+
+message discord_protos.discord_surveys.v1.Score { // 741405.js
+  scalar<13> id = 1;
+  scalar<9> export_label = 2;
+  repeated message<() => ef> terms = 3;
+  repeated message<() => ep> bands = 4;
+}
+
+message discord_protos.discord_surveys.v1.ScoreBand { // 741405.js
+  message<() => f.$b> max = 1;
+  scalar<9> label = 2;
+}
+
+message discord_protos.discord_surveys.v1.ScoreBandCondition { // 741405.js
+  scalar<13> score_id = 1;
+  scalar<9> band_label = 2;
+}
+
+message discord_protos.discord_surveys.v1.ScoreTerm { // 741405.js
+  scalar<13> question_id = 1;
+  message<() => f.$b> weight = 2;
+}
+
+message discord_protos.discord_surveys.v1.SelectedCondition { // 741405.js
+  scalar<13> question_id = 1;
+  repeated scalar<13> choice_ids = 2;
+}
+
+message discord_protos.discord_surveys.v1.SingleChoiceQuestion { // 741405.js
+  message<() => G> choice_source = 1;
+}
+
+message discord_protos.discord_surveys.v1.SubmitError { // 741405.js
+  scalar<13> page_id = 1;
+  scalar<13> question_id = 2;
+  scalar<13> row_id = 3;
+  scalar<13> choice_id = 4;
+  enum code = 5;
+  scalar<9> message = 6;
+}
+
+message discord_protos.discord_surveys.v1.SubmitRequest { // 741405.js
+  scalar<13> page_id = 1;
+  scalar<13> revision = 2;
+  repeated message<() => eK> answers = 3;
+}
+
+message discord_protos.discord_surveys.v1.SurveyDefinition { // 741405.js
+  message<() => g.X> title = 1;
+  scalar<9> default_locale = 2;
+  repeated scalar<9> locales = 3;
+  repeated message<() => v> pages = 4;
+  repeated message<() => eh> scores = 5;
+  repeated message<() => b> randomized_page_groups = 6;
+  message<() => g.X> end_message = 7;
+  scalar<13> next_id = 8;
+}
+
+message discord_protos.discord_surveys.v1.TextAnswer { // 741405.js
+  scalar<13> question_id = 1;
+  scalar<9> text = 2;
+}
+
+message discord_protos.discord_surveys.v1.TextQuestion { // 741405.js
+  scalar<8> multiline = 1;
+  message<() => f.ZQ> max_length = 2;
+}
+
+message discord_protos.discord_users.v1.AdsSettings { // 873298.js
+  scalar<8> always_deliver = 1;
+}
+
+message discord_protos.discord_users.v1.AllApplicationSettings { // 873298.js
+  map<() => tw> app_settings = 1;
+}
+
+message discord_protos.discord_users.v1.AllGuildSettings { // 873298.js
+  map<() => ef> guilds = 1;
+}
+
+message discord_protos.discord_users.v1.AppVersionSettings { // 873298.js
+  scalar<8> is_using_outdated_mobile_version = 1;
+}
+
+message discord_protos.discord_users.v1.AppearanceSettings { // 873298.js
+  enum theme = 1;
+  scalar<8> developer_mode = 2;
+  message<() => e9> client_theme_settings = 3;
+  scalar<8> mobile_redesign_disabled = 4;
+  message<() => P.hU> channel_list_layout = 6;
+  message<() => P.hU> message_previews = 7;
+  message<() => P._t> search_result_exact_count_enabled = 8;
+  enum timestamp_hour_cycle = 9;
+  message<() => P._t> happening_now_cards_disabled = 10;
+  enum launch_pad_mode = 11;
+  enum ui_density = 12;
+  enum swipe_right_to_left_mode = 13;
+  enum default_guild_theme_preference = 14;
+  scalar<8> dark_sidebar = 15;
+}
+
+message discord_protos.discord_users.v1.ApplicationCommandFrecency { // 803805.js
+  map<() => D> application_commands = 1;
+}
+
+message discord_protos.discord_users.v1.ApplicationDMSettings { // 873298.js
+  scalar<8> allow_mobile_push = 2;
+}
+
+message discord_protos.discord_users.v1.ApplicationFrecency { // 803805.js
+  map<() => D> applications = 1;
+}
+
+message discord_protos.discord_users.v1.ApplicationSettings { // 873298.js
+  message<() => tx> app_dm_settings = 1;
+  message<() => tF> app_sharing_settings = 2;
+}
+
+message discord_protos.discord_users.v1.ApplicationSharingSettings { // 873298.js
+  scalar<8> disable_application_activity_sharing = 1;
+}
+
+message discord_protos.discord_users.v1.AudioContextSetting { // 873298.js
+  scalar<8> muted = 1;
+  scalar<2> volume = 2;
+  scalar<6> modified_at = 3;
+  scalar<8> soundboard_muted = 4;
+}
+
+message discord_protos.discord_users.v1.AudioSettings { // 873298.js
+  map<() => td> user = 1;
+  map<() => td> stream = 2;
+}
+
+message discord_protos.discord_users.v1.BroadcastSettings { // 873298.js
+  message<() => P._t> allow_friends = 1;
+  repeated scalar<6> allowed_guild_ids = 2;
+  repeated scalar<6> allowed_user_ids = 3;
+  message<() => P._t> auto_broadcast = 4;
+}
+
+message discord_protos.discord_users.v1.ChannelIconEmoji { // 873298.js
+  message<() => P.ol> id = 1;
+  message<() => P.hU> name = 2;
+  message<() => P.ol> color = 3;
+}
+
+message discord_protos.discord_users.v1.ChannelListSettings { // 873298.js
+  message<() => P.hU> layout = 1;
+  message<() => P.hU> message_previews = 2;
+}
+
+message discord_protos.discord_users.v1.ChannelSettings { // 873298.js
+  scalar<8> collapsed_in_inbox = 1;
+  message<() => eI> icon_emoji = 2;
+  message<() => eg> custom_notification_sound_config = 3;
+}
+
+message discord_protos.discord_users.v1.ClientThemeSettings { // 873298.js
+  message<() => P.ZQ> background_gradient_preset_id = 2;
+  message<() => e8> custom_user_theme_settings = 4;
+}
+
+message discord_protos.discord_users.v1.ClipsSettings { // 873298.js
+  message<() => P._t> allow_voice_recording = 1;
+}
+
+message discord_protos.discord_users.v1.CommunitiesSettings { // 873298.js
+  message<() => P._t> disable_home_auto_nav = 1;
+}
+
+message discord_protos.discord_users.v1.ConjureProjectSettings { // 873298.js
+  scalar<8> muted = 1;
+  scalar<4> sidebar_dismissed_at = 2;
+}
+
+message discord_protos.discord_users.v1.ConjureSettings { // 873298.js
+  map<() => tZ> projects = 1;
+}
+
+message discord_protos.discord_users.v1.CustomCallSound { // 873298.js
+  scalar<6> sound_id = 1;
+  scalar<6> guild_id = 2;
+}
+
+message discord_protos.discord_users.v1.CustomNotificationSoundConfig { // 873298.js
+  message<() => P.hU> notification_sound_pack_id = 1;
+}
+
+message discord_protos.discord_users.v1.CustomStatus { // 873298.js
+  scalar<9> text = 1;
+  scalar<6> emoji_id = 2;
+  scalar<9> emoji_name = 3;
+  scalar<6> expires_at_ms = 4;
+  scalar<6> created_at_ms = 5;
+  message<() => P.hU> label = 6;
+}
+
+message discord_protos.discord_users.v1.CustomUserThemeSettings { // 873298.js
+  repeated scalar<9> colors = 1;
+  repeated scalar<2> gradient_color_stops = 2;
+  scalar<5> gradient_angle = 3;
+  scalar<5> base_mix = 4;
+}
+
+message discord_protos.discord_users.v1.DebugSettings { // 873298.js
+  message<() => P._t> rtc_panel_show_voice_states = 1;
+}
+
+message discord_protos.discord_users.v1.DefaultReactionEmoji { // 873298.js
+  message<() => P.ol> emoji_id = 1;
+  message<() => P.hU> emoji_name = 2;
+  message<() => P._t> animated = 3;
+  message<() => P._t> disable_double_tap = 4;
+}
+
+message discord_protos.discord_users.v1.EmojiFrecency { // 803805.js
+  map<() => D> emojis = 1;
+}
+
+message discord_protos.discord_users.v1.ExplicitContentSettings { // 873298.js
+  enum explicit_content_guilds = 1;
+  enum explicit_content_friend_dm = 2;
+  enum explicit_content_non_friend_dm = 3;
+}
+
+message discord_protos.discord_users.v1.FavoriteChannel { // 873298.js
+  scalar<9> nickname = 1;
+  enum type = 2;
+  scalar<13> position = 3;
+  scalar<6> parent_id = 4;
+  message<() => P.ZQ> channel_type = 5;
+  scalar<8> collapsed = 6;
+}
+
+message discord_protos.discord_users.v1.FavoriteEmojis { // 803805.js
+  repeated scalar<9> emojis = 1;
+}
+
+message discord_protos.discord_users.v1.FavoriteGIF { // 803805.js
+  enum format = 1;
+  scalar<9> src = 2;
+  scalar<13> width = 3;
+  scalar<13> height = 4;
+  scalar<13> order = 5;
+}
+
+message discord_protos.discord_users.v1.FavoriteGIFs { // 803805.js
+  map<() => f> gifs = 1;
+  scalar<8> hide_tooltip = 2;
+}
+
+message discord_protos.discord_users.v1.FavoriteSoundboardSounds { // 803805.js
+  repeated scalar<6> sound_ids = 1;
+  repeated scalar<6> ordered_sound_ids = 2;
+}
+
+message discord_protos.discord_users.v1.FavoriteStickers { // 803805.js
+  repeated scalar<6> sticker_ids = 1;
+}
+
+message discord_protos.discord_users.v1.Favorites { // 873298.js
+  map<() => tl> favorite_channels = 1;
+  scalar<8> muted = 2;
+  message<() => P._t> guild_visible = 3;
+  scalar<8> auto_add_joined_threads = 4;
+  message<() => P._t> prune_inactive_threads = 5;
+  scalar<13> prune_inactive_threads_days = 6;
+  scalar<8> prune_all_favorited_threads = 7;
+  scalar<8> auto_add_joined_threads_per_guild = 8;
+}
+
+message discord_protos.discord_users.v1.ForLaterSettings { // 873298.js
+  enum current_tab = 1;
+}
+
+message discord_protos.discord_users.v1.FrecencyItem { // 803805.js
+  scalar<13> total_uses = 1;
+  repeated scalar<4> recent_uses = 2;
+  scalar<5> frecency = 3;
+  scalar<5> score = 4;
+}
+
+message discord_protos.discord_users.v1.FrecencyUserSettings { // 803805.js
+  message<() => o.u> versions = 1;
+  message<() => E> favorite_gifs = 2;
+  message<() => I> favorite_stickers = 3;
+  message<() => m> sticker_frecency = 4;
+  message<() => g> favorite_emojis = 5;
+  message<() => O> emoji_frecency = 6;
+  message<() => L> application_command_frecency = 7;
+  message<() => v> favorite_soundboard_sounds = 8;
+  message<() => x> application_frecency = 9;
+  message<() => M> heard_sound_frecency = 10;
+  message<() => w> played_sound_frecency = 11;
+  message<() => F> guild_and_channel_frecency = 12;
+  message<() => O> emoji_reaction_frecency = 13;
+  message<() => N> pinned_emoji_packs = 14;
+}
+
+message discord_protos.discord_users.v1.GameLibrarySettings { // 873298.js
+  message<() => P._t> install_shortcut_desktop = 1;
+  message<() => P._t> install_shortcut_start_menu = 2;
+  message<() => P._t> disable_games_tab = 3;
+}
+
+message discord_protos.discord_users.v1.GoreContentSettings { // 873298.js
+  enum gore_content_guilds = 1;
+  enum gore_content_friend_dm = 2;
+  enum gore_content_non_friend_dm = 3;
+}
+
+message discord_protos.discord_users.v1.GuildAndChannelFrecency { // 803805.js
+  map<() => D> guild_and_channels = 1;
+}
+
+message discord_protos.discord_users.v1.GuildDismissibleContentState { // 873298.js
+  scalar<8> dismissed = 1;
+  scalar<13> last_dismissed_version = 2;
+  scalar<4> last_dismissed_at_ms = 3;
+  scalar<4> last_dismissed_object_id = 4;
+  scalar<13> num_times_dismissed = 5;
+}
+
+message discord_protos.discord_users.v1.GuildFolder { // 873298.js
+  repeated scalar<6> guild_ids = 1;
+  message<() => P.j1> id = 2;
+  message<() => P.hU> name = 3;
+  message<() => P.ol> color = 4;
+}
+
+message discord_protos.discord_users.v1.GuildFolders { // 873298.js
+  repeated message<() => ti> folders = 1;
+  repeated scalar<6> guild_positions = 2;
+}
+
+message discord_protos.discord_users.v1.GuildSettings { // 873298.js
+  map<() => em> channels = 1;
+  scalar<13> hub_progress = 2;
+  scalar<13> guild_onboarding_progress = 3;
+  message<() => M.D> guild_recents_dismissed_at = 4;
+  scalar<12> dismissed_guild_content = 5;
+  message<() => tI> join_sound = 6;
+  message<() => e3> mobile_redesign_channel_list_settings = 7;
+  scalar<8> disable_raid_alert_push = 8;
+  scalar<8> disable_raid_alert_nag = 9;
+  message<() => eg> custom_notification_sound_config = 10;
+  scalar<8> leaderboards_disabled = 11;
+  map<() => eE> guild_dismissible_content_states = 12;
+  enum guild_theme_source_preference = 13;
+}
+
+message discord_protos.discord_users.v1.HeardSoundFrecency { // 803805.js
+  map<() => D> heard_sounds = 1;
+}
+
+message discord_protos.discord_users.v1.ICYMISettings { // 873298.js
+  scalar<6> feed_generated_at = 1;
+}
+
+message discord_protos.discord_users.v1.InAppFeedbackSettings { // 873298.js
+  map<() => tj> in_app_feedback_states = 1;
+}
+
+message discord_protos.discord_users.v1.InAppFeedbackState { // 873298.js
+  message<() => P.ol> last_impression_time = 1;
+  message<() => P.ol> opt_out_expiry_time = 2;
+}
+
+message discord_protos.discord_users.v1.InboxSettings { // 873298.js
+  enum current_tab = 1;
+  scalar<8> viewed_tutorial = 2;
+}
+
+message discord_protos.discord_users.v1.KeywordFilterSettings { // 873298.js
+  message<() => P._t> profanity = 1;
+  message<() => P._t> sexual_content = 2;
+  message<() => P._t> slurs = 3;
+}
+
+message discord_protos.discord_users.v1.LocalizationSettings { // 873298.js
+  message<() => P.hU> locale = 1;
+  message<() => P.as> timezone_offset = 2;
+  message<() => P.hU> timezone_name = 3;
+}
+
+message discord_protos.discord_users.v1.NotificationSettings { // 873298.js
+  message<() => P._t> show_in_app_notifications = 1;
+  message<() => P._t> notify_friends_on_go_live = 2;
+  scalar<6> notification_center_acked_before_id = 3;
+  message<() => P._t> enable_burst_reaction_notifications = 4;
+  message<() => P._t> quiet_mode = 5;
+  scalar<6> focus_mode_expires_at_ms = 6;
+  enum reaction_notifications = 7;
+  enum game_activity_notifications = 8;
+  enum custom_status_push_notifications = 9;
+  message<() => P._t> game_activity_exclude_steam_notifications = 10;
+  message<() => P._t> enable_voice_activity_notifications = 11;
+  message<() => P._t> enable_friend_online_notifications = 12;
+  message<() => P._t> enable_user_resurrection_notifications = 13;
+  message<() => P._t> enable_friend_anniversary_notifications = 14;
+  message<() => P._t> enable_game_update_notifications = 15;
+  message<() => P._t> enable_profile_updates_notifications = 16;
+  message<() => P._t> enable_server_trending_notifications = 17;
+  message<() => P._t> enable_dm_reply_nudge_reminders = 18;
+  message<() => P._t> enable_summary_reminder_notifications = 19;
+  message<() => P._t> enable_gdm_all_reaction_notifications = 20;
+  message<() => P._t> enable_friend_gaming_activity_notifications = 21;
+  message<() => P._t> enable_upcoming_server_event_notifications = 22;
+  message<() => P._t> enable_screen_downtime_schedule_notifications = 23;
+  message<() => P._t> notify_friends_on_profile_update = 24;
+  message<() => P._t> notify_friends_on_come_online = 25;
+  message<() => P._t> notify_server_members_on_go_live = 26;
+  message<() => P._t> notify_friends_on_custom_status_update = 27;
+}
+
+message discord_protos.discord_users.v1.PinnedEmojiPacks { // 803805.js
+  repeated scalar<6> pack_ids = 1;
+}
+
+message discord_protos.discord_users.v1.PlayedSoundFrecency { // 803805.js
+  map<() => D> played_sounds = 1;
+}
+
+message discord_protos.discord_users.v1.PreloadedUserSettings { // 873298.js
+  message<() => U.u> versions = 1;
+  message<() => ed> inbox = 2;
+  message<() => eu> guilds = 3;
+  message<() => eO> user_content = 4;
+  message<() => ev> voice_and_video = 5;
+  message<() => eV> text_and_images = 6;
+  message<() => ej> notifications = 7;
+  message<() => eY> privacy = 8;
+  message<() => e$> debug = 9;
+  message<() => ez> game_library = 10;
+  message<() => eQ> status = 11;
+  message<() => e1> localization = 12;
+  message<() => e5> appearance = 13;
+  message<() => tt> guild_folders = 14;
+  message<() => ta> favorites = 15;
+  message<() => tu> audio_context_settings = 16;
+  message<() => tE> communities = 17;
+  message<() => tm> broadcast = 18;
+  message<() => tg> clips = 19;
+  message<() => tD> for_later = 20;
+  message<() => tL> safety_settings = 21;
+  message<() => tv> icymi_settings = 22;
+  message<() => tM> applications = 23;
+  message<() => tV> ads = 24;
+  message<() => t$> in_app_feedback_settings = 25;
+  message<() => tz> app_version_settings = 26;
+  message<() => tQ> conjure = 27;
+}
+
+message discord_protos.discord_users.v1.PrivacySettings { // 873298.js
+  message<() => P._t> allow_activity_party_privacy_friends = 1;
+  message<() => P._t> allow_activity_party_privacy_voice_channel = 2;
+  repeated scalar<6> restricted_guild_ids = 3;
+  scalar<8> default_guilds_restricted = 4;
+  scalar<8> allow_accessibility_detection = 7;
+  message<() => P._t> detect_platform_accounts = 8;
+  message<() => P._t> passwordless = 9;
+  message<() => P._t> contact_sync_enabled = 10;
+  message<() => P.ZQ> friend_source_flags = 11;
+  message<() => P.ZQ> friend_discovery_flags = 12;
+  repeated scalar<6> activity_restricted_guild_ids = 13;
+  enum default_guilds_activity_restricted = 14;
+  repeated scalar<6> activity_joining_restricted_guild_ids = 15;
+  repeated scalar<6> message_request_restricted_guild_ids = 16;
+  message<() => P._t> default_message_request_restricted = 17;
+  message<() => P._t> drops_opted_out = 18;
+  message<() => P._t> non_spam_retraining_opt_in = 19;
+  message<() => P._t> family_center_enabled = 20;
+  message<() => P._t> family_center_enabled_v2 = 21;
+  message<() => P._t> hide_legacy_username = 22;
+  message<() => P._t> inappropriate_conversation_warnings = 23;
+  message<() => P._t> recent_games_enabled = 24;
+  enum guilds_leaderboard_opt_out_default = 25;
+  message<() => P._t> allow_game_friend_dms_in_discord = 26;
+  message<() => P._t> default_guilds_restricted_v2 = 27;
+  enum slayer_sdk_receive_dms_in_game = 28;
+  enum default_guilds_activity_restricted_v2 = 29;
+  message<() => P._t> quests_3p_data_opted_out = 30;
+  message<() => P._t> show_local_time = 31;
+  enum profile_visibility = 32;
+  message<() => P._t> hide_friend_request_notes = 33;
+  repeated enum ad_topic_opt_outs = 34;
+  message<() => P._t> swp_message_promotion_opted_out = 35;
+  message<() => P._t> personal_access_opted_out = 36;
+}
+
+message discord_protos.discord_users.v1.RecurringDismissibleContentState { // 873298.js
+  scalar<13> last_dismissed_version = 1;
+  scalar<4> last_dismissed_at_ms = 2;
+  scalar<4> last_dismissed_object_id = 3;
+  scalar<13> num_times_dismissed = 4;
+}
+
+message discord_protos.discord_users.v1.SafetySettings { // 873298.js
+  enum safety_settings_preset = 1;
+  scalar<8> ignore_profile_speedbump_disabled = 2;
+  message<() => tO> spending_limit_settings = 3;
+}
+
+message discord_protos.discord_users.v1.SelfHarmContentSettings { // 873298.js
+  enum self_harm_content_guilds = 1;
+  enum self_harm_content_friend_dm = 2;
+  enum self_harm_content_non_friend_dm = 3;
+}
+
+message discord_protos.discord_users.v1.SoundboardSettings { // 873298.js
+  scalar<2> volume = 1;
+}
+
+message discord_protos.discord_users.v1.SpendingLimit { // 873298.js
+  scalar<4> amount = 1;
+  scalar<9> currency = 2;
+}
+
+message discord_protos.discord_users.v1.SpendingLimitSettings { // 873298.js
+  message<() => tN> one_time_purchase_limit = 1;
+}
+
+message discord_protos.discord_users.v1.StatusSettings { // 873298.js
+  message<() => P.hU> status = 1;
+  message<() => eZ> custom_status = 2;
+  message<() => P._t> show_current_game = 3;
+  scalar<6> status_expires_at_ms = 4;
+  message<() => P.ol> status_created_at_ms = 5;
+}
+
+message discord_protos.discord_users.v1.StickerFrecency { // 803805.js
+  map<() => D> stickers = 1;
+}
+
+message discord_protos.discord_users.v1.TextAndImagesSettings { // 873298.js
+  message<() => P.hU> diversity_surrogate = 1;
+  message<() => P._t> use_rich_chat_input = 2;
+  message<() => P._t> use_thread_sidebar = 3;
+  message<() => P.hU> render_spoilers = 4;
+  repeated scalar<9> emoji_picker_collapsed_sections = 5;
+  repeated scalar<9> sticker_picker_collapsed_sections = 6;
+  message<() => P._t> view_image_descriptions = 7;
+  message<() => P._t> show_command_suggestions = 8;
+  message<() => P._t> inline_attachment_media = 9;
+  message<() => P._t> inline_embed_media = 10;
+  message<() => P._t> gif_auto_play = 11;
+  message<() => P._t> render_embeds = 12;
+  message<() => P._t> render_reactions = 13;
+  message<() => P._t> animate_emoji = 14;
+  message<() => P.ZQ> animate_stickers = 15;
+  message<() => P._t> enable_tts_command = 16;
+  message<() => P._t> message_display_compact = 17;
+  message<() => P.ZQ> explicit_content_filter = 19;
+  message<() => P._t> view_nsfw_guilds = 20;
+  message<() => P._t> convert_emoticons = 21;
+  message<() => P._t> expression_suggestions_enabled = 22;
+  message<() => P._t> view_nsfw_commands = 23;
+  message<() => P._t> use_legacy_chat_input = 24;
+  repeated scalar<9> soundboard_picker_collapsed_sections = 25;
+  message<() => P.ZQ> dm_spam_filter = 26;
+  enum dm_spam_filter_v2 = 27;
+  message<() => P._t> include_stickers_in_autocomplete = 28;
+  message<() => eM> explicit_content_settings = 29;
+  message<() => eF> keyword_filter_settings = 30;
+  message<() => P._t> include_soundmoji_in_autocomplete = 31;
+  message<() => ew> gore_content_settings = 32;
+  message<() => tY> default_reaction_emoji = 33;
+  message<() => P._t> show_mention_suggestions = 34;
+  message<() => ex> self_harm_content_settings = 35;
+  message<() => P._t> is_cross_dm_search_enabled = 36;
+  enum search_provider = 37;
+  message<() => P.hU> custom_search_url = 38;
+  message<() => P._t> include_game_mentions_in_autocomplete = 39;
+  message<() => P._t> inline_emoji_suggestions_enabled = 40;
+  message<() => P._t> display_compact_avatars = 41;
+}
+
+message discord_protos.discord_users.v1.UserContentSettings { // 873298.js
+  scalar<12> dismissed_contents = 1;
+  message<() => P.hU> last_dismissed_outbound_promotion_start_date = 2;
+  message<() => M.D> premium_tier_0_modal_dismissed_at = 3;
+  message<() => M.D> guild_onboarding_upsell_dismissed_at = 4;
+  message<() => M.D> safety_user_sentiment_notice_dismissed_at = 5;
+  scalar<6> last_received_changelog_id = 6;
+  map<() => eN> recurring_dismissible_content_states = 7;
+  scalar<6> last_gift_intent_dismissed_at_ms = 8;
+  scalar<6> contextual_referral_upsell_dismissals_version = 9;
+}
+
+message discord_protos.discord_users.v1.Versions { // 813827.js
+  scalar<13> client_version = 1;
+  scalar<13> server_version = 2;
+  scalar<13> data_version = 3;
+}
+
+message discord_protos.discord_users.v1.VideoFilterAsset { // 873298.js
+  scalar<6> id = 1;
+  scalar<9> asset_hash = 2;
+}
+
+message discord_protos.discord_users.v1.VideoFilterBackgroundBlur { // 873298.js
+  scalar<8> use_blur = 1;
+}
+
+message discord_protos.discord_users.v1.VoiceAndVideoSettings { // 873298.js
+  message<() => eD> blur = 1;
+  scalar<13> preset_option = 2;
+  message<() => eL> custom_asset = 3;
+  message<() => P._t> always_preview_video = 5;
+  message<() => P.ZQ> afk_timeout = 6;
+  message<() => P._t> stream_notifications_enabled = 7;
+  message<() => P._t> native_phone_integration_enabled = 8;
+  message<() => tf> soundboard_settings = 9;
+  message<() => P._t> disable_stream_previews = 10;
+  message<() => P.uN> soundmoji_volume = 11;
+}
+
+message discord_protos.premium_marketing.v1.AdminEditorTestComponent { // 47807.js
+  scalar<9> deprecated_field = 1;
+  message<() => d.X> localized_text_field = 2;
+  scalar<9> plain_text_field = 3;
+  message<() => d.X> textarea_field = 4;
+  scalar<8> checkbox_field = 5;
+  scalar<9> asset_field = 6;
+  message<() => c.i> themed_asset_field = 7;
+  message<() => G.O> help_article_field = 8;
+  message<() => E.$> cta_field = 9;
+  message<() => Y.H> gradient_field = 10;
+  enum select_field = 11;
+  repeated enum multi_select_field = 12;
+}
+
+message discord_protos.premium_marketing.v1.AnnouncementModalPanel { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => d.X> title_localized = 2;
+  message<() => d.X> body_localized = 3;
+  message<() => d.X> legalese_localized = 4;
+  scalar<9> terms_url = 5;
+  message<() => E.$> button = 6;
+  message<() => d.X> perk_title_localized = 7;
+  repeated message<() => _> perk_cards = 8;
+  scalar<9> title = 9;
+  scalar<9> body = 10;
+  scalar<9> legalese = 11;
+  scalar<9> perk_title = 12;
+}
+
+message discord_protos.premium_marketing.v1.AnnouncementModalPerkCard { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => d.X> title_localized = 2;
+  message<() => d.X> body_localized = 3;
+  scalar<9> title = 4;
+  scalar<9> body = 5;
+}
+
+message discord_protos.premium_marketing.v1.AnnouncementModalVariant1Properties { // 232582.js
+  scalar<9> header = 1;
+  scalar<9> subheader = 2;
+  scalar<9> video_link = 3;
+  scalar<9> help_article_id = 4;
+  repeated message<() => u> feature_cards = 5;
+  message<() => l.$> button = 6;
+  scalar<9> hero_art_video_link_light_theme = 8;
+  scalar<9> hero_art_image_link_dark_theme = 9;
+  scalar<9> hero_art_image_link_light_theme = 10;
+  scalar<9> modal_top_pill = 11;
+  repeated message<() => f> hero_art_video_subtitles = 13;
+  message<() => E> storage = 14;
+  message<() => I> disclaimer = 15;
+  message<() => o.O> help_article = 18;
+  message<() => d.X> header_localized = 19;
+  message<() => d.X> subheader_localized = 20;
+  message<() => d.X> modal_top_pill_localized = 21;
+  scalar<9> dismiss_key = 7;
+  scalar<9> body = 12;
+}
+
+message discord_protos.premium_marketing.v1.AnnouncementModalVideoLed { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => d.X> title_localized = 2;
+  message<() => d.X> body_localized = 3;
+  repeated message<() => _> perk_cards = 4;
+  message<() => E.$> button = 5;
+  message<() => d.X> legalese_localized = 6;
+  scalar<9> terms_url = 7;
+  scalar<9> title = 8;
+  scalar<9> body = 9;
+  scalar<9> legalese = 10;
+}
+
+message discord_protos.premium_marketing.v1.BillingSettingsBanner { // 520361.js
+  scalar<9> header = 1;
+  scalar<9> body = 2;
+  message<() => c.i> asset = 3;
+  message<() => d.$> button = 4;
+  message<() => o.X> header_localized = 5;
+  message<() => o.X> body_localized = 6;
+  message<() => l.O> help_article = 7;
+}
+
+message discord_protos.premium_marketing.v1.BillingSettingsNitroGiftBanner { // 959129.js
+  scalar<9> asset_url = 1;
+  scalar<9> header = 2;
+  scalar<9> body = 3;
+  scalar<9> background_asset_url = 4;
+  message<() => c.H> gradient = 5;
+  scalar<9> text_color = 6;
+  scalar<9> additional_terms = 7;
+  message<() => d.i> asset = 8;
+  message<() => d.i> background_asset = 9;
+  message<() => o.X> header_localized = 10;
+  message<() => o.X> body_localized = 11;
+  message<() => o.X> additional_terms_localized = 12;
+  message<() => l.O> help_article = 13;
+}
+
+message discord_protos.premium_marketing.v1.CTAButton { // 308588.js
+  scalar<9> copy = 1;
+  enum button_action = 2;
+  scalar<9> deeplink_section = 3;
+  message<() => d.X> copy_localized = 4;
+  message<() => o.ol> navigable_storefront_application_id = 5;
+  message<() => o.ol> shop_collection_id = 6;
+}
+
+message discord_protos.premium_marketing.v1.CollectionPageMarketingBlock { // 47807.js
+  message<() => d.X> title_localized = 1;
+  scalar<9> title = 2;
+  message<() => c.i> art = 3;
+  message<() => E.$> button = 4;
+}
+
+message discord_protos.premium_marketing.v1.Disclaimer { // 232582.js
+  scalar<9> disclaimer_text = 1;
+  message<() => o.O> disclaimer_help_article = 2;
+  message<() => d.X> disclaimer_text_localized = 3;
+}
+
+message discord_protos.premium_marketing.v1.FeatureCard { // 232582.js
+  scalar<9> header = 1;
+  scalar<9> pill = 2;
+  scalar<9> body = 3;
+  scalar<9> image_link = 4;
+  scalar<9> image_link_light_theme = 5;
+  message<() => d.X> header_localized = 6;
+  message<() => d.X> pill_localized = 7;
+  message<() => d.X> body_localized = 8;
+  message<() => o.O> help_article = 9;
+}
+
+message discord_protos.premium_marketing.v1.GameExitPanel { // 47807.js
+  repeated scalar<9> trigger_application_ids = 1;
+  message<() => d.X> body_localized = 2;
+  scalar<9> body = 3;
+  message<() => E.$> cta = 4;
+  message<() => c.i> image = 5;
+}
+
+message discord_protos.premium_marketing.v1.GiftCustomizationBanner { // 67948.js
+  scalar<9> asset_url = 1;
+  scalar<9> desktop_body = 2;
+  scalar<9> mobile_body = 3;
+  message<() => c.H> gradient = 4;
+  scalar<9> background_asset_url = 5;
+  message<() => d.i> asset = 6;
+  message<() => d.i> background_asset = 7;
+  message<() => d.i> mobile_background_asset = 8;
+  enum asset_variant = 9;
+  message<() => o.X> desktop_body_localized = 10;
+  message<() => o.X> mobile_body_localized = 11;
+}
+
+message discord_protos.premium_marketing.v1.GiftIcon { // 47807.js
+  scalar<9> box_animation_url = 1;
+  scalar<9> trinket_animation_url = 2;
+  scalar<9> trinket_glow_animation_url = 3;
+  message<() => Y.H> gradient = 4;
+  scalar<9> trinket_rive_animation_url = 5;
+}
+
+message discord_protos.premium_marketing.v1.GiftIconCoachmark { // 720119.js
+  scalar<9> header = 1;
+  scalar<9> body = 2;
+  scalar<9> asset_url = 3;
+  message<() => o.i> asset = 4;
+  message<() => l.X> header_localized = 5;
+  message<() => l.X> body_localized = 6;
+}
+
+message discord_protos.premium_marketing.v1.GiftPlanSelectionCardBanner { // 978656.js
+  scalar<9> header = 1;
+  scalar<9> desktop_body = 2;
+  scalar<9> mobile_body = 3;
+  message<() => c.i> avatar_asset = 4;
+  scalar<9> banner_asset_url = 5;
+  scalar<9> background_asset_url = 6;
+  scalar<9> card_asset_url = 7;
+  message<() => d.H> gradient = 8;
+  message<() => c.i> banner_asset = 9;
+  message<() => c.i> background_asset = 10;
+  message<() => c.i> card_asset = 11;
+  message<() => c.i> mobile_banner_asset = 12;
+  message<() => o.X> header_localized = 13;
+  message<() => o.X> desktop_body_localized = 14;
+  message<() => o.X> mobile_body_localized = 15;
+  enum asset_variant = 16;
+}
+
+message discord_protos.premium_marketing.v1.GiftReminderCoachmark { // 47807.js
+  scalar<9> header = 1;
+  scalar<9> body = 2;
+  scalar<9> asset_url = 3;
+  message<() => c.i> asset = 4;
+  message<() => d.X> header_localized = 5;
+  message<() => d.X> body_localized = 6;
+}
+
+message discord_protos.premium_marketing.v1.GiftReminderNagbar { // 47807.js
+  scalar<9> body = 1;
+  message<() => d.X> body_localized = 2;
+}
+
+message discord_protos.premium_marketing.v1.Gradient { // 414525.js
+  repeated scalar<9> colors = 1;
+  scalar<2> angle = 2;
+}
+
+message discord_protos.premium_marketing.v1.GuildBoostCheckoutBanner { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => d.X> header_localized = 2;
+  message<() => d.X> body_localized = 3;
+  message<() => G.O> help_article = 4;
+  scalar<9> header = 5;
+  scalar<9> body = 6;
+}
+
+message discord_protos.premium_marketing.v1.GuildBoostMarketingPageBanner { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => d.X> header_localized = 2;
+  message<() => d.X> body_localized = 3;
+  message<() => G.O> help_article = 4;
+  scalar<9> header = 5;
+  scalar<9> body = 6;
+}
+
+message discord_protos.premium_marketing.v1.GuildBoostTabBanner { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => d.X> header_localized = 2;
+  message<() => d.X> body_localized = 3;
+  message<() => G.O> help_article = 4;
+  scalar<9> header = 5;
+  scalar<9> body = 6;
+}
+
+message discord_protos.premium_marketing.v1.GuildHeaderCoachmark { // 47807.js
+  message<() => c.i> asset = 1;
+  message<() => E.$> button = 2;
+  message<() => G.O> help_article = 3;
+  message<() => d.X> header_localized = 4;
+  message<() => d.X> body_localized = 5;
+  scalar<9> header = 6;
+  scalar<9> body = 7;
+}
+
+message discord_protos.premium_marketing.v1.HelpArticle { // 330287.js
+  scalar<9> id = 1;
+  scalar<9> link_text = 2;
+  message<() => l.X> link_text_localized = 3;
+}
+
+message discord_protos.premium_marketing.v1.MarketingPageBanner { // 670474.js
+  scalar<9> asset_url = 1;
+  scalar<9> header = 2;
+  scalar<9> body = 3;
+  scalar<9> help_article_id = 4;
+  message<() => c.$> button = 5;
+  message<() => d.O> help_article = 6;
+  message<() => o.X> header_localized = 7;
+  message<() => o.X> body_localized = 8;
+  enum button_variant = 9;
+}
+
+message discord_protos.premium_marketing.v1.MarketingPageBentoBox { // 47807.js
+  message<() => c.i> asset = 1;
+}
+
+message discord_protos.premium_marketing.v1.MobileBottomSheet { // 47807.js
+  scalar<9> asset_url = 1;
+  scalar<9> header = 2;
+  scalar<9> body = 3;
+  scalar<9> help_article_id = 4;
+  message<() => E.$> button = 5;
+  enum dismissible_content = 6;
+  message<() => G.O> help_article = 7;
+  message<() => d.X> header_localized = 8;
+  message<() => d.X> body_localized = 9;
+}
+
+message discord_protos.premium_marketing.v1.Nagbar { // 47807.js
+  scalar<9> body = 1;
+  scalar<9> cta_label = 2;
+  enum cta_action = 3;
+  scalar<9> deeplink_section = 4;
+  message<() => G.O> help_article = 5;
+  message<() => d.X> body_localized = 6;
+  message<() => d.X> cta_label_localized = 7;
+  message<() => z.ol> navigable_storefront_application_id = 8;
+  message<() => z.ol> shop_collection_id = 9;
+}
+
+message discord_protos.premium_marketing.v1.NitroPerkCard { // 47807.js
+  message<() => d.X> header_localized = 1;
+  scalar<9> header = 2;
+  message<() => d.X> description_localized = 3;
+  scalar<9> description = 4;
+  message<() => E.$> button = 5;
+  message<() => c.i> background = 6;
+  message<() => c.i> foreground = 7;
+  message<() => c.i> third_party_logo = 8;
+  repeated enum placements = 9;
+}
+
+message discord_protos.premium_marketing.v1.OutboundPromotionClaimModalCard { // 47807.js
+  message<() => c.i> asset = 1;
+}
+
+message discord_protos.premium_marketing.v1.OutboundPromotionPopover { // 47807.js
+  message<() => c.i> asset = 1;
+}
+
+message discord_protos.premium_marketing.v1.PaymentModalBanner { // 47807.js
+  scalar<9> asset_url = 1;
+  scalar<9> header = 2;
+  scalar<9> body = 3;
+  message<() => d.X> header_localized = 4;
+  message<() => d.X> body_localized = 5;
+}
+
+message discord_protos.premium_marketing.v1.PlanSelectCardBanner { // 47807.js
+  message<() => c.i> asset = 1;
+  scalar<9> body = 2;
+  message<() => d.X> body_localized = 3;
+  message<() => G.O> help_article = 4;
+}
+
+message discord_protos.premium_marketing.v1.PremiumHomePerkCard { // 47807.js
+  message<() => c.i> asset = 1;
+}
+
+message discord_protos.premium_marketing.v1.PremiumMarketingComponentProperties { // 47807.js
+  scalar<9> placeholder = 1;
+  message<() => eO.ih> announcement_modal_variant_1 = 2;
+  message<() => eC> premium_tab = 4;
+  message<() => eS.C> marketing_page_banner = 5;
+  message<() => eg> payment_modal_banner = 6;
+  message<() => em> mobile_bottom_sheet = 7;
+  message<() => eh> gift_icon = 8;
+  message<() => eA.l> gift_icon_coachmark = 9;
+  message<() => eE.s> gift_plan_selection_card_banner = 10;
+  message<() => e_.E> gift_customization_banner = 11;
+  message<() => eu.v> billing_settings_nitro_gift_banner = 12;
+  message<() => ec> gift_reminder_nagbar = 13;
+  message<() => eo> gift_reminder_coachmark = 14;
+  message<() => es> premium_tab_tooltip = 15;
+  message<() => er> premium_tab_popover = 16;
+  message<() => en> nagbar = 17;
+  message<() => ee> plan_select_card_banner = 19;
+  message<() => J.h> billing_settings_banner = 20;
+  message<() => Q> shop_nagbar = 21;
+  message<() => X> admin_editor_test_component = 22;
+  message<() => W> guild_header_coachmark = 23;
+  message<() => H> guild_boost_checkout_banner = 24;
+  message<() => B> guild_boost_marketing_page_banner = 25;
+  message<() => k> guild_boost_tab_banner = 26;
+  message<() => w> shop_tab_tooltip = 27;
+  message<() => M> premium_home_rewards_perk_card = 28;
+  message<() => v> marketing_page_rewards_bento_box = 29;
+  message<() => D> outbound_promotion_popover = 30;
+  message<() => L> outbound_promotion_claim_modal_card = 31;
+  message<() => O.I> shop_coachmark = 32;
+  message<() => C> nitro_perk_card = 33;
+  message<() => g> collection_page_marketing_block = 34;
+  message<() => m> game_exit_panel = 35;
+  message<() => I> announcement_modal_video_led = 36;
+  message<() => f> announcement_modal_panel = 37;
+  scalar<9> content_identifier = 3;
+  scalar<8> is_default_base = 18;
+}
+
+message discord_protos.premium_marketing.v1.PremiumTab { // 47807.js
+  scalar<9> badge_label = 1;
+  scalar<9> acknowledged_badge_label = 2;
+  scalar<8> show_hover_gradient = 3;
+  scalar<9> deeplink_section = 4;
+  message<() => d.X> badge_label_localized = 5;
+  message<() => d.X> acknowledged_badge_label_localized = 6;
+}
+
+message discord_protos.premium_marketing.v1.PremiumTabPopover { // 47807.js
+  scalar<9> header = 1;
+  scalar<9> body = 2;
+  message<() => c.i> asset = 3;
+  message<() => E.$> button = 4;
+  scalar<9> help_article_id = 5;
+  message<() => G.O> help_article = 6;
+  message<() => d.X> header_localized = 7;
+  message<() => d.X> body_localized = 8;
+}
+
+message discord_protos.premium_marketing.v1.PremiumTabTooltip { // 47807.js
+  scalar<9> header = 1;
+  scalar<9> body = 2;
+  message<() => c.i> asset = 3;
+  message<() => d.X> header_localized = 4;
+  message<() => d.X> body_localized = 5;
+}
+
+message discord_protos.premium_marketing.v1.ShopCoachmark { // 174929.js
+  message<() => d.i> asset = 1;
+  message<() => o.X> header_localized = 2;
+  message<() => o.X> body_localized = 3;
+  message<() => o.X> button_label_localized = 4;
+  enum display_type = 5;
+  message<() => o.X> badge_text_localized = 6;
+  scalar<9> badge_icon = 7;
+  scalar<9> badge_countdown_ends_at = 8;
+  scalar<8> show_hover_gradient = 9;
+  message<() => d.i> hover_background = 10;
+  scalar<9> header = 11;
+  scalar<9> body = 12;
+  scalar<9> button_label = 13;
+  scalar<9> badge_text = 14;
+  scalar<13> version = 15;
+}
+
+message discord_protos.premium_marketing.v1.ShopNagbar { // 47807.js
+  scalar<9> body = 1;
+  scalar<9> cta_label = 2;
+  enum cta_action = 3;
+  scalar<9> deeplink_section = 4;
+  message<() => G.O> help_article = 5;
+  message<() => d.X> body_localized = 6;
+  message<() => d.X> cta_label_localized = 7;
+  message<() => z.ol> navigable_storefront_application_id = 8;
+  message<() => z.ol> shop_collection_id = 9;
+}
+
+message discord_protos.premium_marketing.v1.ShopTabTooltip { // 47807.js
+  scalar<9> header = 1;
+  scalar<9> body = 2;
+  message<() => c.i> asset = 3;
+  message<() => d.X> header_localized = 4;
+  message<() => d.X> body_localized = 5;
+  scalar<9> badge_text = 6;
+  message<() => d.X> badge_text_localized = 7;
+  scalar<9> badge_icon = 8;
+  scalar<9> badge_countdown_ends_at = 9;
+  scalar<8> show_hover_gradient = 10;
+  message<() => c.i> hover_background = 11;
+}
+
+message discord_protos.premium_marketing.v1.Subtitle { // 232582.js
+  scalar<9> link = 1;
+  scalar<9> locale = 2;
+  scalar<8> is_default = 3;
+}
+
+message discord_protos.premium_marketing.v1.ThemeAwareAsset { // 453360.js
+  scalar<9> light_url = 1;
+  scalar<9> dark_url = 2;
+  scalar<9> light_static_url = 3;
+  scalar<9> dark_static_url = 4;
+}
+
+message discord_protos.premium_marketing.v1.Variant1Storage { // 232582.js
+  map<9> hero_art_localized_video_links_dark_theme = 1;
+  map<9> hero_art_localized_video_links_light_theme = 2;
+  map<9> hero_art_video_subtitle_links = 3;
+}
+
+message discord_protos.qos_token.v1.Claims { // 868.js
+  scalar<6> user_id = 1;
+  scalar<6> issued_at = 2;
+  scalar<8> is_staff = 3;
+  scalar<12> auth_token_hash = 4;
+  scalar<6> expires_at = 5;
+}
+
+message discord_protos.qos_token.v1.ClientProvidedQosData { // 868.js
+  scalar<8> is_active = 1;
+}
+
+message discord_protos.qos_token.v1.DerivedQosData { // 868.js
+  scalar<12> claims = 1;
+  scalar<12> signature = 2;
+  scalar<13> key_id = 3;
+}
+
+message discord_protos.qos_token.v1.QosToken { // 868.js
+  message<() => e9> client_provided = 1;
+  message<() => tt> derived = 2;
+}
+
+message discord_protos.safety_common.v1.BannedState { // 76573.js
+  repeated enum classification_types = 1;
+  message<() => L.D> banned_at = 2;
+}
+
+message discord_protos.safety_common.v1.DeferredActionState { // 76573.js
+  message<() => L.D> action_deferred_until = 1;
+}
+
+message discord_protos.safety_common.v1.NormalState { // 76573.js
+
+}
+
+message discord_protos.safety_common.v1.RestrictedState { // 76573.js
+  message<() => L.D> restricted_until = 1;
+}
+
+message discord_protos.safety_common.v1.SafetyState { // 76573.js
+  message<() => P> normal = 101;
+  message<() => U> restricted = 102;
+  message<() => G> deferred_action = 103;
+  message<() => k> temp_banned = 104;
+  message<() => B> banned = 105;
+  enum reason = 1;
+  repeated enum annotations = 2;
+  message<() => R.ol> last_mutation_id = 3;
+}
+
+message discord_protos.safety_common.v1.TempBannedState { // 76573.js
+  message<() => L.D> banned_until = 1;
+  repeated enum classification_types = 2;
+  message<() => L.D> banned_at = 3;
+}
+
+message discord_protos.users.v1.AgeAssuranceData { // 76573.js
+  message<() => L.D> estimated_date_of_birth = 1;
+  enum method = 2;
+  scalar<5> method_version = 3;
+  enum vendor = 4;
+  message<() => L.D> verified_at = 5;
+  enum estimated_age_group = 6;
+  scalar<8> is_regional_adult = 7;
+  message<() => L.D> cooldown_reset_at = 8;
+  message<() => L.D> excluded_from_prediction_since = 9;
+}
+
+message discord_protos.users.v1.AgreementAcceptance { // 76573.js
+  message<() => L.D> accepted_at = 1;
+  message<() => R.hU> version = 2;
+}
+
+message discord_protos.users.v1.AgreementsHistory { // 76573.js
+  repeated message<() => t_> terms = 1;
+  repeated message<() => t_> privacy = 2;
+}
+
+message discord_protos.users.v1.AnonymizationInfo { // 76573.js
+  enum status = 1;
+  message<() => R.ol> anon_user_id = 2;
+  message<() => L.D> original_user_created_at = 3;
+}
+
+message discord_protos.users.v1.AprilFools2026Badge { // 76573.js
+  message<() => eb> common = 1;
+  scalar<5> level = 2;
+  scalar<9> combat_class = 3;
+}
+
+message discord_protos.users.v1.Badge { // 76573.js
+  message<() => eP> april_fools_2026 = 1;
+}
+
+message discord_protos.users.v1.BadgeCommon { // 76573.js
+  message<() => L.D> obtained_at = 1;
+}
+
+message discord_protos.users.v1.CrossPlatformRestriction { // 76573.js
+  message<() => L.D> restriction_expiry = 1;
+  scalar<6> application_id = 2;
+}
+
+message discord_protos.users.v1.DisplayNameStyles { // 76573.js
+  enum font_id = 1;
+  enum effect_id = 2;
+  repeated scalar<13> colors = 3;
+  message<() => R._t> animated = 4;
+}
+
+message discord_protos.users.v1.FeatureLimits { // 76573.js
+  map<() => eY> map = 1;
+}
+
+message discord_protos.users.v1.GuildShardingConfig { // 76573.js
+  repeated scalar<5> shards = 1;
+}
+
+message discord_protos.users.v1.LinkedUser { // 76573.js
+  scalar<6> user_id = 1;
+  enum link_type = 2;
+  enum link_status = 3;
+  scalar<6> requestor_id = 4;
+  message<() => L.D> created_at = 5;
+  message<() => L.D> updated_at = 6;
+}
+
+message discord_protos.users.v1.MediumUser { // 76573.js
+  scalar<6> id = 1;
+  scalar<9> username = 2;
+  scalar<13> discriminator = 3;
+  message<() => R.hU> avatar_hash = 4;
+  scalar<8> bot = 5;
+  scalar<4> flags = 6;
+  message<() => R.hU> email = 7;
+  message<() => R.hU> phone = 8;
+}
+
+message discord_protos.users.v1.PerkConfig { // 76573.js
+  repeated enum source = 1;
+  message<() => e7> increased_file_upload_size = 2;
+  message<() => e4> increased_guild_limit = 3;
+  message<() => te> display_name_styles = 4;
+  message<() => tn> client_themes = 5;
+  message<() => tr> app_icons = 6;
+}
+
+message discord_protos.users.v1.PerkConfigAppIcons { // 76573.js
+  scalar<8> is_restricted_to_allowed_options = 1;
+  repeated scalar<9> allowed_icon_ids = 2;
+}
+
+message discord_protos.users.v1.PerkConfigClientThemes { // 76573.js
+  scalar<8> is_restricted_to_allowed_options = 1;
+  repeated scalar<13> allowed_preset_ids = 2;
+}
+
+message discord_protos.users.v1.PerkConfigDisplayNameStyles { // 76573.js
+  scalar<8> is_restricted_to_allowed_options = 1;
+  repeated message<() => eA> allowed_styles = 2;
+}
+
+message discord_protos.users.v1.PerkConfigIncreasedFileUploadSize { // 76573.js
+  scalar<4> max_size = 1;
+}
+
+message discord_protos.users.v1.PerkConfigIncreasedGuildLimit { // 76573.js
+  scalar<13> max_guilds = 1;
+}
+
+message discord_protos.users.v1.Perks { // 76573.js
+  repeated scalar<4> active_perks_bitmask = 1;
+  map<() => e6> config_by_perk = 2;
+  scalar<13> rules_version = 3;
+  message<() => L.D> updated_at = 4;
+}
+
+message discord_protos.users.v1.PremiumState { // 76573.js
+  enum premium_source = 1;
+  enum premium_subscription_type = 2;
+  enum premium_subscription_group_role = 3;
+  message<() => L.D> premium_trial_ends_at = 4;
+}
+
+message discord_protos.users.v1.QuestMetadata { // 76573.js
+  scalar<13> quests_completed = 1;
+}
+
+message discord_protos.users.v1.RateLimitData { // 76573.js
+  message<() => L.D> limit_expiry = 1;
+}
+
+message discord_protos.users.v1.RestrictedSchedule { // 76573.js
+  repeated message<() => eC> rules = 1;
+}
+
+message discord_protos.users.v1.SafetyFlag { // 76573.js
+  message<() => L.D> flag_expiry = 1;
+}
+
+message discord_protos.users.v1.ScheduleRule { // 76573.js
+  scalar<9> rule_id = 1;
+  scalar<9> label = 2;
+  message<() => es> start_time = 3;
+  message<() => es> end_time = 4;
+  repeated enum days = 5;
+  scalar<8> enabled = 6;
+}
+
+message discord_protos.users.v1.StoreCountry { // 76573.js
+  scalar<9> country = 1;
+  message<() => L.D> set_at = 2;
+}
+
+message discord_protos.users.v1.TimeOfDay { // 76573.js
+  scalar<5> hours = 1;
+  scalar<5> minutes = 2;
+  scalar<5> seconds = 3;
+  scalar<5> nanos = 4;
+}
+
+message discord_protos.users.v1.TypingIndicatorEmoji { // 76573.js
+  scalar<6> custom_emoji_id = 1;
+  scalar<9> unicode_emoji = 2;
+  scalar<8> animated = 3;
+}
+
+message discord_protos.users.v1.User { // 76573.js
+  scalar<4> id = 1;
+  scalar<9> username = 2;
+  scalar<9> discriminator = 3;
+  message<() => R.hU> avatar = 4;
+  scalar<8> bot = 5;
+  scalar<4> public_flags = 6;
+  message<() => R.hU> global_name = 8;
+  message<() => ec> avatar_decoration_data = 9;
+  message<() => eS> primary_guild = 10;
+  message<() => eT> collectibles = 11;
+  message<() => H> safety_state = 12;
+  message<() => eA> display_name_styles = 13;
+  message<() => tc> vad_colors = 14;
+}
+
+message discord_protos.users.v1.UserAvatarDecoration { // 76573.js
+  scalar<9> asset = 1;
+  message<() => R.ol> sku_id = 2;
+  message<() => R.ZQ> expires_at = 3;
+}
+
+message discord_protos.users.v1.UserBadges { // 76573.js
+  repeated message<() => eU> badges = 1;
+}
+
+message discord_protos.users.v1.UserCollectibles { // 76573.js
+  message<() => e_> nameplate = 1;
+}
+
+message discord_protos.users.v1.UserCountryData { // 76573.js
+  scalar<9> calculated_country = 1;
+  message<() => L.D> last_calculated_at = 2;
+  message<() => R.hU> country_override = 3;
+  message<() => L.D> override_set_at = 4;
+  map<2> country_scores = 5;
+}
+
+message discord_protos.users.v1.UserData { // 76573.js
+  map<() => ej> linked_users = 1;
+  map<() => e$> safety_feature_limits = 2;
+  map<() => ez> safety_flags = 3;
+  message<() => eJ> quest = 4;
+  message<() => eS> primary_guild = 5;
+  message<() => ey> cross_platform_restriction = 6;
+  message<() => eT> collectibles = 7;
+  message<() => H> safety_state = 8;
+  message<() => e0> premium_state = 9;
+  message<() => eA> display_name_styles = 10;
+  message<() => e2> store_country = 11;
+  message<() => eR> restricted_schedule = 12;
+  message<() => eV> age_assurance_data = 13;
+  message<() => ts> perks = 14;
+  message<() => eG> badges = 15;
+  message<() => to> country_data = 16;
+  scalar<8> is_pending_required_action = 17;
+  message<() => ek> anonymization_info = 18;
+  message<() => eh> typing_indicator_style = 19;
+  scalar<8> disable_staff_discount = 20;
+  message<() => tc> vad_colors = 21;
+  scalar<4> hidden_flags = 22;
+  repeated scalar<9> play_install_ids = 23;
+}
+
+message discord_protos.users.v1.UserNameplate { // 76573.js
+  scalar<9> asset = 1;
+  scalar<9> palette = 2;
+  message<() => R.ol> sku_id = 3;
+  message<() => L.D> expires_at = 4;
+  scalar<9> label = 5;
+}
+
+message discord_protos.users.v1.UserPrimaryGuild { // 76573.js
+  message<() => R.ol> identity_guild_id = 1;
+  message<() => R._t> identity_enabled = 2;
+  message<() => R.hU> tag = 3;
+  message<() => R.hU> badge = 4;
+}
+
+message discord_protos.users.v1.UserTypingIndicatorStyle { // 76573.js
+  repeated message<() => ep> emojis = 1;
+  enum animation = 2;
+  enum typing_suggestion = 3;
+}
+
+message discord_protos.users.v1.VadColors { // 76573.js
+  repeated scalar<13> colors = 1;
+}

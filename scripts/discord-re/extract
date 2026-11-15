@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Downloads Discord's current web client and extracts the tables in
+# docs/discord/official-client/data. See docs/discord/official-client/README.md.
+#
+# usage: scripts/discord-re/extract <work dir>
+# Needs node, npm and curl. Takes about 5 minutes and 300 MB of disk.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+work=${1:?usage: extract <work dir>}
+data="$here/../../docs/discord/official-client/data"
+mkdir -p "$work/js" "$work/tools"
+
+if [ ! -d "$work/tools/node_modules/acorn" ]; then
+  (cd "$work/tools" && npm init -y >/dev/null &&
+    npm i --silent acorn@8.14.0 acorn-walk@8.3.4 js-beautify@1.15.1)
+fi
+cp "$here"/*.js "$work/tools/"
+
+cd "$work"
+curl -sf https://discord.com/app -o app.html
+grep -oE '/assets/[A-Za-z0-9._-]+\.js' app.html | sort -u | sed 's#/assets/##' > initial.txt
+xargs -P 16 -I{} curl -sf "https://discord.com/assets/{}" -o "js/{}" < initial.txt
+node tools/chunks.js js lazy.txt
+comm -23 <(sort -u lazy.txt) <(ls js | sort) |
+  xargs -P 24 -I{} sh -c 'curl -sf "https://discord.com/assets/$1" -o "js/$1" || true' _ {}
+
+node --max-old-space-size=8192 tools/split.js js mods
+runtime=$(ls js | grep '^web\.')
+node tools/obj.js "js/$runtime" 'MESSAGES:e=>' > "$data/rest-endpoints.tsv"
+node tools/enums.js js "$data/enums.txt"
+node tools/protos.js mods "$data/protos.txt"
+
+# Gateway dispatches the client registers a handler for.
+gateway=$(grep -l 'MESSAGE_REACTION_ADD_MANY' mods/*.js | xargs grep -l 'function eH(' | head -1)
+node -e '
+const s=require("fs").readFileSync(process.argv[1],"utf8"),ev=new Set();
+for(const m of s.matchAll(/\b(?:eH|ej|e[A-Za-z])\(\[([^\]]+)\]/g))for(const x of m[1].matchAll(/"([A-Z0-9_]+)"/g))ev.add(x[1]);
+console.log([...ev].sort().join("\n"))' "$gateway" > "$data/gateway-events.txt"
+
+grep -oE '"BUILD_NUMBER":"[0-9]+"' app.html
+echo "modules in $work/mods; tables in $data"
