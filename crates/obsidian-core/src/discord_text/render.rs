@@ -669,6 +669,7 @@ pub(super) fn chat_card(
 ) -> Card {
     use obsidian_discord::components::{Beside as DiscordBeside, Row, Style};
     let button = |button: &obsidian_discord::components::Button| CardButton {
+        custom_id: button.custom_id.clone(),
         label: match &button.emoji {
             Some(emoji) => format!("{} {}", discord.render(server, emoji), button.label)
                 .trim_end()

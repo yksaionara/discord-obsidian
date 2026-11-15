@@ -4347,6 +4347,66 @@ async fn resumes_the_gateway() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn presses_an_apps_buttons() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("presses_an_apps_buttons").await;
+    post_control(server, "/_control/components", "");
+    let deployed = timeout(WAIT, async {
+        loop {
+            let page = discord.history(&guild, &general, Span::Latest).await.unwrap();
+            if let Some(found) = page.messages.into_iter().find(|message| message.content.contains("v2.4")) {
+                break found;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("Status Bot's message didn't come");
+    // Its buttons carry what pressing them tells the bot, the message who sent it.
+    let app = deployed.app.as_deref().expect("pressable buttons").clone();
+    assert_eq!(app.id, "1400000000000000007", "the bot, without an application_id");
+    let mut live = discord.live();
+    let approved = discord
+        .press_button(Some(&guild), &general, &deployed.id, &app, "approve")
+        .await
+        .unwrap();
+    let rolled_back = discord
+        .press_button(Some(&guild), &general, &deployed.id, &app, "rollback")
+        .await
+        .unwrap();
+    // Discord's client sends type 3 with the session and message, by a nonce.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent[0]["type"], 3);
+    assert_eq!(sent[0]["data"], serde_json::json!({"component_type": 2, "custom_id": "approve"}));
+    assert_eq!(sent[0]["message_id"], deployed.id.as_str());
+    assert_eq!(sent[0]["nonce"], approved.as_str());
+    assert!(sent[0]["session_id"].is_string());
+    // The bot answers one and fails the other, by its nonce.
+    let mut answers = Vec::new();
+    while answers.len() < 2 {
+        answers.push(
+            live_where(&mut live, |event| match event {
+                Live::Interaction { nonce, failed } => Some((nonce, failed)),
+                _ => None,
+            })
+            .await,
+        );
+    }
+    answers.sort();
+    let mut expected = vec![(approved, false), (rolled_back, true)];
+    expected.sort();
+    assert_eq!(answers, expected);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn links_by_qr_code() {
     let Fixture { _fake, server, .. } = Fixture::start("links_by_qr_code").await;
     // Linking by QR code: the code shows, Alice scans it and confirms on her

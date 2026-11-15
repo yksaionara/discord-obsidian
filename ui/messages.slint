@@ -1538,8 +1538,8 @@ export component EmbedView inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
-// A Discord app's button. A link's opens its page; the others show what the
-// app offers, but would ask the app, which Discord Obsidian can't yet.
+// A Discord app's button. A link's opens its page; another's `url` holds what
+// pressing it tells the app, which `open-link` sends as an interaction.
 component CardButtonView inherits ActionButton {
     in property <CardButton> button;
     callback open-link(string);

@@ -105,6 +105,9 @@ pub struct Button {
     /// Where a link button leads.
     pub url: Option<String>,
     pub disabled: bool,
+    /// What pressing it tells the app, for a button that isn't a link.
+    #[serde(default)]
+    pub custom_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -122,6 +125,26 @@ pub enum Style {
 pub struct Parsed {
     pub cards: Vec<Card>,
     pub media: Vec<Attachment>,
+}
+
+impl Card {
+    /// Whether one of its buttons can be pressed, telling its app.
+    pub fn pressable(&self) -> bool {
+        self.rows.iter().any(|row| match row {
+            Row::Buttons(buttons) => buttons.iter().any(Button::pressable),
+            Row::Text {
+                beside: Some(Beside::Button(button)),
+                ..
+            } => button.pressable(),
+            _ => false,
+        })
+    }
+}
+
+impl Button {
+    pub fn pressable(&self) -> bool {
+        self.custom_id.is_some() && !self.disabled
+    }
 }
 
 pub fn parse(components: &Value) -> Parsed {
@@ -300,6 +323,10 @@ fn button(component: &Value) -> Option<Button> {
             .filter(|_| style == Style::Link)
             .map(str::to_owned),
         disabled: component["disabled"].as_bool().unwrap_or(false),
+        custom_id: component["custom_id"]
+            .as_str()
+            .filter(|_| style != Style::Link)
+            .map(str::to_owned),
     })
 }
 

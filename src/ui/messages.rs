@@ -874,7 +874,7 @@ fn card_row<'a>(
                 _ => None,
             };
             let button = match beside {
-                Some(Beside::Button(button)) => Some(card_button(button, &message.emoji)),
+                Some(Beside::Button(button)) => Some(card_button(button, message)),
                 _ => None,
             };
             CardRow {
@@ -917,7 +917,7 @@ fn card_row<'a>(
             buttons: ModelRc::new(VecModel::from(
                 buttons
                     .iter()
-                    .map(|button| card_button(button, &message.emoji))
+                    .map(|button| card_button(button, message))
                     .collect::<Vec<_>>(),
             )),
             ..Default::default()
@@ -942,10 +942,20 @@ const EMBED_PADDING: i32 = 32;
 /// A card's thumbnail and the space before it, as `EmbedView` lays it out.
 const EMBED_THUMBNAIL: i32 = 96;
 
-fn card_button(
-    button: &obsidian_core::chat::CardButton,
-    emoji: &[obsidian_core::chat::CustomEmoji],
-) -> CardButton {
+/// What a pressable button's `url` holds instead of a page: the message's
+/// item and the button's `custom_id`, apart by [`PRESS_APART`], which
+/// `open-link` turns into [`Action::PressButton`]. It never leaves Discord
+/// Obsidian.
+pub(super) const PRESS_LINK: &str = "obsidian:press/";
+pub(super) const PRESS_APART: char = '\u{1f}';
+
+/// The message item and `custom_id` a [`PRESS_LINK`] holds.
+pub(super) fn pressed(link: &str) -> Option<(&str, &str)> {
+    link.strip_prefix(PRESS_LINK)?.split_once(PRESS_APART)
+}
+
+fn card_button(button: &obsidian_core::chat::CardButton, message: &ChatMessage) -> CardButton {
+    let emoji = &message.emoji;
     use obsidian_core::chat::ButtonStyle;
     CardButton {
         label: custom_emoji::text(&button.label, emoji).into(),
@@ -956,8 +966,14 @@ fn card_button(
             ButtonStyle::Danger => CardButtonStyle::Danger,
             ButtonStyle::Link => CardButtonStyle::Link,
         },
-        url: button.url.clone().unwrap_or_default().into(),
-        enabled: button.url.is_some() && !button.disabled,
+        url: match (&button.url, &button.custom_id) {
+            (Some(url), _) => url.as_str().into(),
+            (None, Some(custom_id)) => {
+                format!("{PRESS_LINK}{}{PRESS_APART}{custom_id}", message.item).into()
+            }
+            (None, None) => Default::default(),
+        },
+        enabled: (button.url.is_some() || button.custom_id.is_some()) && !button.disabled,
     }
 }
 

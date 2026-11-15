@@ -126,6 +126,11 @@ events! {
     /// A message was pinned or unpinned in a channel: `{guild_id?,
     /// channel_id, last_pin_timestamp}`.
     ChannelPinsUpdate = "CHANNEL_PINS_UPDATE",
+    /// What became of an interaction this session sent, by its nonce:
+    /// Discord took it, the app answered, or it failed.
+    InteractionCreate = "INTERACTION_CREATE",
+    InteractionSuccess = "INTERACTION_SUCCESS",
+    InteractionFailure = "INTERACTION_FAILURE",
     /// The answer to REQUEST_CHANNEL_INFO (op 43): a server's voice channels'
     /// statuses, `{guild_id, channels: [{id, status, voice_start_time}]}`.
     ChannelInfo = "CHANNEL_INFO",
@@ -251,6 +256,9 @@ mod tests {
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
             ("VOICE_CHANNEL_STATUS_UPDATE", Event::VoiceChannelStatusUpdate),
             ("CHANNEL_PINS_UPDATE", Event::ChannelPinsUpdate),
+            ("INTERACTION_CREATE", Event::InteractionCreate),
+            ("INTERACTION_SUCCESS", Event::InteractionSuccess),
+            ("INTERACTION_FAILURE", Event::InteractionFailure),
             ("CHANNEL_INFO", Event::ChannelInfo),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (

@@ -793,6 +793,13 @@ impl Api {
 
     /// Adds or removes this account's reaction; `emoji` is the emoji itself
     /// or `name:id` for a custom one.
+    /// Sends an interaction, such as pressing a message's button; Discord
+    /// answers 204, and the gateway says what became of it.
+    pub async fn interact(&self, body: &Value) -> Result<()> {
+        self.empty(with_json(self.request(Method::POST, "/interactions"), body))
+            .await
+    }
+
     pub async fn react(&self, channel: &str, message: &str, emoji: &str, add: bool) -> Result<()> {
         let path = format!(
             "/channels/{channel}/messages/{message}/reactions/{}/@me?location=Message&type=0",

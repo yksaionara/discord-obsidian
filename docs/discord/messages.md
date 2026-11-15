@@ -675,6 +675,27 @@ embeds or stickers couldn't be posted, and an age-restricted one. Discord Obsidi
 lists those, and Discord's refusal shows when the forward fails there.
 Mentions and custom emoji in the message added go as typed.
 
+## Apps' buttons
+
+An app's message shows its components as Discord's client does
+(`components.rs`): cards of text, galleries, files, separators, buttons and
+menus. A link button opens its page. Pressing any other button tells the
+app, as Discord's client does: `POST /interactions` with type 3
+(`MESSAGE_COMPONENT`), a snowflake `nonce`, the gateway session's
+`session_id`, the message's `id` and `flags`, its `application_id` (or for
+a bot's message without one, the bot's id), and `data: {component_type: 2,
+custom_id}`. Discord answers 204, and the gateway follows with
+INTERACTION_CREATE and then INTERACTION_SUCCESS or INTERACTION_FAILURE,
+matched by the nonce. A failure, or a request Discord refuses, says "This
+interaction failed." in the channel. Only someone who may send in the
+channel can press, as in Discord. A forwarded copy's buttons don't press,
+and neither do disabled ones.
+
+The app and flags are kept only on messages with a button that presses, in
+one boxed `MessageApp`, so other messages carry 8 bytes more. Menus show
+what they pick but don't open yet, and the modals an app may answer with
+(INTERACTION_MODAL_CREATE) open in Discord.
+
 ## Notification settings
 
 Discord keeps the account's notification settings per server, and one set

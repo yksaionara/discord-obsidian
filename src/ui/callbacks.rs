@@ -1416,6 +1416,19 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             }
             return;
         }
+        // An app's button tells the app it was pressed.
+        if let Some((item, custom_id)) = messages::pressed(&link) {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::PressButton {
+                        item: item.to_owned(),
+                        custom_id: custom_id.to_owned(),
+                    },
+                );
+            }
+            return;
+        }
         if link == messages::PINS_LINK {
             if let Some(window) = weak.upgrade() {
                 window.invoke_open_pins();

@@ -2070,6 +2070,9 @@ let generalTopic: string | null =
 /** The Lounge's voice channel status, which REQUEST_CHANNEL_INFO (op 43)
  *  answers with in CHANNEL_INFO and POST /_control/voice-status changes. */
 let loungeStatus: string | null = "Movie night <:pog:4207>";
+/** Interactions clients sent, POST /interactions' bodies, for GET
+ *  /_control/interactions. */
+const interactions: unknown[] = [];
 /** How often clients asked for a member list, for GET /_control/list-requests. */
 let listRequests = 0;
 /** How often clients identified and resumed, for GET /_control/sessions. */
@@ -5682,6 +5685,18 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.
+  if (method === "POST" && path === "/interactions") {
+    // Discord takes it, then the app answers: Status Bot's Roll back fails.
+    const body = await req.json() as any;
+    interactions.push(body);
+    const id = snowflake(Date.now(), interactions.length);
+    setTimeout(() => {
+      dispatch("INTERACTION_CREATE", { id, nonce: body.nonce });
+      const failed = body.data?.custom_id === "rollback";
+      dispatch(failed ? "INTERACTION_FAILURE" : "INTERACTION_SUCCESS", { id, nonce: body.nonce });
+    }, 10);
+    return new Response(null, { status: 204 });
+  }
   if (method === "POST" && path === "/users/@me/channels") {
     const body: any = await req.json();
     if ((body.recipients?.length ?? 0) > 1) {
@@ -8457,6 +8472,7 @@ const server = Bun.serve<SocketData>({
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
     }
+    if (path === "/_control/interactions") return Response.json(interactions);
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);
     }

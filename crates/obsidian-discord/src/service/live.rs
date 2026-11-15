@@ -47,6 +47,14 @@ pub(super) fn live_events(
         })
     };
     match event {
+        Event::InteractionSuccess | Event::InteractionFailure => data["nonce"]
+            .as_str()
+            .map(|nonce| Live::Interaction {
+                nonce: nonce.to_owned(),
+                failed: *event == Event::InteractionFailure,
+            })
+            .into_iter()
+            .collect(),
         Event::ChannelPinsUpdate => vec![Live::PinsChanged {
             guild: data["guild_id"].as_str().unwrap_or(PRIVATE).to_owned(),
             channel: channel(),

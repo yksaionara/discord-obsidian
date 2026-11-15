@@ -102,6 +102,7 @@ pub fn command(
         | Command::Send { room, .. }
         | Command::Edit { room, .. }
         | Command::React { room, .. }
+        | Command::PressButton { room, .. }
         | Command::Reactors { room, .. }
         | Command::Vote { room, .. }
         | Command::EndPoll { room, .. }
@@ -267,6 +268,9 @@ pub fn command(
             }
         }
         Command::React { item, key, .. } => channel.react(discord, done, &item, &key),
+        Command::PressButton {
+            item, custom_id, ..
+        } => channel.press_button(discord, done, &item, custom_id),
         Command::Reactors {
             item,
             key,
@@ -437,6 +441,14 @@ pub fn finished(
         | Done::Saved { room, .. }
         | Done::Copied { room, .. }
         | Done::Failed { room, .. } => room.clone(),
+        // The app answers on the gateway, by the nonce.
+        Done::Pressed { room, nonce } => {
+            if channels.pressed.len() >= super::channels::KEPT_PRESSES {
+                channels.pressed.pop_front();
+            }
+            channels.pressed.push_back((nonce.clone(), room.clone()));
+            return;
+        }
         Done::Typing { room } => {
             channels.typing_changed(room, events);
             return;
@@ -599,7 +611,7 @@ pub fn finished(
             let _ = events.send(Event::RoomError { room, message });
         }
         // Handled above.
-        (Done::Typing { .. } | Done::MembersLate { .. }, Some(_)) => {}
+        (Done::Typing { .. } | Done::MembersLate { .. } | Done::Pressed { .. }, Some(_)) => {}
     }
     // A page is said to have come once it's published, so the timeline has
     // it, but a window before it: until then the timeline stays as it was.
@@ -679,6 +691,18 @@ pub fn live(
             ban: Box::new(super::server_settings::ban((**ban).clone())),
             banned: *banned,
         });
+        return;
+    }
+    if let Ok(Live::Interaction { nonce, failed }) = &event {
+        if let Some(at) = channels.pressed.iter().position(|(sent, _)| sent == nonce) {
+            let (_, room) = channels.pressed.remove(at).unwrap_or_default();
+            if *failed {
+                let _ = events.send(Event::RoomError {
+                    room,
+                    message: "This interaction failed.".into(),
+                });
+            }
+        }
         return;
     }
     if let Ok(Live::PinsChanged { guild, channel }) = &event {

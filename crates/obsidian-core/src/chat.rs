@@ -1646,6 +1646,9 @@ pub struct CardButton {
     /// Where a link button leads.
     pub url: Option<String>,
     pub disabled: bool,
+    /// What pressing a button that isn't a link tells its app; see
+    /// [`Command::PressButton`].
+    pub custom_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1937,6 +1940,13 @@ pub enum Command {
         room: String,
         item: String,
         key: String,
+    },
+    /// Press a button of a Discord app's message, telling the app; a failure
+    /// says so in the room, as [`Event::RoomError`].
+    PressButton {
+        room: String,
+        item: String,
+        custom_id: String,
     },
     /// Who reacted to an item with `key`: up to `limit` of them, after the
     /// one with id `after`. [`Event::Reactors`] follows.
@@ -3509,6 +3519,7 @@ impl Command {
             Command::Send { room, .. }
             | Command::Edit { room, .. }
             | Command::React { room, .. }
+            | Command::PressButton { room, .. }
             | Command::Reactors { room, .. }
             | Command::Vote { room, .. }
             | Command::SendPoll { room, .. }

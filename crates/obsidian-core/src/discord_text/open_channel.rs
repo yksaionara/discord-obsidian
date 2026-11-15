@@ -966,6 +966,40 @@ impl OpenChannel {
         });
     }
 
+    /// Presses the button `custom_id` of the app's message `item`, as
+    /// Discord's client does.
+    pub fn press_button(
+        &self,
+        discord: &Discord,
+        done: &UnboundedSender<Done>,
+        item: &str,
+        custom_id: String,
+    ) {
+        let Some(message) =
+            sent_id(item).and_then(|id| self.message(id.parse().unwrap_or_default()))
+        else {
+            return;
+        };
+        let Some(app) = message.app.as_deref().cloned() else {
+            return;
+        };
+        let (discord, done) = (discord.clone(), done.clone());
+        let (room, channel, id) = (self.room.clone(), self.channel.clone(), message.id.clone());
+        let guild = (self.guild != obsidian_discord::ready::PRIVATE).then(|| self.guild.clone());
+        tokio::spawn(async move {
+            let pressed = discord
+                .press_button(guild.as_deref(), &channel, &id, &app, &custom_id)
+                .await;
+            let _ = done.send(match pressed {
+                Ok(nonce) => Done::Pressed { room, nonce },
+                Err(error) => Done::Failed {
+                    room,
+                    message: format!("This interaction failed: {error}"),
+                },
+            });
+        });
+    }
+
     /// Removes `user`'s reaction to `item` with `key`, as a moderator.
     pub fn remove_reactor(
         &self,

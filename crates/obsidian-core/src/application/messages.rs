@@ -3,6 +3,22 @@
 use super::*;
 
 impl Application {
+    /// Presses an app's button in a room this account may write in, as
+    /// Discord's client only lets members who can send press them.
+    pub(super) fn press_button(&mut self, item: String, custom_id: String) -> Vec<Effect> {
+        let Some(room) = self.state.room_of(&item).cloned() else {
+            return vec![];
+        };
+        if !self.state.can_write_in(&room) {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::PressButton {
+            room,
+            item,
+            custom_id,
+        })]
+    }
+
     pub(super) fn react(&mut self, item: String, key: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];

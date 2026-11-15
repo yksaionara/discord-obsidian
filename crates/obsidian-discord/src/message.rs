@@ -164,6 +164,10 @@ pub struct Message {
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// The app whose buttons it carries, for a message with buttons that
+    /// can be pressed; boxed, as few messages have one.
+    #[serde(default)]
+    pub app: Option<Box<MessageApp>>,
     /// Deleted while shown, and kept by the Message Logger add-on. Never
     /// kept on disk: after a restart it's gone, as Discord has it.
     #[serde(skip)]
@@ -541,6 +545,28 @@ pub fn iso_ms(text: &str) -> Option<u64> {
     u64::try_from(seconds * 1000 + fraction).ok()
 }
 
+/// What pressing a message's button tells Discord about the message, as
+/// Discord's client sends it in the interaction.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MessageApp {
+    /// The app that sent it: `application_id`, else a bot author's id.
+    pub id: String,
+    /// The message's flags.
+    pub flags: u64,
+}
+
+impl MessageApp {
+    fn of(value: &Value) -> Option<Box<Self>> {
+        let id = value["application_id"]
+            .as_str()
+            .or_else(|| value["author"]["id"].as_str().filter(|_| value["author"]["bot"] == true))?;
+        Some(Box::new(Self {
+            id: id.to_owned(),
+            flags: value["flags"].as_u64().unwrap_or(0),
+        }))
+    }
+}
+
 /// A nonce like the official client's: a snowflake for the current time.
 pub fn nonce() -> String {
     let now = std::time::SystemTime::now()
@@ -749,6 +775,10 @@ pub fn parse(value: &Value) -> Option<Message> {
         });
     }
     attachments.extend(components.media);
+    // Buttons press only on the message itself, not on a forwarded copy.
+    let app = (!forwarded && components.cards.iter().any(Card::pressable))
+        .then(|| MessageApp::of(value))
+        .flatten();
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
@@ -818,6 +848,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
         poll: Poll::of(&shown["poll"]),
+        app,
         logged_deletion: None,
         earlier: Vec::new(),
     })

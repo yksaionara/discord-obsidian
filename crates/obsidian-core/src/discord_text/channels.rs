@@ -60,7 +60,13 @@ pub struct Channels {
     /// id, newest last, so the Message Logger tells of one deleted: a ghost
     /// ping. At most [`KEPT_PINGS`], and only in memory.
     pub(super) pings: std::collections::VecDeque<(String, String, Notification)>,
+    /// Buttons pressed whose apps haven't answered, by the interaction's
+    /// nonce, with their room; at most [`KEPT_PRESSES`].
+    pub(super) pressed: std::collections::VecDeque<(String, String)>,
 }
+
+/// How many pressed buttons wait for their app's answer at once.
+pub(super) const KEPT_PRESSES: usize = 16;
 
 /// How many pings the Message Logger remembers for catching ghost pings.
 pub(super) const KEPT_PINGS: usize = 50;

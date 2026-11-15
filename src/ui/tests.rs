@@ -7267,16 +7267,17 @@ fn discord_links_open_channels_messages_and_profiles_here() {
 }
 
 #[test]
-fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
+fn a_card_of_components_shows_headings_files_and_buttons_that_work() {
     use obsidian_core::chat::{
         Attachment, ButtonStyle, Card, CardButton as Button, CardRow as Row, Placement,
     };
     i_slint_backend_testing::init_no_event_loop();
-    let button = |style, url: Option<&str>| Button {
+    let button = |style, url: Option<&str>, custom_id: Option<&str>| Button {
         label: "Go".into(),
         style,
         url: url.map(str::to_owned),
         disabled: false,
+        custom_id: custom_id.map(str::to_owned),
     };
     let message = ChatMessage {
         item: "d:1".into(),
@@ -7303,8 +7304,9 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
                 },
                 Row::Media(0),
                 Row::Buttons(vec![
-                    button(ButtonStyle::Link, Some("https://example.com")),
-                    button(ButtonStyle::Primary, None),
+                    button(ButtonStyle::Link, Some("https://example.com"), None),
+                    button(ButtonStyle::Primary, None, Some("vote:1")),
+                    button(ButtonStyle::Secondary, None, None),
                 ]),
             ],
         }],
@@ -7324,12 +7326,14 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
         .iter()
         .map(|button| button.enabled)
         .collect();
-    assert_eq!(enabled, [true, false], "only a link's button works");
+    assert_eq!(enabled, [true, true, false], "a link's and an app's work");
+    let pressed = rows[2].buttons.row_data(1).unwrap().url;
+    assert_eq!(super::messages::pressed(&pressed), Some(("d:1", "vote:1")));
     let text = message_text(&MessageRow {
         first: false,
         ..row
     });
-    assert_eq!(text, "Hello\nThere\nsmall print\nnotes.txt\nGo Go");
+    assert_eq!(text, "Hello\nThere\nsmall print\nnotes.txt\nGo Go Go");
 }
 
 #[test]

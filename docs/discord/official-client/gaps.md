@@ -24,6 +24,8 @@ Matched now:
   server opens, `CHANNEL_INFO` and `VOICE_CHANNEL_STATUS_UPDATE`.
 - `GUILD_SCHEDULED_EVENT_USER_ADD/REMOVE` keep interested counts current.
 - `CHANNEL_PINS_UPDATE` reloads pins while they're open.
+- Apps' buttons press (`POST /interactions`, type 3), and
+  `INTERACTION_SUCCESS`/`FAILURE` answer them.
 
 Still different:
 
@@ -45,8 +47,7 @@ features. The ones a chat-and-voice client shows to users:
 - `STAGE_INSTANCE_CREATE/UPDATE/DELETE`: Stage topics
 - `SESSIONS_REPLACE`: your own other sessions, used for your shown status
   and "active on mobile"
-- `INTERACTION_CREATE/SUCCESS/FAILURE`, `INTERACTION_MODAL_CREATE`: slash
-  command and button feedback, and app modals
+- `INTERACTION_MODAL_CREATE`: app modals
 - `APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE`: slash command option autocomplete
 - `THREAD_MEMBER_LIST_UPDATE`: a thread's member sidebar
 - `SAVED_MESSAGE_CREATE/DELETE`: "Save for later" / bookmarks

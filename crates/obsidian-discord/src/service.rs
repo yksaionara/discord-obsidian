@@ -518,6 +518,9 @@ pub enum Live {
     /// A message was pinned or unpinned in a channel, of `guild` or
     /// [`ready::PRIVATE`], for its pins while they're open.
     PinsChanged { guild: String, channel: String },
+    /// An interaction this session sent, by its nonce, was answered by its
+    /// app, or failed.
+    Interaction { nonce: String, failed: bool },
     /// A server's stickers, as GUILD_STICKERS_UPDATE gives them all, for
     /// Stickers while it's open.
     ServerStickers {
@@ -2043,6 +2046,43 @@ impl Discord {
     /// setting.
     pub fn set_inactive(&self, since: Option<u64>, show_idle: bool) {
         let _ = self.requests.send(Request::Inactive(since, show_idle));
+    }
+
+    /// Presses a message's button, telling its app as Discord's client does
+    /// (`POST /interactions`, type 3). Returns the interaction's nonce, which
+    /// [`Live::Interaction`] names when the app answers or it fails.
+    pub async fn press_button(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        message: &str,
+        app: &crate::message::MessageApp,
+        custom_id: &str,
+    ) -> Result<String> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected right now."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        let nonce = crate::message::nonce();
+        self.api
+            .interact(&json!({
+                "type": 3,
+                "nonce": nonce,
+                "guild_id": guild,
+                "channel_id": channel,
+                "message_flags": app.flags,
+                "message_id": message,
+                "application_id": app.id,
+                "session_id": session,
+                "data": {"component_type": 2, "custom_id": custom_id},
+            }))
+            .await?;
+        Ok(nonce)
     }
 
     /// Tells the session whether Discord Obsidian's window is in front, which

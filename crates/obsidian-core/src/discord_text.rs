@@ -130,6 +130,8 @@ pub enum Done {
     },
     /// An action failed; the reason is for the person.
     Failed { room: String, message: String },
+    /// A button was pressed; its app answers the interaction with this nonce.
+    Pressed { room: String, nonce: String },
     /// Someone may have stopped typing.
     Typing { room: String },
     /// A channel opened a while ago; its member list should have come by now.
