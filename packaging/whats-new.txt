@@ -1,2 +1,5 @@
-- Fixed: Go Live no longer closes at random. When Discord's stream server drops the connection, your stream, and any stream you're watching, picks back up on its own, the way Discord's own client does.
-- Fixed: dragging someone between voice channels no longer gets stuck to the cursor, and they land in the channel you let go on.
+- New: watch several streams at once, like Discord. "Watch" watches one, the eye button next to it adds another, and clicking a stream makes it the big one. Each stream has its own mute button, and right-clicking someone gives Stop Watching and Mute.
+- Fixed: quitting, Alt+F4 and Task Manager's End task now take you out of the call right away instead of leaving you stuck in it.
+- Fixed: the Update button shows up in every window, including after starting in the tray, and updates are found within about a minute.
+- Fixed: the "You were in a voice channel" banner only shows once after quitting in a call and fades after 10 seconds.
+- New: Default at the top of the microphone and speaker lists, which follows your Windows default device.
