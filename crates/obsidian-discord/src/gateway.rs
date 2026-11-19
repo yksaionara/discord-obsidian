@@ -67,6 +67,7 @@ const CALL_CONNECT: u64 = 13;
 const STREAM_CREATE: u64 = 18;
 const STREAM_DELETE: u64 = 19;
 const STREAM_WATCH: u64 = 20;
+const STREAM_PING: u64 = 21;
 const STREAM_SET_PAUSED: u64 = 22;
 const REQUEST_SOUNDBOARD_SOUNDS: u64 = 31;
 const GUILD_SUBSCRIPTIONS_BULK: u64 = 37;
@@ -516,6 +517,13 @@ impl Gateway {
     /// Ends this account's own stream, or stops watching someone else's.
     pub async fn delete_stream(&mut self, stream_key: &str) -> Result<()> {
         self.send(STREAM_DELETE, json!({"stream_key": stream_key}))
+            .await
+    }
+
+    /// Says a stream's media connection dropped and is coming back, as
+    /// Discord's client does each time one reconnects.
+    pub async fn ping_stream(&mut self, stream_key: &str) -> Result<()> {
+        self.send(STREAM_PING, json!({"stream_key": stream_key}))
             .await
     }
 

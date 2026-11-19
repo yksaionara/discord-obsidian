@@ -50,7 +50,10 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. Each call connection gets an RTCP receiver report about
+// resume with op 7. POST /_control/stream-drop resets every stream
+// connection without a closing handshake, as Discord's stream servers do now
+// and then, while the media goes on; GET /_control/stream-drop counts the
+// stream resumes (op 7) and STREAM_PINGs (gateway op 21) since. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
@@ -2037,6 +2040,8 @@ type SocketData = {
   voiceToken?: string;
   /** A stream connection: its key, from the token it identified with. */
   stream?: string;
+  /** A stream connection being reset, whose media goes on for its resume. */
+  dropping?: boolean;
   ssrc?: number;
   /** A viewer's stream, which starts once it asks for video with op 15. */
   waiting?: { key: Buffer; ssrc: number };
@@ -3214,6 +3219,9 @@ function gatewayMessage(ws: Socket, text: string) {
       send(ws, 0, streamServer(ws, key), "STREAM_SERVER_UPDATE");
       break;
     }
+    case 21: // Stream ping: a stream's media connection is reconnecting.
+      streamDrops.pings++;
+      break;
     case 22: {
       const stream = streams.get(d.stream_key);
       if (stream) {
@@ -3549,6 +3557,11 @@ const discovery = { drop: 0, dropped: 0, answered: 0 };
 const callAudio = new Map<number, CallAudio>();
 /** Each call connection's SSRC by its voice session, for resuming. */
 const callSessions = new Map<string, number>();
+/** Each stream connection's SSRC and stream key, by session and token,
+ *  for its resume. */
+const streamSessions = new Map<string, { ssrc: number; stream: string }>();
+/** Stream connections resumed, and STREAM_PINGs, for GET /_control/stream-drop. */
+const streamDrops = { resumed: 0, pings: 0 };
 /** Each closed call connection's key, by SSRC, for its resume. */
 const resumedKeys = new Map<number, Buffer>();
 /** Bob's voice in calls: Opus packets from testing/fixtures/voice-tone.ogg. */
@@ -4647,8 +4660,10 @@ function voiceMessage(ws: Socket, text: string) {
       if (d.token === MOVED_VOICE_TOKEN) {
         for (const old of voiceSockets) if (old.data.voiceToken === VOICE_TOKEN) old.close(4014, "Disconnected.");
       }
-      if (String(d.token).startsWith("stream-token-")) ws.data.stream = String(d.token).slice("stream-token-".length);
-      else callSessions.set(String(d.session_id), ws.data.ssrc);
+      if (String(d.token).startsWith("stream-token-")) {
+        ws.data.stream = String(d.token).slice("stream-token-".length);
+        streamSessions.set(`${d.session_id}:${d.token}`, { ssrc: ws.data.ssrc, stream: ws.data.stream });
+      } else callSessions.set(String(d.session_id), ws.data.ssrc);
       reply(2, {
         ssrc: ws.data.ssrc,
         ip: args.host,
@@ -4733,6 +4748,17 @@ function voiceMessage(ws: Socket, text: string) {
       break;
     }
     case 7: { // Resume: the session carries on, with its SSRC and key.
+      const streamed = streamSessions.get(`${d.session_id}:${d.token}`);
+      if (streamed) {
+        ws.data.ssrc = streamed.ssrc;
+        ws.data.stream = streamed.stream;
+        ws.data.voiceToken = String(d.token);
+        const record = received.get(streamed.ssrc + 1);
+        if (record) record.socket = ws;
+        streamDrops.resumed++;
+        reply(9, null);
+        break;
+      }
       const ssrc = callSessions.get(String(d.session_id));
       const old = ssrc ? [...voiceSockets].find((other) => other !== ws && other.data.ssrc === ssrc) : undefined;
       const call = ssrc ? callAudio.get(ssrc) : undefined;
@@ -7573,7 +7599,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
  *  and channels. */
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
-  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move",
+  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "stream-drop", "voice-move",
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
@@ -8248,6 +8274,15 @@ const server = Bun.serve<SocketData>({
       for (const ws of calls) ws.close(4015, "Voice server crashed.");
       return new Response(`dropped ${calls.length} call connection(s)\n`, { status: calls.length ? 200 : 409 });
     }
+    if (req.method === "POST" && path === "/_control/stream-drop") {
+      const dropped = [...voiceSockets].filter((ws) => ws.data.stream);
+      for (const ws of dropped) {
+        ws.data.dropping = true;
+        ws.terminate();
+      }
+      return new Response(`reset ${dropped.length} stream connection(s)\n`, { status: dropped.length ? 200 : 409 });
+    }
+    if (req.method === "GET" && path === "/_control/stream-drop") return Response.json(streamDrops);
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
       // names the new one, and the old one closes with 4014 once she's there.
@@ -8989,7 +9024,7 @@ const server = Bun.serve<SocketData>({
         remoteLogins.delete(ws);
         return;
       }
-      if (ws.data.voice && ws.data.ssrc) clearInterval(watchers.get(ws.data.ssrc)?.timer);
+      if (ws.data.voice && ws.data.ssrc && !ws.data.dropping) clearInterval(watchers.get(ws.data.ssrc)?.timer);
       if (ws.data.voice && ws.data.ssrc) for (const name of ws.data.cameras ?? []) stopCamera(ws, filmers[name]!.ssrc + 1);
       if (ws.data.voice && ws.data.ssrc && ws.data.callKey) resumedKeys.set(ws.data.ssrc, ws.data.callKey);
       voiceSockets.delete(ws);

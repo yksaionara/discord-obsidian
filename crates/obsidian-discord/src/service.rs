@@ -653,6 +653,9 @@ enum Request {
         stream_key: String,
         paused: bool,
     },
+    PingStream {
+        stream_key: String,
+    },
     /// The custom status changed in the settings; this session shows it.
     CustomStatus(Option<CustomStatus>),
     /// The status changed in the settings; this session shows it.
@@ -3435,6 +3438,13 @@ impl Discord {
     /// Ends this account's stream, or stops watching someone else's.
     pub fn end_stream(&self, stream_key: &str) {
         let _ = self.requests.send(Request::EndStream {
+            stream_key: stream_key.into(),
+        });
+    }
+
+    /// Tells Discord a stream's connection is reconnecting (STREAM_PING).
+    pub fn ping_stream(&self, stream_key: &str) {
+        let _ = self.requests.send(Request::PingStream {
             stream_key: stream_key.into(),
         });
     }

@@ -774,6 +774,13 @@ pub(crate) async fn call(
                         }
                         // Only a video's worker reports these.
                         Some(Report::Opened { .. } | Report::Finished | Report::Screen { .. }) => {}
+                        // As Discord's client does while a stream reconnects.
+                        Some(Report::Reconnecting) => {
+                            if let Some(key) = share.as_ref().and_then(|share| share.key.as_ref()) {
+                                discord.ping_stream(key);
+                            }
+                            continue;
+                        }
                         Some(Report::Ended { error }) => {
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
@@ -871,6 +878,11 @@ pub(crate) async fn call(
                             }
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
+                        WatchEvent::Report(Some(Report::Reconnecting)) => {
+                            if let Some(watching) = watch.as_ref() {
+                                discord.ping_stream(&watching.key);
+                            }
+                        }
                         WatchEvent::Report(Some(
                             Report::Sharing { .. }
                             | Report::Sending(_)

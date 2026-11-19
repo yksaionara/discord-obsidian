@@ -536,6 +536,7 @@ impl Session<'_> {
             Request::PauseStream { stream_key, paused } => {
                 gateway.pause_stream(&stream_key, paused).await
             }
+            Request::PingStream { stream_key } => gateway.ping_stream(&stream_key).await,
             Request::CustomStatus(custom) => {
                 // The settings update that follows says the same; this
                 // shows it without waiting.

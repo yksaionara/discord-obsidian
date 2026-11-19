@@ -290,6 +290,22 @@ davey's `set_channel_id` keeps the key package already sent, so the streamer's
 welcome still opens. Discord Obsidian accepts the people op 11 names into the group, and
 also those named in video attributes (op 12) or in the stream key.
 
+Discord's stream servers reset a stream's voice gateway now and then
+without a closing handshake ("Connection reset without closing handshake"),
+while the media goes on over UDP. A stream's connection, shared or watched,
+comes back as Discord's client and a call here do
+(`stream_connection::Reconnect`): it resumes the session with op 7, keeping
+the UDP socket, its keys, the SSRCs and DAVE's group, at once the first time
+and a second longer each time after; if the resume fails it identifies again
+from the start, and a sender announces its video again on the new SSRCs. It
+asks for a keyframe either way. Close codes 4004, 4006, 4011 and 4014 are
+final, as are more than 3 drops within a minute of each other. Each time,
+the worker reports `Reconnecting` and Discord Obsidian sends the gateway
+STREAM_PING (op 21) with the stream key, as Discord's client does. A stream
+whose connection doesn't come back ends with a plain message saying so; the
+reason is logged ("the stream connection didn't come back"). The fake's
+`POST /_control/stream-drop` resets every stream connection so.
+
 With `OBSIDIAN_LOG=debug`, Discord Obsidian logs every 5 s while sharing what it sent and the
 RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports

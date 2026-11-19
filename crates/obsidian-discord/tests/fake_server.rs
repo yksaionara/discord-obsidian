@@ -3611,6 +3611,143 @@ async fn moderates_voice() {
     snapshot_where(&discord, |snapshot| dave_in(&lounge)(snapshot).is_some()).await;
 }
 
+/// Discord's stream servers reset a stream's connection now and then
+/// without a closing handshake. Watching and sharing both carry on: the
+/// connection resumes with op 7 on the same session and frames keep coming.
+/// Discord hears of each reconnect with STREAM_PING (gateway op 21).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn streams_carry_on_when_their_connection_resets() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        bob,
+        ..
+    } = Fixture::start("streams_carry_on_when_their_connection_resets").await;
+    let drops = || -> serde_json::Value {
+        serde_json::from_str(&control(server, "GET", "/_control/stream-drop", "")).unwrap()
+    };
+    let assigned = discord.join(&guild, &lounge).await.unwrap();
+    let _call = timeout(
+        WAIT,
+        Call::connect(&assigned, &guild, &lounge, Arc::new(Quiet)),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+
+    // Watching Bob: frames come, the connection resets, and frames come again.
+    let bob_stream = stream::key(&guild, &lounge, &bob);
+    let watched = discord.watch(&bob_stream).await.unwrap();
+    let receiver = StreamReceiver::start(watched, vec![Codec::H264, Codec::Vp8]).unwrap();
+    let frames = |receiver: &StreamReceiver, count: usize| {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut arrived = 0;
+        while arrived < count {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "only {arrived} frames arrived: {:?}",
+                receiver.link()
+            );
+            if receiver.next(Duration::from_millis(100)).is_some() {
+                arrived += 1;
+            }
+        }
+    };
+    tokio::task::block_in_place(|| frames(&receiver, 3));
+    post_control(server, "/_control/stream-drop", "");
+    timeout(WAIT, async {
+        while receiver.reconnects() == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the viewer didn't notice the reset");
+    tokio::task::block_in_place(|| frames(&receiver, 5));
+    assert_eq!(receiver.link(), Link::Connected);
+    assert_eq!(receiver.reconnects(), 1);
+    assert_eq!(drops()["resumed"], 1, "resumed, not connected again");
+    drop(receiver);
+    discord.end_stream(&bob_stream);
+
+    // Sharing: the fake keeps counting this account's frames after a reset.
+    let mine = discord.go_live(&guild, &lounge).await.unwrap();
+    let sender = StreamSender::start(mine.clone(), 320, 180, 30, vec![SEND_CODEC]).unwrap();
+    timeout(WAIT, async {
+        while sender.link() == Link::Connecting {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let recorded = recording(SEND_CODEC);
+    let key = mine.stream_key.as_str();
+    let received = |at_least: u64| async move {
+        timeout(WAIT, async {
+            loop {
+                let body = control(server, "GET", "/_control/video", "");
+                let streams: serde_json::Value = serde_json::from_str(&body).unwrap();
+                let frames = streams["received"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|found| found["stream"] == key)
+                    .filter_map(|found| found["frames"].as_u64())
+                    .max()
+                    .unwrap_or(0);
+                if frames >= at_least {
+                    return frames;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the fake didn't get {at_least} frames"))
+    };
+    let mut sent = 0u32;
+    let mut send = |count: u32| {
+        for _ in 0..count {
+            let index = sent as usize % recorded.len();
+            sender.send(Frame {
+                data: recorded[index].clone(),
+                codec: SEND_CODEC,
+                timestamp: sent * 3000,
+                keyframe: index == 0,
+            });
+            sent += 1;
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    };
+    tokio::task::block_in_place(|| send(5));
+    let before = received(5).await;
+    post_control(server, "/_control/stream-drop", "");
+    timeout(WAIT, async {
+        while sender.reconnects() == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the streamer didn't notice the reset");
+    tokio::task::block_in_place(|| send(10));
+    received(before + 5).await;
+    assert_eq!(sender.link(), Link::Connected);
+    assert_eq!(sender.reconnects(), 1);
+    assert_eq!(drops()["resumed"], 2);
+
+    // What the worker sends Discord for each reconnect.
+    discord.ping_stream(&mine.stream_key);
+    timeout(WAIT, async {
+        while drops()["pings"] != 1 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("Discord didn't get STREAM_PING");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn calls_in_dms() {

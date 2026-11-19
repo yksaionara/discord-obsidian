@@ -130,6 +130,7 @@ impl Playback {
                 Report::Sharing { .. }
                 | Report::Sending(_)
                 | Report::Streaming
+                | Report::Reconnecting
                 | Report::Preview { .. }
                 | Report::Screen { .. },
             )) => {}

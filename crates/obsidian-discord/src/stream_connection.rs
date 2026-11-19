@@ -25,8 +25,16 @@ use crate::{
     congestion::{self, DelayBased, SendHistory},
     rtp::{self, Assembler, Codec, Packetizer},
     stream::{self, StreamServer},
-    voice_connection::{Connection, Identity, lock, receive, send_json},
+    voice_connection::{Closed, Connection, Identity, lock, receive, send_json},
 };
+
+/// Voice gateway drops in a row a stream comes back from, as a call does.
+const RETRIES: u32 = 3;
+/// How long a stream's gateway holds before its drop no longer counts with
+/// those before.
+const STEADY: Duration = Duration::from_secs(60);
+/// How much longer each try to bring a stream's gateway back waits.
+const RESUME_WAIT: Duration = Duration::from_secs(1);
 
 /// How often a viewer may ask for a keyframe while frames are lost.
 const KEYFRAME_REQUESTS: Duration = Duration::from_millis(500);
@@ -326,6 +334,9 @@ struct Shared {
     /// and encoded frames dropped on a full queue, since last logged.
     skipped: AtomicU32,
     dropped: AtomicU32,
+    /// Times the voice gateway dropped and the connection tried to come
+    /// back, for Discord's STREAM_PING.
+    reconnects: AtomicU32,
 }
 
 impl Shared {
@@ -344,6 +355,7 @@ impl Shared {
             resent: AtomicU64::new(0),
             skipped: AtomicU32::new(0),
             dropped: AtomicU32::new(0),
+            reconnects: AtomicU32::new(0),
         })
     }
 }
@@ -485,6 +497,13 @@ impl StreamSender {
         lock(&self.shared.link).clone()
     }
 
+    /// How often the stream's voice gateway dropped and came back, or is
+    /// coming back: each time, Discord's client tells the gateway with
+    /// STREAM_PING.
+    pub fn reconnects(&self) -> u32 {
+        self.shared.reconnects.load(Ordering::Relaxed)
+    }
+
     /// The codec Discord wants the frames in, once it said. It changes when
     /// a viewer joins who can't decode it, or leaves; frames in another
     /// codec are dropped.
@@ -590,6 +609,11 @@ impl StreamReceiver {
     pub fn link(&self) -> Link {
         lock(&self.shared.link).clone()
     }
+
+    /// As [`StreamSender::reconnects`].
+    pub fn reconnects(&self) -> u32 {
+        self.shared.reconnects.load(Ordering::Relaxed)
+    }
 }
 
 pub(crate) fn video_attributes(
@@ -624,8 +648,6 @@ enum Role {
     Receive,
 }
 
-/// Connects to a stream's server: identifying with its RTC server and a
-/// screen, and offering the codecs `role` needs.
 /// Select protocol's codecs for a sender: Opus, then each of `offers` by
 /// priority, and `withdrawn` ones it can't encode any more. A sender
 /// decodes nothing of its own stream.
@@ -659,13 +681,8 @@ fn codecs(video: impl Iterator<Item = (Codec, bool, bool)>) -> Value {
     Value::Array(codecs)
 }
 
-async fn open(
-    server: &StreamServer,
-    user: u64,
-    channel: u64,
-    role: Role,
-    shared: &Shared,
-) -> Result<Connection> {
+/// Who a stream's connection identifies as, and with which server.
+fn identity(server: &StreamServer, user: u64, channel: u64) -> Identity {
     // Discord made a stream's DAVE group id just before its RTC server id,
     // in the one stream seen so far; Dave moves to the id the voice server
     // uses if this guess is wrong.
@@ -673,7 +690,7 @@ async fn open(
         .rtc_server_id
         .parse::<u64>()
         .map_or(channel, |id| id.saturating_sub(1));
-    let identity = Identity {
+    Identity {
         endpoint: server.endpoint.clone(),
         server_id: server.rtc_server_id.clone(),
         user_id: server.user_id.clone(),
@@ -683,7 +700,17 @@ async fn open(
         user,
         group,
         ping: Default::default(),
-    };
+    }
+}
+
+/// Connects to a stream's server: identifying with its RTC server and a
+/// screen, and offering the codecs `role` needs.
+async fn open(
+    server: &StreamServer,
+    identity: &Identity,
+    role: Role,
+    shared: &Shared,
+) -> Result<Connection> {
     // Discord Obsidian encodes in what it offers, and decodes what it was given.
     let codecs = match role {
         Role::Send => send_codecs(&lock(&shared.offers), &[]),
@@ -693,9 +720,95 @@ async fn open(
         .and_then(|(_, _, streamer)| streamer.parse().ok())
         .into_iter()
         .collect();
-    let connection = Connection::open(&identity, codecs, &streamer).await?;
-    tracing::info!(rtc_server = %server.rtc_server_id, channel, "connected to a Discord stream");
+    let connection = Connection::open(identity, codecs, &streamer).await?;
+    tracing::info!(rtc_server = %server.rtc_server_id, "connected to a Discord stream");
     Ok(connection)
+}
+
+/// Brings a stream's voice gateway back after it drops, as Discord's client
+/// does for Go Live and as a call here does: Discord's servers reset the
+/// socket now and then without a closing handshake, and ending the stream
+/// then ended it for everyone watching.
+struct Reconnect<'a> {
+    server: &'a StreamServer,
+    identity: Identity,
+    role: Role,
+    /// Drops in a row, and when the connection last came up.
+    drops: u32,
+    up: Instant,
+}
+
+impl<'a> Reconnect<'a> {
+    fn new(server: &'a StreamServer, identity: Identity, role: Role) -> Self {
+        Self {
+            server,
+            identity,
+            role,
+            drops: 0,
+            up: Instant::now(),
+        }
+    }
+
+    /// After the gateway failed with `error`: resumes the session (op 7),
+    /// which keeps the UDP socket, its keys, the SSRCs and DAVE's group, or
+    /// failing that connects again from the start. `Ok(true)` means the
+    /// connection is a new one, with SSRCs and DAVE of its own. The drop is
+    /// final when Discord ended the stream or the session (4004, 4006, 4011,
+    /// 4014), or after more than [`RETRIES`] drops in a row.
+    async fn after(
+        &mut self,
+        connection: &mut Connection,
+        shared: &Shared,
+        error: anyhow::Error,
+    ) -> Result<bool> {
+        // A connection that held a while starts the count again, so a long
+        // stream survives the odd blip.
+        if self.up.elapsed() >= STEADY {
+            self.drops = 0;
+        }
+        self.drops += 1;
+        let code = error
+            .downcast_ref::<Closed>()
+            .and_then(|closed| closed.code);
+        if matches!(code, Some(4004 | 4006 | 4011 | 4014)) || self.drops > RETRIES {
+            return Err(error);
+        }
+        shared.reconnects.fetch_add(1, Ordering::Relaxed);
+        tracing::info!(
+            error = format!("{error:#}"),
+            attempt = self.drops,
+            "the stream's voice connection dropped; resuming it"
+        );
+        // The first try goes at once, so viewers barely notice; the rest
+        // wait longer each time.
+        tokio::time::sleep(RESUME_WAIT * (self.drops - 1)).await;
+        let fresh = match connection.resume(&self.identity).await {
+            Ok(()) => false,
+            Err(resume) => {
+                tracing::info!(
+                    error = format!("{resume:#}"),
+                    "couldn't resume the stream; connecting again"
+                );
+                let _ = connection.ws.close(None).await;
+                *connection = open(self.server, &self.identity, self.role, shared)
+                    .await
+                    .map_err(|again| anyhow::anyhow!("{error:#}; then {again:#}"))?;
+                true
+            }
+        };
+        self.up = Instant::now();
+        Ok(fresh)
+    }
+}
+
+/// Notes a voice gateway failure for the loop to reconnect after, rather
+/// than ending the stream on it. The first failure is the one kept.
+fn note(dropped: &mut Option<anyhow::Error>, result: Result<()>) {
+    if let Err(error) = result
+        && dropped.is_none()
+    {
+        *dropped = Some(error);
+    }
 }
 
 async fn send(
@@ -706,8 +819,12 @@ async fn send(
     mut frames: mpsc::Receiver<Frame>,
     mut sounds: mpsc::Receiver<Sound>,
 ) -> Result<()> {
-    let mut connection = open(server, user, channel, Role::Send, shared).await?;
-    let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
+    let identity = identity(server, user, channel);
+    let mut connection = open(server, &identity, Role::Send, shared).await?;
+    let mut reconnect = Reconnect::new(server, identity, Role::Send);
+    // A gateway failure the loop reconnects after.
+    let mut dropped = None;
+    let (mut ssrc, mut video, mut rtx) = (connection.ssrc, connection.video, connection.rtx);
     let mut size = *lock(&shared.size);
     let mut fps = shared.fps.load(Ordering::Relaxed);
     send_json(
@@ -773,6 +890,40 @@ async fn send(
     let (mut sound_packets, mut sound_octets) = (0u32, 0u32);
     let mut sound_reported = Instant::now() - SENDER_REPORTS;
     loop {
+        if let Some(error) = dropped.take() {
+            let fresh = reconnect.after(&mut connection, shared, error).await?;
+            // Sharing stopped while the gateway came back.
+            if frames.is_closed() {
+                let _ = connection.ws.close(None).await;
+                return Ok(());
+            }
+            if fresh {
+                // A new connection: SSRCs, numbering, DAVE and what came
+                // back are its own.
+                (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
+                if let Some(codec) = connection.codec.filter(|codec| offered.contains(codec)) {
+                    *lock(&shared.chosen) = Some(codec);
+                }
+                let codec = lock(&shared.chosen).unwrap_or(chosen);
+                packetizer = Packetizer::new(video, codec);
+                history = rtp::History::default();
+                sent_at = SendHistory::default();
+                delay = DelayBased::new(rate.bitrate());
+                delay_heard = false;
+                (packets, octets) = (0, 0);
+                (sound_packets, sound_octets) = (0, 0);
+                encrypted = None;
+                tracing::info!(?codec, "connected the stream again");
+            }
+            let interval = connection.interval;
+            heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
+            // Viewers may have missed frames meanwhile; tell the server
+            // about the video again, as when someone connects.
+            shared.keyframe.store(true, Ordering::Relaxed);
+            note(&mut dropped, send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await);
+            note(&mut dropped, send_json(&mut connection.ws, 5, json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc})).await);
+            continue;
+        }
         tokio::select! {
             frame = frames.recv() => {
                 let Some(frame) = frame else {
@@ -782,7 +933,7 @@ async fn send(
                 let wanted = (*lock(&shared.size), shared.fps.load(Ordering::Relaxed));
                 if wanted != (size, fps) {
                     (size, fps) = wanted;
-                    send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
+                    note(&mut dropped, send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await);
                     let cap = u64::from(max_bitrate(size.1, fps));
                     rate.cap(cap);
                     let delayed = if delay_heard { delay.bitrate() } else { cap };
@@ -801,7 +952,12 @@ async fn send(
                     let offers = lock(&shared.offers).clone();
                     withdrawn = offered.iter().copied().filter(|codec| !offers.contains(codec)).collect();
                     tracing::info!(?offers, ?withdrawn, "offering fewer codecs");
-                    send_json(&mut connection.ws, 14, json!({"codecs": send_codecs(&offers, &withdrawn)})).await?;
+                    let said = send_json(&mut connection.ws, 14, json!({"codecs": send_codecs(&offers, &withdrawn)})).await;
+                    if said.is_err() {
+                        // Said again once the gateway is back.
+                        shared.offers_changed.store(true, Ordering::Relaxed);
+                    }
+                    note(&mut dropped, said);
                 }
                 // Frames encoded before the encoder followed Discord's choice.
                 if Some(frame.codec) != *lock(&shared.chosen) {
@@ -856,11 +1012,19 @@ async fn send(
                     crate::voice_connection::send_media(&connection.udp, &report).await?;
                 }
             }
-            _ = heartbeat.tick() => connection.heartbeat().await?,
+            _ = heartbeat.tick() => note(&mut dropped, connection.heartbeat().await),
             message = receive(&mut connection.ws, &mut connection.seq) => {
+                let handled = match message {
+                    Ok(message) => connection.handle(message).await,
+                    Err(error) => Err(error),
+                };
+                let handled = handled.unwrap_or_else(|error| {
+                    note(&mut dropped, Err(error));
+                    None
+                });
                 // Not heartbeat acks, nor the keys in the ready message and
                 // session description.
-                if let Some((op, data)) = connection.handle(message?).await?
+                if let Some((op, data)) = handled
                     && !matches!(op, 2 | 4 | 6)
                 {
                     let mut text = data.to_string();
@@ -882,8 +1046,8 @@ async fn send(
                     // Tell whoever connected about the video again, in case
                     // the server doesn't pass it on to late viewers.
                     if op == 11 {
-                        send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
-                        send_json(&mut connection.ws, 5, json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc})).await?;
+                        note(&mut dropped, send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await);
+                        note(&mut dropped, send_json(&mut connection.ws, 5, json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc})).await);
                     }
                 }
             }
@@ -1176,7 +1340,11 @@ async fn receive_stream(
     ),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<()> {
-    let mut connection = open(server, user, channel, Role::Receive, shared).await?;
+    let identity = identity(server, user, channel);
+    let mut connection = open(server, &identity, Role::Receive, shared).await?;
+    let mut reconnect = Reconnect::new(server, identity, Role::Receive);
+    // A gateway failure the loop reconnects after.
+    let mut dropped = None;
     let mut streamer = Streamer {
         codec: connection.codec,
         ..Streamer::default()
@@ -1207,15 +1375,49 @@ async fn receive_stream(
     // Frames handed to the decoder when the log last looked.
     let mut flowing = 0;
     loop {
+        if let Some(error) = dropped.take() {
+            let fresh = tokio::select! {
+                fresh = reconnect.after(&mut connection, shared, error) => fresh?,
+                _ = &mut stopped => return Ok(()),
+            };
+            if fresh {
+                // A new connection: the streamer's SSRCs and codec come
+                // again, and packets start over.
+                streamer = Streamer {
+                    codec: connection.codec,
+                    ..Streamer::default()
+                };
+                for (op, data) in std::mem::take(&mut connection.early) {
+                    streamer.learn(op, &data);
+                }
+                incoming.clear();
+                last_report = None;
+                note(&mut dropped, send_json(&mut connection.ws, 15, json!({"any": 100})).await);
+                tracing::info!("watching the stream again");
+            }
+            let interval = connection.interval;
+            heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
+            // Frames were likely lost meanwhile.
+            shared.keyframe.store(true, Ordering::Relaxed);
+            continue;
+        }
         let mut lost = false;
         tokio::select! {
             _ = &mut stopped => {
                 let _ = connection.ws.close(None).await;
                 return Ok(());
             }
-            _ = heartbeat.tick() => connection.heartbeat().await?,
+            _ = heartbeat.tick() => note(&mut dropped, connection.heartbeat().await),
             message = receive(&mut connection.ws, &mut connection.seq) => {
-                if let Some((op, data)) = connection.handle(message?).await? {
+                let handled = match message {
+                    Ok(message) => connection.handle(message).await,
+                    Err(error) => Err(error),
+                };
+                let handled = handled.unwrap_or_else(|error| {
+                    note(&mut dropped, Err(error));
+                    None
+                });
+                if let Some((op, data)) = handled {
                     if !matches!(op, 2 | 4 | 6) {
                         let mut text = data.to_string();
                         text.truncate(400);

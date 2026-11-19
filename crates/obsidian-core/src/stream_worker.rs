@@ -425,6 +425,9 @@ pub enum Report {
         #[serde(with = "base64_pixels")]
         rgba: Vec<u8>,
     },
+    /// The stream's connection dropped and is coming back: Discord's client
+    /// tells the gateway with STREAM_PING (op 21) each time.
+    Reconnecting,
     /// The job ended: without an error when it was told to stop.
     Ended { error: Option<String> },
 }
@@ -503,6 +506,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 preview_due: None,
                 thumbnail: None,
                 lost: None,
+                reconnects: 0,
                 previewed: None,
                 requality: None,
                 reopen: false,
@@ -632,6 +636,8 @@ struct Sink {
     /// When the stream connection ended, while Discord may still name a
     /// server it moved the stream to.
     lost: Option<Instant>,
+    /// How often the stream connection reconnected, as last reported.
+    reconnects: u32,
     /// When the window's preview last got a frame.
     previewed: Option<Instant>,
     /// A size asked for by [`Control::Quality`] that the capture hasn't taken
@@ -1010,10 +1016,20 @@ impl Sink {
             Some(Link::Ended(reason)) => {
                 let lost = *self.lost.get_or_insert_with(Instant::now);
                 if lost.elapsed() >= MOVE_GRACE {
-                    bail!("Lost the stream connection: {reason}");
+                    tracing::warn!(%reason, "the stream connection didn't come back");
+                    bail!(
+                        "Your stream lost its connection to Discord and couldn't get it back. Check your connection and go live again."
+                    );
                 }
             }
             _ => self.lost = None,
+        }
+        if let Some(video) = self.video.as_ref() {
+            let reconnects = video.sender.reconnects();
+            if reconnects != self.reconnects {
+                self.reconnects = reconnects;
+                report(Report::Reconnecting);
+            }
         }
         if let Some(thumbnail) = self.thumbnail.take() {
             report(Report::Preview { thumbnail });
@@ -1102,6 +1118,8 @@ fn watch(
     let mut scratch = vec![];
     let mut shown = false;
     let mut failures = 0u64;
+    // How often the connection reconnected, as last reported.
+    let mut reconnects = 0;
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
@@ -1111,7 +1129,13 @@ fn watch(
             }
         }
         if let Link::Ended(reason) = receiver.link() {
-            bail!("Lost the stream: {reason}");
+            tracing::warn!(%reason, "the watched stream's connection didn't come back");
+            bail!("The stream lost its connection to Discord and couldn't get it back. Click it to watch again.");
+        }
+        let now = receiver.reconnects();
+        if now != reconnects {
+            reconnects = now;
+            report(Report::Reconnecting);
         }
         let Some(frame) = receiver.next(Duration::from_millis(100)) else {
             continue;
@@ -2409,6 +2433,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            reconnects: 0,
             previewed: None,
             requality: None,
             reopen: false,
@@ -2445,6 +2470,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            reconnects: 0,
             previewed: None,
             requality: None,
             reopen: false,
@@ -2485,6 +2511,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            reconnects: 0,
             previewed: None,
             requality: None,
             reopen: false,
@@ -2515,6 +2542,7 @@ mod tests {
             preview_due: Some(Instant::now()),
             thumbnail: None,
             lost: None,
+            reconnects: 0,
             previewed: None,
             requality: None,
             reopen: false,
