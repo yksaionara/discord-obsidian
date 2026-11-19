@@ -419,8 +419,10 @@ The window follows Discord's arrangement:
   over the last with a ring cut round it, then "+N". A tooltip showing keeps
   up as people come and go.
   When an update has downloaded, an Update pill sits at the top of the
-  rail, in a call or not: it installs the update and restarts, and left
-  alone, the next start installs it (see Updates below).
+  rail, in a call or not, in whichever window is open, including one made
+  again after closing to the tray or starting in it: it installs the update
+  and restarts, and left alone, the next start installs it (see Updates
+  below).
   While any server or folder on the rail is marked unread, a pill with a
   double check, tinted with the accent, grows in above the servers and folds
   away once they're read ("Mark all as read" on hover): it marks every
@@ -563,11 +565,14 @@ The window follows Discord's arrangement:
   a call, unmuted, the panel's avatar has the same green ring as your row in
   the call. While a game is detected and not being streamed, a bar names it
   above the account panel, as Discord's client shows what you play, with a
-  button that opens the share menu once in a call. After a restart in a
-  call, a green notice under the title bar says "You were in a voice
-  channel last time you left Discord." with Reconnect, which joins that
-  channel again once it's known; leaving the call, or dismissing the
-  notice, forgets it (`last_voice` in `layout.json`). On the DM home, Friends
+  button that opens the share menu once in a call. After quitting in a
+  call, the next start shows a green notice under the title bar, "You were
+  in a voice channel last time you left Discord.", with Reconnect, which
+  joins that channel again once it's known. It shows once: it goes by
+  itself after 10 seconds unless the pointer is on it, and showing it
+  forgets the call (`last_voice` in `layout.json`), as do leaving the call,
+  dismissing the notice, and a call that ends any other way while the app
+  runs. On the DM home, Friends
   and Requests lead the list; Discord's Nitro, Shop and Quests pages are left
   out. The search above reads "Find or start a
   conversation", and the Friends header ends with New Group DM.
@@ -687,11 +692,17 @@ message text need a check on real Windows.
 ## Updates
 
 On Windows the app updates from the GitHub releases of `yksaionara/discord-obsidian`
-(`crates/obsidian-core/src/update.rs`). Twenty seconds after starting, and
-every 30 minutes after, a thread asks GitHub for the latest release; one newer
-than the app has its `Discord-Setup.exe` downloaded into the data folder's
-`update` folder, streamed to the file and checked against the SHA-256 GitHub
-lists, and the rail's Update pill shows, whatever the app is doing. Nothing
+(`crates/obsidian-core/src/update.rs`). Five seconds after starting, and
+every minute after, a thread asks GitHub for the latest release, with the
+last answer's ETag: an unchanged release comes back 304, which doesn't count
+against the 60 requests an hour GitHub allows an address, so a release shows
+within about a minute. One newer than the app, and than any installer
+already downloaded, has its `Discord-Setup.exe` downloaded into the data
+folder's `update` folder, streamed to the file and checked against the
+SHA-256 GitHub lists, and the rail's Update pill shows, whatever the app is
+doing. The thread keeps its runtime and connection between checks. GitHub
+must serve the repository to visitors who aren't signed in: when it hides an
+account, its releases answer 404 and no install sees an update. Nothing
 installs while the app runs unless the pill is clicked, so an update never
 restarts the app in the middle of something: the pill installs it at once,
 and otherwise the next start does, before opening a window. The installer

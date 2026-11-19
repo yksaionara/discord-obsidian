@@ -2220,8 +2220,10 @@ fn the_preview_lists_and_chooses_real_devices_across_calls() {
         cameras: vec![device("camera-a"), device("camera-b")],
     }));
     assert!(
-        app.dispatch(Action::Voice(voice::Command::Microphone("mic-b".into())))
-            .is_empty()
+        app.dispatch(Action::Voice(voice::Command::Microphone(Some(
+            "mic-b".into()
+        ))))
+        .is_empty()
     );
     app.dispatch(Action::Voice(voice::Command::Camera("camera-b".into())));
     app.dispatch(Action::RequestJoinVoice("lounge".into()));
@@ -2345,15 +2347,16 @@ fn streams_sound_as_others_start_and_stop_watching() {
             frames: frames.clone(),
             viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
         }),
-        watching: watching.map(|viewers| {
-            Box::new(voice::Watching {
+        watching: watching
+            .map(|viewers| voice::Watching {
                 user: "sam".into(),
                 name: "sam".into(),
                 opening: false,
                 frames: None,
                 viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
             })
-        }),
+            .into_iter()
+            .collect(),
         ..Default::default()
     };
     let mut heard = |state: voice::State| sounds(&app.apply(Event::Voice(state)));

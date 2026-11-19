@@ -3510,20 +3510,75 @@ impl Adapter {
     /// own, and what the corner shows while the call is off screen.
     pub(super) fn show_stage(&mut self, window: &ObsidianWindow) {
         let voice = &self.app.state.voice;
-        let watching = voice
+        let watched: Vec<String> = voice
             .watching
-            .as_ref()
-            .map(|watching| watching.user.as_str());
-        if watching != self.watched.as_deref() {
-            // A stream starts large, and leaves when watching it stops.
-            if let Some(user) = watching {
-                self.call_focus = Some(Focus::Stream(user.to_owned()));
-            } else if matches!(&self.call_focus, Some(Focus::Stream(user)) if self.watched.as_ref() == Some(user))
+            .iter()
+            .map(|watching| watching.user.clone())
+            .collect();
+        if watched != self.watched {
+            // A stream starts large as watching it begins. When the large
+            // one stops, another watched one takes its place, or none.
+            if let Some(started) = watched.iter().find(|user| !self.watched.contains(user)) {
+                self.call_focus = Some(Focus::Stream(started.clone()));
+            } else if let Some(Focus::Stream(user)) = &self.call_focus
+                && self.watched.contains(user)
+                && !watched.contains(user)
             {
-                self.call_focus = None;
+                self.call_focus = watched.first().cloned().map(Focus::Stream);
             }
-            self.watched = watching.map(str::to_owned);
+            self.watched = watched;
         }
+        let primary = match &self.call_focus {
+            Some(Focus::Stream(user)) if self.watched.contains(user) => Some(user.clone()),
+            _ => self.watched.first().cloned(),
+        };
+        let watching = primary.as_deref();
+        window.set_watching(!voice.watching.is_empty());
+        match voice
+            .watching
+            .iter()
+            .find(|shown| Some(shown.user.as_str()) == watching)
+        {
+            Some(shown) => {
+                window.set_watch_title(format!("{}'s screen", shown.name).into());
+                window.set_watch_status(watch_status(shown).into());
+            }
+            None => window.set_watch_frame(slint::Image::default()),
+        }
+        // Each stream's row keeps its newest picture, which stream_tick brings.
+        let rows: Vec<WatchedStream> = voice
+            .watching
+            .iter()
+            .enumerate()
+            .map(|(index, shown)| WatchedStream {
+                user: shown.user.as_str().into(),
+                person: shown.user.as_str().into(),
+                frame: self
+                    .models
+                    .watched_streams
+                    .row_data(index)
+                    .filter(|row| row.user == shown.user.as_str())
+                    .map(|row| row.frame)
+                    .unwrap_or_default(),
+                status: watch_status(shown).into(),
+                muted: obsidian_core::volume::get(obsidian_core::volume::Kind::Stream, &shown.user)
+                    <= 0.0,
+            })
+            .collect();
+        update_model(&self.models.watched_streams, rows);
+        let places: Vec<i32> = voice
+            .participants
+            .iter()
+            .filter(|_| voice.active())
+            .map(|person| {
+                voice
+                    .watching
+                    .iter()
+                    .position(|shown| shown.user == person.id)
+                    .map_or(0, |index| index as i32 + 1)
+            })
+            .collect();
+        update_model(&self.models.participant_watch, places);
         let stage = Stage {
             participants: if voice.active() {
                 &voice.participants
@@ -3555,6 +3610,7 @@ impl Adapter {
             _ => -1,
         });
         window.set_pip_slot(slot(stage.pip_slot(pip, watching)));
+        self.watch_primary = primary;
     }
 
     /// The call: the voice dock, sharing and watching a screen, a DM's call,
@@ -3636,21 +3692,6 @@ impl Adapter {
         );
         if voice.sharing.is_none() {
             window.set_share_frame(slint::Image::default());
-        }
-        window.set_watching(voice.watching.is_some());
-        match &voice.watching {
-            Some(watching) => {
-                window.set_watch_title(format!("{}'s screen", watching.name).into());
-                window.set_watch_status(
-                    if watching.frames.is_none() {
-                        format!("Connecting to {}'s stream...", watching.name)
-                    } else {
-                        format!("Waiting for {}'s picture...", watching.name)
-                    }
-                    .into(),
-                );
-            }
-            None => window.set_watch_frame(slint::Image::default()),
         }
         window.set_voice_channel(
             voice
@@ -3858,7 +3899,9 @@ impl Adapter {
             &self.models.watch_viewers,
             voice
                 .watching
-                .as_ref()
+                .iter()
+                .find(|watching| Some(&watching.user) == self.watch_primary.as_ref())
+                .or(voice.watching.first())
                 .map(|watching| viewers(&watching.viewers, Some(&watching.user)))
                 .unwrap_or_default(),
         );
@@ -3949,13 +3992,14 @@ impl Adapter {
         });
         window.set_switch_prompt(prompt.unwrap_or_default().into());
         let names = &mut self.models.device_names;
-        let (rows, index) = device_rows(&voice.microphones, voice.microphone.as_deref(), names);
+        let (rows, index) =
+            device_rows(&voice.microphones, voice.microphone.as_deref(), names, true);
         update_model(&self.models.microphones, rows);
         window.set_microphone_index(index);
-        let (rows, index) = device_rows(&voice.speakers, voice.speaker.as_deref(), names);
+        let (rows, index) = device_rows(&voice.speakers, voice.speaker.as_deref(), names, true);
         update_model(&self.models.speakers, rows);
         window.set_speaker_index(index);
-        let (rows, index) = device_rows(&voice.cameras, voice.camera.as_deref(), names);
+        let (rows, index) = device_rows(&voice.cameras, voice.camera.as_deref(), names, false);
         update_model(&self.models.cameras, rows);
         window.set_camera_index(index);
     }
@@ -5139,8 +5183,10 @@ fn sound_rows(
 }
 
 impl super::Adapter {
-    /// Remembers the call while connected and offers it back after a restart,
-    /// as Discord's "You were in a voice channel" notice does.
+    /// Remembers the call while connected and offers it back after a restart
+    /// in it, once, as Discord's "You were in a voice channel" notice does. A
+    /// call that ends while Discord Obsidian runs, for whatever reason, is
+    /// forgotten; only quitting in one offers it next time.
     fn offer_reconnect(&mut self, window: &ObsidianWindow) {
         let state = &self.app.state;
         let connected = matches!(state.voice.phase, Phase::Connected)
@@ -5156,7 +5202,25 @@ impl super::Adapter {
         }
         if active {
             self.reconnect = None;
+            self.was_in_call = true;
+        } else if std::mem::take(&mut self.was_in_call) && self.layout.last_voice.take().is_some() {
+            self.layout.write(&self.root);
         }
-        window.set_reconnect_shown(known && !active);
+        let shown = known && !active;
+        // Offered now, so the next start doesn't offer it again.
+        if shown && self.layout.last_voice.is_some() && self.layout.last_voice == self.reconnect {
+            self.layout.last_voice = None;
+            self.layout.write(&self.root);
+        }
+        window.set_reconnect_shown(shown);
+    }
+}
+
+/// What a watched stream shows until its first picture.
+fn watch_status(shown: &voice::Watching) -> String {
+    if shown.frames.is_none() {
+        format!("Connecting to {}'s stream...", shown.name)
+    } else {
+        format!("Waiting for {}'s picture...", shown.name)
     }
 }

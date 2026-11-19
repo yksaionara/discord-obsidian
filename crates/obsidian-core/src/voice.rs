@@ -9,9 +9,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use livekit::PlatformAudio;
-use tokio::sync::{mpsc, watch};
 #[cfg(feature = "discord")]
 use obsidian_discord::service::Discord;
+use tokio::sync::{mpsc, watch};
 
 #[cfg(feature = "matrix")]
 use crate::session::SessionLease;
@@ -252,7 +252,9 @@ pub struct State {
     /// not received this device's audio key.
     pub warning: Option<String>,
     pub sharing: Option<Sharing>,
-    pub watching: Option<Box<Watching>>,
+    /// The streams being watched, in the order watching them began, as
+    /// Discord's client watches several at once.
+    pub watching: Vec<Watching>,
     /// How the next screen share is sent.
     pub quality: StreamQuality,
     /// This account's camera, turned on or starting.
@@ -322,7 +324,7 @@ impl Default for State {
             error: None,
             warning: None,
             sharing: None,
-            watching: None,
+            watching: Vec::new(),
             quality: StreamQuality::default(),
             camera_phase: CameraPhase::Off,
             can_film: false,
@@ -346,7 +348,7 @@ impl State {
         self.deafened = false;
         self.warning = None;
         self.sharing = None;
-        self.watching = None;
+        self.watching.clear();
         self.camera_phase = CameraPhase::Off;
         self.can_film = false;
         self.link = None;
@@ -363,8 +365,10 @@ pub enum Command {
     Mute(bool),
     Deafen(bool),
     Devices,
-    Microphone(String),
-    Speaker(String),
+    /// Use this microphone from now on, or the system's default for none.
+    Microphone(Option<String>),
+    /// Play on these speakers from now on, or the system's default for none.
+    Speaker(Option<String>),
     /// Film with the camera with this id from now on.
     Camera(String),
     /// Turn this account's camera on or off in the call.
@@ -385,9 +389,14 @@ pub enum Command {
     /// Add the soundboard sound with this id to the account's favourites,
     /// or take it out.
     FavoriteSound(String, bool),
-    /// Watch the participant with this id's stream.
+    /// Watch the participant with this id's stream, in place of any others
+    /// watched, as Discord's Watch button does.
     Watch(String),
-    StopWatching,
+    /// Watch their stream as well as those watched already, as Discord's
+    /// "Start watching multiple streams" does.
+    WatchAlso(String),
+    /// Stop watching this participant's stream, or every stream for none.
+    StopWatching(Option<String>),
     /// Remove memberships this device left in voice channels, for example
     /// after Discord Obsidian was killed. Ignored during a call.
     LeaveStale,
@@ -549,11 +558,11 @@ async fn worker(
                 Err(error) => state.error = Some(error.to_string()),
             },
             Command::Microphone(id) => {
-                state.microphone = Some(id);
+                state.microphone = id;
                 Chosen::write(remembered.as_deref(), &state);
             }
             Command::Speaker(id) => {
-                state.speaker = Some(id);
+                state.speaker = id;
                 Chosen::write(remembered.as_deref(), &state);
             }
             Command::Camera(id) => {

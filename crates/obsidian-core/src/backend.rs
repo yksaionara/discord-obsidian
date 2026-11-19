@@ -39,6 +39,20 @@ impl Backend {
         )
     }
 
+    /// Stops the actor as Discord Obsidian quits, giving it up to `wait` to
+    /// leave its call and end its sessions; it's cancelled after that.
+    pub fn shut_down(self, wait: std::time::Duration) {
+        let Self {
+            commands,
+            _actor: actor,
+            _runtime: runtime,
+        } = self;
+        drop(commands);
+        runtime.block_on(async {
+            let _ = tokio::time::timeout(wait, actor).await;
+        });
+    }
+
     /// Return the command on failure so the application can clear pending state.
     pub fn send(&self, command: Command) -> Result<(), Command> {
         self.commands.send(command).map_err(|error| error.0)

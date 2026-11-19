@@ -263,7 +263,7 @@ servers just to snoop on your DMs, and no thanks :D).
 - The login token stays in your system's credential store, and only ever goes
   to Discord. Unlinking signs that session out and deletes it.
 - It sends no analytics or crash reports. On Windows it asks GitHub for this
-  repository's latest release every 30 minutes, and installs a newer one
+  repository's latest release every minute, and installs a newer one
   when you click Update or at its next start.
 - Pictures and GIFs load from wherever they're hosted, such as Discord or
   Tenor.

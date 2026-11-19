@@ -4,7 +4,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use tokio::time::timeout;
 use obsidian_discord::{
     api::Span,
     client,
@@ -21,6 +20,7 @@ use obsidian_discord::{
     token,
     voice::{Call, Listener},
 };
+use tokio::time::timeout;
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -1600,7 +1600,10 @@ async fn reads_history_and_member_lists() {
     })
     .await;
     post_control(server, "/_control/voice-status", "Ranked");
-    snapshot_where(&discord, |snapshot| status(snapshot).as_deref() == Some("Ranked")).await;
+    snapshot_where(&discord, |snapshot| {
+        status(snapshot).as_deref() == Some("Ranked")
+    })
+    .await;
     post_control(server, "/_control/voice-status", "");
     snapshot_where(&discord, |snapshot| status(snapshot).is_none()).await;
     let listed: Vec<_> = members
@@ -3780,7 +3783,10 @@ async fn calls_in_dms() {
             ["callConnects"]
             .clone()
     };
-    until("the DM asked about its call", || asked() == serde_json::json!([dm])).await;
+    until("the DM asked about its call", || {
+        asked() == serde_json::json!([dm])
+    })
+    .await;
     let assigned = discord.join(PRIVATE, &dm).await.unwrap();
     let mut call = timeout(
         WAIT,
@@ -4493,6 +4499,38 @@ async fn resumes_the_gateway() {
     })
     .await;
     assert_eq!(discord.snapshots().borrow().status, Status::Online);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn leaves_the_call_as_it_quits() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        ..
+    } = Fixture::start("leaves_the_call_as_it_quits").await;
+    let sessions = || -> serde_json::Value {
+        serde_json::from_str(&self::control(server, "GET", "/_control/sessions", "")).unwrap()
+    };
+    discord.join(&guild, &lounge).await.unwrap();
+    assert_eq!(sessions()["aliceInVoice"], true);
+    // Quitting leaves the call and ends the session with 1000, so Discord
+    // takes this account out of the call at once rather than minutes later.
+    timeout(WAIT, discord.close())
+        .await
+        .expect("closing took too long");
+    timeout(WAIT, async {
+        while sessions()["ended"] != 1 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the session didn't end with 1000");
+    assert_eq!(sessions()["aliceInVoice"], false);
+    assert_eq!(sessions()["resumes"], 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -5375,8 +5413,8 @@ async fn changes_server_settings_as_discords_client_does() {
     let discord = &fixture.discord;
     let server = fixture.server;
     let guild = fixture.guild.as_str();
-    use serde_json::json;
     use obsidian_discord::mfa::Method;
+    use serde_json::json;
     let profile = discord.guild_profile(guild).await.unwrap();
     assert_eq!(
         (profile.name.as_str(), profile.description.as_str()),
@@ -5740,8 +5778,8 @@ async fn moderates_as_discords_client_does() {
     let discord = &fixture.discord;
     let server = fixture.server;
     let guild = fixture.guild.as_str();
-    use serde_json::json;
     use obsidian_discord::mfa::Method;
+    use serde_json::json;
     // Safety Setup's levels, saved with the guild's PATCH.
     let settings = discord
         .save_guild_settings(
@@ -5920,8 +5958,8 @@ async fn lists_members_and_invites_as_discords_client_does() {
     let discord = &fixture.discord;
     let server = fixture.server;
     let guild = fixture.guild.as_str();
-    use serde_json::json;
     use obsidian_discord::api::MembersSearch;
+    use serde_json::json;
     let search = |body: serde_json::Value| async move {
         match discord.members_search(guild, &body).await.unwrap() {
             MembersSearch::Found(found) => {

@@ -138,8 +138,8 @@ async fn joining(
                         cancel.send_replace(true);
                     }
                     // Saved once the call connects.
-                    Some(Command::Microphone(id)) => state.microphone = Some(id),
-                    Some(Command::Speaker(id)) => state.speaker = Some(id),
+                    Some(Command::Microphone(id)) => state.microphone = id,
+                    Some(Command::Speaker(id)) => state.speaker = id,
                     Some(Command::Camera(id)) => state.camera = Some(id),
                     Some(Command::Devices) => { let _ = devices(state); }
                     _ => {}
@@ -466,7 +466,10 @@ async fn connected(
                         collect_devices(&audio, state);
                         state.cameras = crate::camera::list();
                     }
-                    Some(Command::Microphone(id)) => {
+                    // The default takes effect in the next call.
+                    Some(Command::Microphone(None)) => { state.microphone = None; Chosen::write(remembered, state); }
+                    Some(Command::Speaker(None)) => { state.speaker = None; Chosen::write(remembered, state); }
+                    Some(Command::Microphone(Some(id))) => {
                         match use_microphone(&audio, &id) {
                             Ok(()) => { state.microphone = Some(id); state.error = None; Chosen::write(remembered, state); },
                             Err(_) => {
@@ -476,7 +479,7 @@ async fn connected(
                             }
                         }
                     }
-                    Some(Command::Speaker(id)) => {
+                    Some(Command::Speaker(Some(id))) => {
                         match use_speakers(&audio, &id) {
                             Ok(()) => { state.speaker = Some(id); state.error = None; Chosen::write(remembered, state); },
                             Err(_) => state.error = Some("Could not switch speakers. Refresh devices and choose another.".into()),
@@ -512,7 +515,7 @@ async fn connected(
                         state.camera_phase = CameraPhase::Off;
                     }
                     Some(Command::GoLive(_)) => state.error = Some("Screen sharing works in Discord calls for now.".into()),
-                    Some(Command::StopLive | Command::SwitchLive | Command::Requality(_) | Command::Watch(_) | Command::StopWatching | Command::Soundboard(_) | Command::PreviewSound(_) | Command::FavoriteSound(..) | Command::LeaveStale) => {}
+                    Some(Command::StopLive | Command::SwitchLive | Command::Requality(_) | Command::Watch(_) | Command::WatchAlso(_) | Command::StopWatching(_) | Command::Soundboard(_) | Command::PreviewSound(_) | Command::FavoriteSound(..) | Command::LeaveStale) => {}
                 },
                 result = camera::opened(&mut opening) => {
                     opening = None;
@@ -657,9 +660,9 @@ async fn device_problem(
     };
     match client.encryption().get_device(&user, device.into()).await {
         Ok(Some(device)) if device.is_cross_signed_by_owner() => None,
-        Ok(Some(_)) => {
-            Some("Unverified device. It can't receive your audio key, and Discord Obsidian refuses its key.")
-        }
+        Ok(Some(_)) => Some(
+            "Unverified device. It can't receive your audio key, and Discord Obsidian refuses its key.",
+        ),
         _ => Some("Unknown device; your audio key may not reach it."),
     }
 }
@@ -915,8 +918,8 @@ mod tests {
             .expect("run scripts/test-voice to create virtual speakers")
             .id
             .clone();
-        controller.command(Command::Microphone(microphone.clone()));
-        controller.command(Command::Speaker(speaker.clone()));
+        controller.command(Command::Microphone(Some(microphone.clone())));
+        controller.command(Command::Speaker(Some(speaker.clone())));
         wait(controller, |state| {
             state.microphone.as_ref() == Some(&microphone)
                 && state.speaker.as_ref() == Some(&speaker)

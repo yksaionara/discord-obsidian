@@ -161,6 +161,9 @@ const IO_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(test)]
 const IO_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// How long closing the session waits for the gateway's answer.
+const CLOSE_WAIT: Duration = Duration::from_secs(1);
+
 /// The first wait before connecting again, which doubles with each session
 /// that fails, up to [`LAST_RETRY`].
 const FIRST_RETRY: Duration = Duration::from_secs(2);
@@ -786,7 +789,21 @@ impl Connection {
                         *held = Some((op, data));
                     }
                     Some(Command::Close) | None => {
-                        let _ = timeout(IO_TIMEOUT, self.socket.close(None)).await;
+                        // 1000 ends the session at once, and with it any call
+                        // it's in. Without a code Discord keeps the session,
+                        // and this account in its call, for minutes.
+                        let normal = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                            code: CloseCode::Normal,
+                            reason: "".into(),
+                        };
+                        let _ = timeout(IO_TIMEOUT, self.socket.close(Some(normal))).await;
+                        // Until the gateway answers the close: dropping the
+                        // connection with its messages unread resets it, and
+                        // the reset can lose the close on the way.
+                        let _ = timeout(CLOSE_WAIT, async {
+                            while let Some(Ok(_)) = self.socket.next().await {}
+                        })
+                        .await;
                         return Ok(());
                     }
                 },

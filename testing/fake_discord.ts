@@ -82,7 +82,8 @@
 // Carol's instead; &stop stops him), as STREAM_UPDATE's viewer_ids tell; with
 // &decodes=h264,vp8 his client decodes only those, and Alice's stream switches
 // to the most wanted codec every viewer decodes, with op 14, as Discord does,
-// and back when he stops. Watching
+// and back when he stops. POST /_control/go-live?user=carol has Carol go live
+// too, with Bob's recording. Watching
 // Bob's stream gets testing/fixtures' recording once the viewer asks for video
 // with op 15: VP8 or, after POST /_control/stream-codec with "h264", H264;
 // with "h265" or "av1", that codec to viewers that decode it, and H264 to
@@ -2094,6 +2095,9 @@ const sessionCounts = {
   voicePings: 0,
   // The DMs a client asked about their calls (op 13), in order.
   callConnects: [] as string[],
+  // Sessions their client ended with close code 1000 or 1001, which takes
+  // Alice out of the call the session was in, as Discord does.
+  ended: 0,
 };
 
 function send(ws: Socket, op: number, d: unknown, t: string | null = null) {
@@ -8311,6 +8315,18 @@ const server = Bun.serve<SocketData>({
       moved(ALICE, before, origin);
       return new Response(url.searchParams.has("leave") ? "Alice left on another client\n" : "Alice joined the Lounge on another client\n");
     }
+    if (req.method === "POST" && path === "/_control/go-live") {
+      // Someone in a call, ?user=carol, goes live too, showing the same
+      // recording as Bob's, so a client can watch two streams at once.
+      const user = users[url.searchParams.get("user") ?? ""];
+      const state = user ? voice.get(user.id) : undefined;
+      if (!user || !state) return new Response("name someone in a call\n", { status: 409 });
+      const key = streamKey(state.guild, state.channel, user.id);
+      streams.set(key, { viewers: new Set(), paused: false });
+      state.self_stream = true;
+      announce(user.id);
+      return new Response(`${key}\n`);
+    }
     if (req.method === "POST" && path === "/_control/stream-viewer") {
       // Someone starts watching, or with ?stop stops watching, a stream:
       // ?user=bob watches Alice's, or with &of=bob, Bob's.
@@ -8347,7 +8363,7 @@ const server = Bun.serve<SocketData>({
       }
       return new Response(`moved ${key}\n`);
     }
-    if (path === "/_control/sessions") return Response.json(sessionCounts);
+    if (path === "/_control/sessions") return Response.json({ ...sessionCounts, aliceInVoice: voice.has(ALICE) });
     if (path === "/_control/cookies") return Response.json(cookieCounts);
     if (path === "/_control/list-requests") return Response.json(listRequests);
     if (path === "/_control/note-reads") return Response.json(noteReads);
@@ -9031,6 +9047,13 @@ const server = Bun.serve<SocketData>({
       sockets.delete(ws);
       if (!ws.data.voice && !ws.data.stream && ws.data.identified && code !== 1000 && code !== 1001) {
         parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+      } else if (!ws.data.voice && !ws.data.stream && ws.data.identified) {
+        sessionCounts.ended++;
+        const before = voice.get(ALICE);
+        if (before?.session === ws.data.session) {
+          voice.delete(ALICE);
+          moved(ALICE, before, ws.data.origin);
+        }
       }
     },
   },

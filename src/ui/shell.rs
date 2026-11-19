@@ -153,6 +153,13 @@ impl Shell {
     fn watch(self: &Rc<Self>, window: &ObsidianWindow) {
         let shell = Rc::downgrade(self);
         window.window().on_close_requested(move || {
+            // Alt+F4 means being done: it leaves the call too, where the
+            // close button keeps it going from the tray, as Discord does.
+            if alt_held()
+                && let Some(shell) = shell.upgrade()
+            {
+                shell.leave_call();
+            }
             let shell = shell.clone();
             // Not from inside the window's own handler, which drops it.
             slint::Timer::single_shot(Duration::ZERO, move || {
@@ -169,6 +176,17 @@ impl Shell {
             }
             let _ = slint::quit_event_loop();
         });
+    }
+
+    /// Leaves the call, if there's one, on purpose: a restart doesn't offer
+    /// it back.
+    fn leave_call(&self) {
+        let Some(window) = self.window() else {
+            return;
+        };
+        if self.adapter.borrow().app.state.voice.active() {
+            window.invoke_leave_voice();
+        }
     }
 
     /// The window's close button: Discord Obsidian goes on in the tray, or without a tray
@@ -339,6 +357,13 @@ pub(super) fn remake_window() {
     }
 }
 
+/// The window open now, if one is.
+pub(super) fn current_window() -> Option<ObsidianWindow> {
+    SHELL
+        .with(|shell| shell.borrow().upgrade())
+        .and_then(|shell| shell.window())
+}
+
 /// Discord Obsidian started again on this folder, and the new start asked for the
 /// window: shows it, taking the focus with the token the desktop gave that
 /// start.
@@ -487,4 +512,17 @@ pub(super) fn release_memory() {
         }
     }
     tracing::info!("memory released");
+}
+
+/// Whether Alt is down, as it is while Alt+F4 closes the window.
+#[cfg(windows)]
+fn alt_held() -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_MENU};
+    // SAFETY: reads this thread's keyboard state.
+    unsafe { GetKeyState(i32::from(VK_MENU)) as u16 & 0x8000 != 0 }
+}
+
+#[cfg(not(windows))]
+fn alt_held() -> bool {
+    false
 }

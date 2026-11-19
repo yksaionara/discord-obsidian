@@ -12,6 +12,19 @@ closing the window quits Discord Obsidian; the setting's description
 says when there's no tray. A tray that starts after Discord Obsidian, or comes back,
 still gets the icon.
 
+Alt+F4 means being done with the call: it leaves the call, as Disconnect
+would, and then closes the window as the close button does. Quitting, from
+the menu or by closing without a tray, leaves the call and ends the Discord
+session with close code 1000 before the app goes, waiting up to two seconds
+for it; without that code Discord keeps the session, and the account in its
+call, for minutes. Task Manager's End task gives the app no say, so a call
+has a guard process, `obsidian --call-guard`, that waits on a pipe from the
+app for as long as the call lasts (`obsidian_discord::call_guard`). Leaving
+the call tells it so and it exits. If the pipe closes without that, the app
+was ended: the guard connects to Discord, invisibly, leaves the call and
+ends its own session. On Windows it starts through a launcher that exits at
+once, so it isn't the app's child, which End task would end too.
+
 ## Starting again
 
 Starting Discord Obsidian while it runs on the same data folder brings the running

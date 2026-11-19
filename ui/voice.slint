@@ -21,6 +21,10 @@ export struct PersonRow {
     person: string,
 }
 
+/// A stream being watched: whose, its newest picture, what shows until it,
+/// and whether its sound is muted here.
+export struct WatchedStream { user: string, person: string, frame: image, status: string, muted: bool }
+
 // Marks someone sharing their screen, as Discord's red LIVE tag does.
 // Clickable when it opens the stream.
 export component LivePill inherits Rectangle {
@@ -741,6 +745,17 @@ component StageTile inherits Rectangle {
     in property <string> viewer-names;
     /// Stops the stream it shows; none when empty.
     in property <string> stop-label;
+    /// Someone's stream not watched yet: Watch, and, while others are
+    /// watched, watching it as well, as Discord's tiles offer.
+    in property <bool> offer-watch;
+    in property <bool> offer-also;
+    /// A watched stream: LIVE at its top, and its sound's mute at its foot.
+    in property <bool> live-badge;
+    in property <bool> stream-controls;
+    in property <bool> stream-muted;
+    callback watch;
+    callback watch-also;
+    callback mute(bool);
     callback clicked;
     /// A click on it while it's the large one, as Discord's: the grid again.
     /// It waits out a double-click, which is full screen instead.
@@ -830,6 +845,54 @@ component StageTile inherits Rectangle {
             }
         }
         // Inside the touch area, so the pointer on a button still hovers the tile.
+        if root.offer-watch: HorizontalLayout {
+            alignment: center; spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 36px; width: watch-text.preferred-width + 32px; border-radius: 8px;
+                    background: watch-touch.has-hover ? #6d6f78e6 : #4e5058cc;
+                    border-width: 1px; border-color: #ffffff1f;
+                    animate background { duration: Theme.quick; }
+                    accessible-role: button; accessible-label: watch-text.text;
+                    accessible-action-default => { root.watch(); }
+                    watch-text := Text {
+                        text: root.offer-also ? "Watch" : "Watch Stream";
+                        color: #ffffff; font-size: 14px; font-weight: 600;
+                    }
+                    watch-touch := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.watch(); }
+                    }
+                }
+            }
+            if root.offer-also: VerticalLayout {
+                alignment: center;
+                IconButton {
+                    size: 36px; glyph: 20px; radius: 8px;
+                    icon: @image-url("icons/eye-plus.svg"); label: "Start watching multiple streams";
+                    tint: #ffffff; fill: #4e5058cc;
+                    clicked => { root.watch-also(); }
+                }
+            }
+        }
+        if root.live-badge && !root.stop-shown: LivePill { x: parent.width - self.width - 10px; y: 10px; }
+        if root.stream-controls && (touch.has-hover || root.stream-muted || root.focused): HorizontalLayout {
+            x: parent.width - self.preferred-width - 10px; y: parent.height - 32px - 10px; height: 32px;
+            spacing: 6px;
+            IconButton {
+                size: 32px; glyph: 18px; radius: 16px;
+                icon: root.stream-muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                label: root.stream-muted ? "Unmute" : "Mute"; tint: #ffffff; fill: #000000a6;
+                clicked => { root.mute(!root.stream-muted); }
+            }
+            if root.focused && (touch.has-hover || root.full): IconButton {
+                size: 32px; glyph: 18px; radius: 16px;
+                icon: root.full ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
+                label: root.full ? "Exit Full Screen" : "Full Screen"; tint: #ffffff; fill: #000000a6;
+                clicked => { root.full-screen(!root.full); }
+            }
+        }
         ViewerStack {
             x: parent.width - self.width - (root.stop-shown ? 50px : 10px); y: 11px;
             viewers: root.viewers; names: root.viewer-names;
@@ -840,10 +903,10 @@ component StageTile inherits Rectangle {
             fill: #000000a6; radius: 16px;
             clicked => { root.stop(); }
         }
-        if root.focused && self.has-hover: IconButton {
+        if root.focused && !root.stream-controls && self.has-hover: IconButton {
             x: parent.width - self.width - 10px; y: parent.height - self.size - 10px; height: self.size;
             icon: root.full ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
-            label: root.full ? "Exit full screen" : "Full screen"; tint: #ffffff;
+            label: root.full ? "Exit Full Screen" : "Full Screen"; tint: #ffffff;
             fill: #000000a6; radius: 16px;
             clicked => { root.full-screen(!root.full); }
         }
@@ -908,11 +971,13 @@ export component ParticipantGrid inherits Flickable {
     /// The streams of those who film too, in tiles of their own, as indexes
     /// of `participants`. Others' streams show in their own tiles.
     in property <[int]> stream-tiles;
-    /// The stream being watched: whose, its newest picture, what shows until
-    /// it, and who watches.
+    /// The streams being watched, and for each participant, one more than
+    /// where theirs is among them, or 0 for none.
+    in property <[WatchedStream]> watched-streams;
+    in property <[int]> participant-watch;
+    property <bool> watching-any: root.watched-streams.length > 0;
+    /// The stream whose viewers show over it, and who watches it.
     in property <string> watch-user;
-    in property <image> watch-frame;
-    in property <string> watch-status;
     in property <[PersonRow]> watch-viewers;
     in property <string> watch-viewer-names;
     /// The tile shown large, by its place: this account's shared screen
@@ -923,8 +988,12 @@ export component ParticipantGrid inherits Flickable {
     /// Show the tile at this place large, or none for -1.
     callback focus-tile(int);
     callback full-screen(bool);
+    /// Watch someone's stream alone, or as well as the others.
     callback watch-stream(string);
-    callback stop-watching;
+    callback watch-also(string);
+    callback stop-watching(string);
+    /// Mutes someone's stream here, or unmutes it.
+    callback mute-stream(string, bool);
     /// Ends your own stream, from its tile.
     callback stop-sharing;
     /// A right click on someone, with where it was in the window.
@@ -1035,7 +1104,9 @@ export component ParticipantGrid inherits Flickable {
     for index[position] in root.stream-tiles: stream := StageTile {
         property <int> slot: position + (root.sharing ? 1 : 0);
         property <PersonRow> person: root.participants[index];
-        property <bool> watched: self.person.id == root.watch-user;
+        property <int> watch-index: root.participant-watch[index] - 1;
+        property <bool> watched: self.watch-index >= 0;
+        property <WatchedStream> shown: root.watched-streams[self.watch-index];
         x: root.tile-x(self.slot); y: root.tile-y(self.slot);
         width: root.large(self.slot) ? root.focus-width : root.tile-width;
         height: root.large(self.slot) ? root.focus-height : root.tile-height;
@@ -1043,9 +1114,14 @@ export component ParticipantGrid inherits Flickable {
         focused: root.large(self.slot); full: root.full;
         background: #000000;
         label: self.watched ? self.person.name + "'s screen" : "Watch " + self.person.name + "'s stream";
-        viewers: self.watched ? root.watch-viewers : [];
-        viewer-names: self.watched ? root.watch-viewer-names : "";
+        viewers: self.watched && self.person.id == root.watch-user ? root.watch-viewers : [];
+        viewer-names: self.watched && self.person.id == root.watch-user ? root.watch-viewer-names : "";
         stop-label: self.watched ? "Stop watching" : "";
+        offer-watch: !self.watched; offer-also: root.watching-any;
+        live-badge: true; stream-controls: self.watched; stream-muted: self.shown.muted;
+        watch => { root.watch-stream(self.person.id); }
+        watch-also => { root.watch-also(self.person.id); }
+        mute(muted) => { root.mute-stream(self.person.person, muted); }
         clicked => {
             if !self.watched {
                 root.watch-stream(self.person.id);
@@ -1054,29 +1130,24 @@ export component ParticipantGrid inherits Flickable {
             }
         }
         right-clicked(x, y) => { root.open-volume(self.person, x, y); }
-        stop => { root.stop-watching(); }
+        stop => { root.stop-watching(self.person.id); }
         full-screen(on) => { root.full-screen(on); }
         unfocus => { if self.watched { root.focus-tile(-1); } else { root.watch-stream(self.person.id); } }
         zoomable: self.watched;
         if stream.watched: StreamPicture {
-            frame: root.watch-frame; status: root.watch-status;
+            frame: stream.shown.frame; status: stream.shown.status;
             zoom: stream.zoom; pan-x: stream.pan-x; pan-y: stream.pan-y;
         }
-        if !stream.watched: VerticalLayout {
-            alignment: center; spacing: 10px;
-            Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
-            HorizontalLayout {
-                alignment: center;
-                Rectangle {
-                    height: 26px; width: stream-label.preferred-width + 20px; border-radius: 13px;
-                    background: Theme.danger;
-                    stream-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 700; }
-                }
+        if !stream.watched: Rectangle {
+            background: #1e1f22;
+            Image {
+                y: parent.height / 2 - 52px; height: 26px;
+                source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #80848e;
             }
         }
         TileChip {
-            tile-width: parent.width; tile-height: parent.height; name: stream.person.name; live: true;
-            Image { source: @image-url("icons/screen-share.svg"); width: 14px; image-fit: contain; colorize: #ffffff; }
+            tile-width: parent.width; tile-height: parent.height; name: stream.person.name; live: false;
+            Image { source: @image-url("icons/monitor.svg"); width: 14px; image-fit: contain; colorize: #ffffff; }
         }
     }
     for person[position] in root.participants: tile := StageTile {
@@ -1091,13 +1162,20 @@ export component ParticipantGrid inherits Flickable {
         // Someone who shares without a camera shows the stream in their tile,
         // once it's watched; until then a click watches it.
         property <bool> streams-here: person.live && !person.local && !person.video;
-        property <bool> watched: self.streams-here && person.id == root.watch-user;
+        property <int> watch-index: root.participant-watch[position] - 1;
+        property <bool> watched: self.streams-here && self.watch-index >= 0;
+        property <WatchedStream> shown: root.watched-streams[self.watch-index];
         zoomable: self.watched;
         background: self.filmed || self.watched ? #000000 : Theme.raised;
         label: person.name + ", " + person.status + (person.video ? ", camera on" : "");
-        viewers: self.watched ? root.watch-viewers : [];
-        viewer-names: self.watched ? root.watch-viewer-names : "";
+        viewers: self.watched && person.id == root.watch-user ? root.watch-viewers : [];
+        viewer-names: self.watched && person.id == root.watch-user ? root.watch-viewer-names : "";
         stop-label: self.watched ? "Stop watching" : "";
+        offer-watch: self.streams-here && !self.watched; offer-also: root.watching-any;
+        live-badge: self.streams-here; stream-controls: self.watched; stream-muted: self.shown.muted;
+        watch => { root.watch-stream(person.id); }
+        watch-also => { root.watch-also(person.id); }
+        mute(muted) => { root.mute-stream(person.person, muted); }
         clicked => {
             if self.streams-here && !self.watched {
                 root.watch-stream(person.id);
@@ -1106,18 +1184,19 @@ export component ParticipantGrid inherits Flickable {
             }
         }
         right-clicked(x, y) => { root.open-volume(person, x, y); }
-        stop => { root.stop-watching(); }
+        stop => { root.stop-watching(person.id); }
         full-screen(on) => { root.full-screen(on); }
         unfocus => { if self.streams-here && !self.watched { root.watch-stream(person.id); } else { root.focus-tile(-1); } }
         if tile.filmed: Image { width: tile.width; height: tile.height; source: tile.frame; image-fit: contain; }
         if tile.watched: StreamPicture {
-            frame: root.watch-frame; status: root.watch-status;
+            frame: tile.shown.frame; status: tile.shown.status;
             zoom: tile.zoom; pan-x: tile.pan-x; pan-y: tile.pan-y;
         }
         if !tile.filmed && !tile.watched: Avatar {
             size: min(80px, parent.height * 0.45); initial: person.initial; tint: person.tint; picture: person.picture;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 - 8px;
-            opacity: person.connected ? 1 : 0.5;
+            // Faint behind the Watch buttons of a stream not watched yet.
+            opacity: tile.streams-here ? 0.3 : person.connected ? 1 : 0.5;
         }
         // Drawn over the camera's picture.
         Rectangle {
@@ -1129,19 +1208,13 @@ export component ParticipantGrid inherits Flickable {
             background: #000000a6; opacity: (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg));
             starting-label := Text { text: "Starting camera..."; color: #ffffff; font-size: 13px; font-weight: 700; }
         }
-        if tile.streams-here && !tile.watched: Rectangle {
-            x: parent.width - self.width - 10px; y: 10px; height: 26px;
-            width: watch-label.preferred-width + 20px; border-radius: 13px;
-            background: Theme.danger;
-            accessible-role: button; accessible-label: "Watch " + person.name + "'s stream";
-            accessible-action-default => { root.watch-stream(person.id); }
-            watch-label := Text { text: "Watch stream"; color: Theme.on-danger; font-size: 13px; font-weight: 700; }
-        }
         TileChip {
             tile-width: parent.width; tile-height: parent.height;
-            // A stream with a tile of its own is LIVE there.
-            name: person.name; live: person.live && (person.local || !person.video);
+            // A stream with a tile of its own is LIVE there; one in this tile
+            // says so at its top.
+            name: person.name; live: person.live && person.local;
             note: person.status != "Muted" && person.status != "Deafened" && person.status != "Speaking" && person.status != "Listening" ? person.status : "";
+            if tile.streams-here: Image { source: @image-url("icons/monitor.svg"); width: 14px; image-fit: contain; colorize: #ffffff; }
             if person.muted && !person.deafened: Image { source: @image-url("icons/mic-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
             if person.deafened: Image { source: @image-url("icons/headphone-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
         }
@@ -1878,12 +1951,17 @@ export component VolumeMenu inherits Rectangle {
     in property <string> volume-person;
     in property <string> volume-name;
     in property <bool> volume-live;
+    /// Their stream is being watched: it can stop, and be muted, from here.
+    in property <bool> volume-watched;
     in-out property <int> voice-volume;
     in-out property <int> stream-volume;
     out property <length> content-height: volume-content.preferred-height;
     /// A person, whether it's their stream, the volume, and whether it's
     /// the last of a drag.
     callback volume-changed(string, bool, int, bool);
+    callback stop-watching;
+    /// The stream's volume before muting it, which unmuting brings back.
+    property <int> unmuted: 100;
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     accessible-role: groupbox; accessible-label: root.volume-name + "'s volume";
@@ -1895,6 +1973,47 @@ export component VolumeMenu inherits Rectangle {
             value <=> root.voice-volume;
             changed(volume) => { root.volume-changed(root.volume-person, false, volume, false); }
             committed(volume) => { root.volume-changed(root.volume-person, false, volume, true); }
+        }
+        if root.volume-watched: Rectangle {
+            height: 32px; border-radius: 4px;
+            background: stop-touch.has-hover ? Theme.overlay.with-alpha(0.09) : transparent;
+            accessible-role: button; accessible-label: "Stop Watching";
+            accessible-action-default => { root.stop-watching(); }
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px; spacing: 8px;
+                Image { source: @image-url("icons/screen-share-off.svg"); width: 18px; image-fit: contain; colorize: Theme.text; }
+                Text { text: "Stop Watching"; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; }
+            }
+            stop-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.stop-watching(); } }
+        }
+        if root.volume-watched: Rectangle {
+            height: 32px; border-radius: 4px;
+            background: mute-touch.has-hover ? Theme.overlay.with-alpha(0.09) : transparent;
+            accessible-role: checkbox; accessible-label: "Mute stream"; accessible-checked: root.stream-volume == 0;
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px; spacing: 8px;
+                Text { text: "Mute"; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; horizontal-stretch: 1; }
+                Middle {
+                    Rectangle {
+                        width: 20px; height: 20px; border-radius: 4px;
+                        background: root.stream-volume == 0 ? Theme.accent : transparent;
+                        border-width: root.stream-volume == 0 ? 0px : 2px; border-color: Theme.secondary;
+                        if root.stream-volume == 0: Image { source: @image-url("icons/check.svg"); width: 14px; colorize: Theme.on-accent; }
+                    }
+                }
+            }
+            mute-touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => {
+                    if root.stream-volume == 0 {
+                        root.stream-volume = max(1, root.unmuted);
+                    } else {
+                        root.unmuted = root.stream-volume;
+                        root.stream-volume = 0;
+                    }
+                    root.volume-changed(root.volume-person, true, root.stream-volume, true);
+                }
+            }
         }
         if root.volume-live: VolumeSlider {
             label: "Stream volume"; maximum: 500;

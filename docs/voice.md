@@ -19,6 +19,10 @@ joining.
 
 The native LiveKit audio engine captures and plays audio through system
 devices. Settings › Voice & video selects the microphone and speakers too.
+Each list starts with Default, as Discord's does: the system's default
+device, whichever it is at the time, which is also what voice uses without a
+choice. Where the system lists its own default entry, as PulseAudio's
+"default: Device", that entry stands for it instead.
 Discord Obsidian remembers the choice in `devices.json` in its data folder; it never
 leaves the machine. A remembered device that is unplugged gives way to the
 system default until it returns. Refresh devices in Settings after plugging in

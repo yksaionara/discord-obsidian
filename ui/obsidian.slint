@@ -41,7 +41,7 @@ import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "obsidian/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
+import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow, WatchedStream } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, SendingIndicator, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls, Logged } from "messages.slint";
@@ -385,6 +385,7 @@ export component ObsidianWindow inherits Window {
     callback reconnect-voice;
     callback dismiss-reconnect;
     property <length> banner-height: root.workspace && root.reconnect-shown ? 36px : 0px;
+    animate banner-height { duration: 180ms; easing: ease-out; }
     /// The game bar over the account panel, as Discord's client shows what
     /// you play, while not streaming it.
     property <bool> game-bar-shown: ClientStyle.enabled && root.game-activity-name != "" && !root.sharing;
@@ -883,8 +884,13 @@ export component ObsidianWindow inherits Window {
     /// The window went full screen for the stage, or left it: on Windows
     /// it then loses its frame and border, so it covers the taskbar.
     callback full-screen-changed(bool);
-    /// Whose stream is watched: their participant id.
+    /// The stream watched that the corner shows and whose viewers show: the
+    /// large one's, or else the first watched; its participant id.
     in property <string> watch-user;
+    /// Every stream watched, and where each participant's is among them; see
+    /// ParticipantGrid.
+    in property <[WatchedStream]> watched-streams;
+    in property <[int]> participant-watch;
     /// What the corner shows while the call is off screen: nothing (0), the
     /// watched stream (1), this account's screen (2) or the camera of the
     /// participant at pip-person (3); and its tile's place, which a click on
@@ -1465,6 +1471,8 @@ export component ObsidianWindow inherits Window {
         root.volume-person = person.person;
         root.volume-name = person.name;
         root.volume-live = person.live;
+        root.volume-user = person.id;
+        root.volume-watched = person.live && root.stream-watched(person.id);
         root.voice-volume = root.volume-of(person.person, false);
         root.stream-volume = root.volume-of(person.person, true);
         root.menu-target = "in-voice:" + room + "/" + person.person;
@@ -1472,7 +1480,15 @@ export component ObsidianWindow inherits Window {
         root.prepare-menu(root.menu-target, true);
         if root.voice-menu-volume || root.voice-menu-rows { voice-menu.show(); }
     }
-    callback stop-watching;
+    /// Stop watching this participant's stream, or every stream for "".
+    callback stop-watching(string);
+    callback watch-also(string);
+    /// Mutes a person's stream here, or unmutes it.
+    callback mute-stream(string, bool);
+    /// Whether this participant's stream is being watched.
+    callback stream-watched(string) -> bool;
+    property <bool> volume-watched;
+    property <string> volume-user;
     callback leave-voice;
     callback confirm-switch;
     callback cancel-switch;
@@ -2324,8 +2340,13 @@ export component ObsidianWindow inherits Window {
             y: voice-menu.lift;
             width: voice-menu.menu-width; height: self.content-height;
             volume-person: root.volume-person; volume-name: root.volume-name; volume-live: root.volume-live;
+            volume-watched: root.volume-watched;
             voice-volume <=> root.voice-volume; stream-volume <=> root.stream-volume;
-            volume-changed(person, stream, volume, last) => { root.volume-changed(person, stream, volume, last); }
+            volume-changed(person, stream, volume, last) => {
+                root.volume-changed(person, stream, volume, last);
+                if stream && last { root.mute-stream(person, volume == 0); }
+            }
+            stop-watching => { root.stop-watching(root.volume-user); voice-menu.close(); }
         }
         voice-menu-content := ContextMenu {
             visible: root.voice-menu-rows;
@@ -2377,9 +2398,16 @@ export component ObsidianWindow inherits Window {
     }
 
     // Discord's green notice under the title bar after a restart in a call.
+    // It goes by itself after a while, unless the pointer is on it.
     if root.banner-height > 0: Rectangle {
         x: 0px; y: root.title-height; width: root.width; height: root.banner-height;
+        clip: true;
         background: Theme.live.darker(0.35);
+        banner-hover := TouchArea { }
+        Timer {
+            interval: 10s; running: root.reconnect-shown && !banner-hover.has-hover;
+            triggered => { root.dismiss-reconnect(); }
+        }
         accessible-role: groupbox; accessible-label: "You were in a voice channel last time you left Discord";
         HorizontalLayout {
             alignment: center; spacing: 12px;
@@ -3072,13 +3100,16 @@ export component ObsidianWindow inherits Window {
                                     camera-starting: root.camera-starting; sharing: root.sharing; share-live: root.share-live;
                                     share-status: root.share-status; share-frame: root.share-frame;
                                     share-viewers: root.share-viewers; share-viewer-names: root.share-viewer-names;
-                                    stream-tiles: root.stream-tiles; watch-user: root.watch-user; watch-frame: root.watch-frame;
-                                    watch-status: root.watch-status; watch-viewers: root.watch-viewers; watch-viewer-names: root.watch-viewer-names;
+                                    stream-tiles: root.stream-tiles; watch-user: root.watch-user;
+                                    watched-streams: root.watched-streams; participant-watch: root.participant-watch;
+                                    watch-viewers: root.watch-viewers; watch-viewer-names: root.watch-viewer-names;
                                     focused: root.call-focus;
                                     focus-tile(slot) => { root.focus-tile(slot); }
                                     full-screen(on) => { root.stage-full = on; }
                                     watch-stream(id) => { root.watch-stream(id); }
-                                    stop-watching => { root.stop-watching(); }
+                                    watch-also(id) => { root.watch-also(id); }
+                                    stop-watching(id) => { root.stop-watching(id); }
+                                    mute-stream(person, muted) => { root.mute-stream(person, muted); }
                                     stop-sharing => { if root.sharing { root.toggle-share(); } }
                                     open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
                                     tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
@@ -3936,7 +3967,7 @@ export component ObsidianWindow inherits Window {
             root.focus-tile(root.pip-slot);
             root.open-conversation(root.voice-channel);
         }
-        stop => { if root.pip-kind == 1 { root.stop-watching(); } else if root.pip-kind == 2 { root.toggle-share(); } }
+        stop => { if root.pip-kind == 1 { root.stop-watching(root.watch-user); } else if root.pip-kind == 2 { root.toggle-share(); } }
         dropped => {
             root.pip-left = self.x + self.width / 2 < (self.left + self.right + self.width) / 2;
             root.pip-bottom = self.y + self.height / 2 >= (self.top + self.bottom + self.height) / 2;
@@ -3964,11 +3995,15 @@ export component ObsidianWindow inherits Window {
                 camera-starting: root.camera-starting; sharing: root.sharing; share-live: root.share-live;
                 share-status: root.share-status; share-frame: root.share-frame;
                 share-viewers: root.share-viewers; share-viewer-names: root.share-viewer-names;
-                stream-tiles: root.stream-tiles; watch-user: root.watch-user; watch-frame: root.watch-frame;
-                watch-status: root.watch-status; watch-viewers: root.watch-viewers; watch-viewer-names: root.watch-viewer-names;
+                stream-tiles: root.stream-tiles; watch-user: root.watch-user;
+                watched-streams: root.watched-streams; participant-watch: root.participant-watch;
+                watch-viewers: root.watch-viewers; watch-viewer-names: root.watch-viewer-names;
                 focused: root.call-focus;
                 full-screen(on) => { root.stage-full = on; }
-                stop-watching => { root.stop-watching(); }
+                watch-stream(id) => { root.watch-stream(id); }
+                watch-also(id) => { root.watch-also(id); }
+                stop-watching(id) => { root.stop-watching(id); }
+                mute-stream(person, muted) => { root.mute-stream(person, muted); }
                 stop-sharing => { if root.sharing { root.toggle-share(); } }
                 open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
                 tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {

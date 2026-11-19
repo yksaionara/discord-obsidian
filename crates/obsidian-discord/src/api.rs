@@ -371,7 +371,7 @@ impl Api {
         request.header(header::AUTHORIZATION, token.as_str())
     }
 
-    fn token(&self) -> std::sync::RwLockReadGuard<'_, String> {
+    pub(crate) fn token(&self) -> std::sync::RwLockReadGuard<'_, String> {
         self.token
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

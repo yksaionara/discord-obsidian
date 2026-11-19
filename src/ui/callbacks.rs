@@ -2691,11 +2691,71 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    window.on_stop_watching(move || {
+    window.on_stop_watching(move |user| {
+        if let Some(window) = weak.upgrade() {
+            let user = (!user.is_empty()).then(|| user.to_string());
+            state
+                .borrow_mut()
+                .action(&window, Action::Voice(voice::Command::StopWatching(user)));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_watch_also(move |id| {
         if let Some(window) = weak.upgrade() {
             state
                 .borrow_mut()
-                .action(&window, Action::Voice(voice::Command::StopWatching));
+                .action(&window, Action::Voice(voice::Command::WatchAlso(id.into())));
+        }
+    });
+    let state = adapter.clone();
+    window.on_stream_watched(move |id| {
+        state
+            .borrow()
+            .app
+            .state
+            .voice
+            .watching
+            .iter()
+            .any(|watching| watching.user == id.as_str())
+    });
+    // A stream's mute button: silent here, or back at the volume it had.
+    let state = adapter.clone();
+    window.on_mute_stream(move |person, muted| {
+        use obsidian_core::volume::{Kind, get, set};
+        let mut adapter = state.borrow_mut();
+        let person = person.to_string();
+        let now = get(Kind::Stream, &person);
+        let volume = if muted {
+            if now > 0.0 {
+                adapter.stream_unmuted.insert(person.clone(), now);
+            }
+            0.0
+        } else if now <= 0.0 {
+            adapter
+                .stream_unmuted
+                .remove(&person)
+                .filter(|volume| *volume > 0.0)
+                .unwrap_or(Kind::Stream.default_gain())
+        } else {
+            now
+        };
+        set(Kind::Stream, &person, volume);
+        if volume == Kind::Stream.default_gain() {
+            adapter.layout.stream_volumes.remove(&person);
+        } else {
+            adapter.layout.stream_volumes.insert(person.clone(), volume);
+        }
+        adapter.layout.write(&adapter.root);
+        let model = &adapter.models.watched_streams;
+        for index in 0..model.row_count() {
+            if let Some(mut row) = model.row_data(index)
+                && row.person == person.as_str()
+                && row.muted != (volume <= 0.0)
+            {
+                row.muted = volume <= 0.0;
+                model.set_row_data(index, row);
+            }
         }
     });
     // Frames skip the application state, which would redraw far more than the pictures.
@@ -2738,13 +2798,27 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         {
             window.set_camera_preview(frame);
         }
-        if let Some(frame) = voice
-            .watching
-            .as_ref()
-            .and_then(|watching| watching.frames.as_ref())
-            .and_then(|frames| frames.take(image))
-        {
-            window.set_watch_frame(frame);
+        // Each watched stream's newest picture, into its row; the corner's
+        // stream into the corner too.
+        let watched = &adapter.models.watched_streams;
+        for (index, watching) in voice.watching.iter().enumerate() {
+            let Some(frame) = watching
+                .frames
+                .as_ref()
+                .and_then(|frames| frames.take(image))
+            else {
+                continue;
+            };
+            if adapter.watch_primary.as_deref() == Some(watching.user.as_str()) {
+                window.set_watch_frame(frame.clone());
+            }
+            if let Some(mut row) = watched
+                .row_data(index)
+                .filter(|row| row.user == watching.user.as_str())
+            {
+                row.frame = frame;
+                watched.set_row_data(index, row);
+            }
         }
         let video = adapter.app.state.video.as_ref();
         let taken =
@@ -2909,20 +2983,11 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     let weak = window.as_weak();
     window.on_select_microphone(move |index| {
         if let Some(window) = weak.upgrade() {
-            let id = usize::try_from(index).ok().and_then(|index| {
-                state
-                    .borrow()
-                    .app
-                    .state
-                    .voice
-                    .microphones
-                    .get(index)
-                    .map(|device| device.id.clone())
-            });
+            let id = device_choice(&state.borrow().app.state.voice.microphones, index);
             if let Some(id) = id {
                 let mut adapter = state.borrow_mut();
                 if adapter.meter.is_some() {
-                    adapter.meter = Some(InputMeter::start(Some(&id)));
+                    adapter.meter = Some(InputMeter::start(id.as_deref()));
                 }
                 adapter.action(&window, Action::Voice(voice::Command::Microphone(id)));
                 #[cfg(feature = "discord")]
@@ -2934,16 +2999,7 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     let weak = window.as_weak();
     window.on_select_speaker(move |index| {
         if let Some(window) = weak.upgrade() {
-            let id = usize::try_from(index).ok().and_then(|index| {
-                state
-                    .borrow()
-                    .app
-                    .state
-                    .voice
-                    .speakers
-                    .get(index)
-                    .map(|device| device.id.clone())
-            });
+            let id = device_choice(&state.borrow().app.state.voice.speakers, index);
             if let Some(id) = id {
                 let mut adapter = state.borrow_mut();
                 adapter.action(&window, Action::Voice(voice::Command::Speaker(id)));

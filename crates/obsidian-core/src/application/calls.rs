@@ -98,7 +98,7 @@ fn viewer_sound(before: &voice::State, after: &voice::State) -> Option<Sound> {
         let mine = state.sharing.as_ref().map(|_| None);
         let watched = state
             .watching
-            .as_ref()
+            .iter()
             .map(|watching| Some(watching.user.clone()));
         mine.into_iter().chain(watched).collect()
     };
@@ -345,8 +345,8 @@ impl Application {
                 return vec![Effect::PreviewCamera(feed.map(|feed| (camera, feed)))];
             }
             voice::Command::Devices => return vec![Effect::ListDevices],
-            voice::Command::Microphone(id) => self.state.voice.microphone = Some(id),
-            voice::Command::Speaker(id) => self.state.voice.speaker = Some(id),
+            voice::Command::Microphone(id) => self.state.voice.microphone = id,
+            voice::Command::Speaker(id) => self.state.voice.speaker = id,
             voice::Command::Camera(id) => self.state.voice.camera = Some(id),
             voice::Command::Mute(muted) => {
                 self.state.unmute_on_undeafen = false;

@@ -14,10 +14,22 @@ streams by key (`guild:{server}:{channel}:{user}`) and
 states carry `self_stream`, which shows as a LIVE badge beside the person.
 Sharing starts from the call's controls or from the voice panel's Share
 button, which works wherever the window is; the panel says when the stream
-is live and stops it. A click on someone's tile watches their stream, which
-then shows large in it; someone who films as well has a second tile for the
-stream. A stream being watched starts large, however watching began, and
-stays watched in its tile after a click beside it. While the call is off
+is live and stops it. A stream not yet watched offers Watch Stream on its
+tile, over the streamer's faint avatar, with LIVE at its top; a click on it,
+or on the tile, watches that stream alone, as Discord's Watch does, stopping
+any others. While one is watched, the others offer Watch and, beside it,
+"Start watching multiple streams", which watches that one as well: each
+stream watched has its own connection and worker, and plays in its own tile
+(`voice::State::watching`, `Command::WatchAlso`). Someone who films as well
+has a second tile for the stream. A stream starts large as watching it
+begins; a click on another watched stream's tile shows that one large, and
+when the large one stops, another watched one takes its place. A watched
+stream's tile has its sound's mute at its foot, shown on hover or while
+muted, and the large one full screen beside it; right-clicking someone whose
+stream is watched adds Stop Watching and Mute above the stream volume. The
+corner while the call is off screen, and the viewers shown over a stream,
+follow the large stream, or else the first watched. A stream stays watched
+in its tile after a click beside it. While the call is off
 screen, the large tile's stream or camera, or else the stream being watched,
 or this account's own, shows in a corner (`StreamPip`), as Discord's
 picture in picture does. STREAM_CREATE and STREAM_UPDATE name a stream's

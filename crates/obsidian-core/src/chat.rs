@@ -4781,6 +4781,13 @@ pub async fn run(
             }
         }
     }
+    // Ends the Discord session as Discord Obsidian quits, first, which takes
+    // this account out of its call at once rather than minutes later, before
+    // the call's own devices and workers wind down.
+    #[cfg(feature = "discord")]
+    if let Some(discord) = &discord {
+        discord.service().close().await;
+    }
     voice.stop().await;
     #[cfg(feature = "matrix")]
     matrix.stop().await;

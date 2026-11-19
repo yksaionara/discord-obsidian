@@ -1013,6 +1013,16 @@ impl Tracker {
             .is_some_and(|entry| !self.elsewhere(entry))
     }
 
+    /// The servers, or the private one for a DM, where this session is
+    /// in a call.
+    pub(super) fn own_voice_guilds(&self) -> Vec<String> {
+        self.voice
+            .iter()
+            .filter(|((_, user), entry)| *user == self.me && !self.elsewhere(entry))
+            .map(|((guild, _), _)| guild.clone())
+            .collect()
+    }
+
     /// Whether a voice state of this account is another client's.
     fn elsewhere(&self, entry: &VoiceEntry) -> bool {
         self.session.is_some() && entry.session.is_some() && entry.session != self.session

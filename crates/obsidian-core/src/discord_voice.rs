@@ -3,13 +3,13 @@
 use std::{future::Future, path::Path, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{Result, bail, ensure};
-use tokio::sync::{mpsc, watch};
 use obsidian_discord::{
     ready::PRIVATE,
     service::{Discord, Live, Snapshot, Status, VoiceServer},
     stream::{self, StreamServer},
     voice::{Call as DiscordCall, live_microphone},
 };
+use tokio::sync::{mpsc, watch};
 
 use crate::{
     camera::{self, Opening},
@@ -169,6 +169,8 @@ async fn rung(ringing: &mut Ringing) -> Result<bool> {
 }
 
 /// Watching someone's stream: Discord's answer, then a worker showing it.
+/// Several can be watched at once, each with its own connection and worker,
+/// as in Discord's client.
 struct Watch {
     key: String,
     /// Whose stream it is, by Discord user id.
@@ -178,32 +180,33 @@ struct Watch {
 }
 
 impl Watch {
-    /// Plays the stream's sound, or not, as being deafened changes.
-    fn hear(watch: &mut Option<Self>, hearing: bool) {
-        if let Some((worker, _)) = watch.as_mut().and_then(|watch| watch.worker.as_mut())
-            && let Err(error) = worker.hear(hearing)
-        {
-            tracing::warn!(
-                error = format!("{error:#}"),
-                "could not tell the stream worker"
-            );
+    /// Plays the streams' sound, or not, as being deafened changes.
+    fn hear(watches: &mut [Self], hearing: bool) {
+        for (worker, _) in watches.iter_mut().filter_map(|watch| watch.worker.as_mut()) {
+            if let Err(error) = worker.hear(hearing) {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not tell the stream worker"
+                );
+            }
         }
     }
 
-    /// Plays the stream's sound at the volume chosen for it, times the
+    /// Plays each stream's sound at the volume chosen for it, times the
     /// speakers'.
-    fn volume(watch: &mut Option<Self>) {
-        if let Some(watching) = watch.as_mut()
-            && let Some((worker, _)) = watching.worker.as_mut()
-            && let Err(error) = worker.volume(crate::volume::heard(
-                crate::volume::Kind::Stream,
-                &watching.user,
-            ))
-        {
-            tracing::warn!(
-                error = format!("{error:#}"),
-                "could not tell the stream worker"
-            );
+    fn volume(watches: &mut [Self]) {
+        for watching in watches {
+            if let Some((worker, _)) = watching.worker.as_mut()
+                && let Err(error) = worker.volume(crate::volume::heard(
+                    crate::volume::Kind::Stream,
+                    &watching.user,
+                ))
+            {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not tell the stream worker"
+                );
+            }
         }
     }
 
@@ -214,13 +217,13 @@ impl Watch {
             .iter()
             .find(|person| person.id == user)
             .map_or_else(|| "Someone".into(), |person| person.user.clone());
-        state.watching = Some(Box::new(Watching {
+        state.watching.push(Watching {
             user: user.to_owned(),
             name,
             opening: true,
             frames: None,
             viewers: vec![],
-        }));
+        });
         let (discord, asked) = (discord.clone(), key.clone());
         Self {
             key,
@@ -228,6 +231,14 @@ impl Watch {
             opening: Some(Box::pin(async move { discord.watch(&asked).await })),
             worker: None,
         }
+    }
+
+    /// What the UI shows of this stream.
+    fn shown<'a>(&self, state: &'a mut State) -> Option<&'a mut Watching> {
+        state
+            .watching
+            .iter_mut()
+            .find(|shown| shown.user == self.user)
     }
 
     /// Shows the stream from `server`, in place of a worker showing it from
@@ -238,7 +249,7 @@ impl Watch {
         let (worker, frames, reports) =
             Worker::watch(server, state.speaker.clone(), state.deafened, volume)?;
         self.worker = Some((worker, reports));
-        if let Some(shown) = state.watching.as_mut() {
+        if let Some(shown) = self.shown(state) {
             shown.frames = Some(Arc::new(frames));
         }
         Ok(())
@@ -248,7 +259,24 @@ impl Watch {
     fn stop(self, discord: &Discord, state: &mut State) {
         discord.end_stream(&self.key);
         drop(self.worker);
-        state.watching = None;
+        state.watching.retain(|shown| shown.user != self.user);
+    }
+
+    /// Stops watching the streams `which` picks.
+    fn stop_where(
+        watches: &mut Vec<Self>,
+        discord: &Discord,
+        state: &mut State,
+        which: impl Fn(&Self) -> bool,
+    ) {
+        let mut index = 0;
+        while index < watches.len() {
+            if which(&watches[index]) {
+                watches.remove(index).stop(discord, state);
+            } else {
+                index += 1;
+            }
+        }
     }
 }
 
@@ -257,18 +285,28 @@ enum WatchEvent {
     Report(Option<Report>),
 }
 
-/// Discord's answer, then the worker's reports; never without a watch.
-async fn watch_event(watch: &mut Option<Watch>) -> WatchEvent {
-    let Some(watch) = watch else {
+/// The next of any watched stream's events: Discord's answer, then its
+/// worker's reports, with the stream's place; never without a watch.
+async fn watch_event(watches: &mut [Watch]) -> (usize, WatchEvent) {
+    use std::task::Poll;
+    if watches.is_empty() {
         return std::future::pending().await;
-    };
-    if let Some(opening) = watch.opening.as_mut() {
-        return WatchEvent::Opened(opening.await);
     }
-    match watch.worker.as_mut() {
-        Some((_, reports)) => WatchEvent::Report(reports.recv().await),
-        None => std::future::pending().await,
-    }
+    std::future::poll_fn(|context| {
+        for (index, watch) in watches.iter_mut().enumerate() {
+            if let Some(opening) = watch.opening.as_mut() {
+                if let Poll::Ready(opened) = opening.as_mut().poll(context) {
+                    return Poll::Ready((index, WatchEvent::Opened(opened)));
+                }
+            } else if let Some((_, reports)) = watch.worker.as_mut()
+                && let Poll::Ready(report) = reports.poll_recv(context)
+            {
+                return Poll::Ready((index, WatchEvent::Report(report)));
+            }
+        }
+        Poll::Pending
+    })
+    .await
 }
 
 /// A Discord voice call, from asking Discord to join until leaving. Commands
@@ -318,8 +356,8 @@ pub(crate) async fn call(
                     return Ok(());
                 }
                 // Used once the call connects.
-                Some(Command::Microphone(id)) => state.microphone = Some(id),
-                Some(Command::Speaker(id)) => state.speaker = Some(id),
+                Some(Command::Microphone(id)) => state.microphone = id,
+                Some(Command::Speaker(id)) => state.speaker = id,
                 Some(Command::Camera(id)) => state.camera = Some(id),
                 Some(Command::Devices) => { let _ = devices(state); }
                 _ => {}
@@ -372,7 +410,7 @@ pub(crate) async fn call(
     let mut cameras = Cameras::start(call.video_frames());
     let mut share: Option<Share> = None;
     let mut starting: Starting = None;
-    let mut watch: Option<Watch> = None;
+    let mut watches: Vec<Watch> = Vec::new();
     // Ringing the others while they haven't come, with the ringback heard meanwhile.
     let mut ringing: Ringing = None;
     let mut ringback: Option<Ringer> = None;
@@ -540,7 +578,7 @@ pub(crate) async fn call(
                             if state.deafened {
                                 state.deafened = false;
                                 hearing.set_deafened(false);
-                                Watch::hear(&mut watch, true);
+                                Watch::hear(&mut watches, true);
                             }
                             match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
                                 Ok(opened) => {
@@ -562,7 +600,7 @@ pub(crate) async fn call(
                             }
                             state.deafened = deafened;
                             hearing.set_deafened(deafened);
-                            Watch::hear(&mut watch, !deafened);
+                            Watch::hear(&mut watches, !deafened);
                             // Undeafening gives back the microphone deafening took.
                             if !deafened && std::mem::take(&mut unmute_on_undeafen) {
                                 match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
@@ -577,7 +615,7 @@ pub(crate) async fn call(
                         }
                         Some(Command::Devices) => { let _ = devices(state); }
                         Some(Command::Microphone(id)) => {
-                            state.microphone = Some(id);
+                            state.microphone = id;
                             Chosen::write(remembered, state);
                             if capture.take().is_some() {
                                 match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
@@ -590,7 +628,7 @@ pub(crate) async fn call(
                             }
                         }
                         Some(Command::Speaker(id)) => {
-                            state.speaker = Some(id);
+                            state.speaker = id;
                             Chosen::write(remembered, state);
                             speakers = None;
                             match open_discord_speakers(state, &played, &hearing) {
@@ -660,19 +698,23 @@ pub(crate) async fn call(
                             starting = None;
                         }
                         Some(Command::Watch(user)) => {
-                            let watching = state.watching.as_ref().is_some_and(|watching| watching.user == user);
-                            if user != me && !watching {
-                                if let Some(stopped) = watch.take() {
-                                    stopped.stop(discord, state);
-                                }
+                            // Only this one, as Discord's Watch button: the others stop.
+                            Watch::stop_where(&mut watches, discord, state, |watching| watching.user != user);
+                            if user != me && watches.is_empty() {
                                 state.error = None;
-                                watch = Some(Watch::start(discord, guild, &channel, &user, state));
+                                watches.push(Watch::start(discord, guild, &channel, &user, state));
                             }
                         }
-                        Some(Command::StopWatching) => {
-                            if let Some(stopped) = watch.take() {
-                                stopped.stop(discord, state);
+                        Some(Command::WatchAlso(user)) => {
+                            if user != me && !watches.iter().any(|watching| watching.user == user) {
+                                state.error = None;
+                                watches.push(Watch::start(discord, guild, &channel, &user, state));
                             }
+                        }
+                        Some(Command::StopWatching(user)) => {
+                            Watch::stop_where(&mut watches, discord, state, |watching| {
+                                user.as_ref().is_none_or(|user| &watching.user == user)
+                            });
                         }
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
@@ -855,33 +897,30 @@ pub(crate) async fn call(
                         }
                     }
                 }
-                Ok(()) = volumes.changed() => Watch::volume(&mut watch),
-                event = watch_event(&mut watch) => {
+                Ok(()) = volumes.changed() => Watch::volume(&mut watches),
+                (index, event) = watch_event(&mut watches) => {
                     let mut stop = None;
+                    let watching = &mut watches[index];
                     match event {
                         WatchEvent::Opened(Ok(server)) => {
-                            if let Some(watching) = watch.as_mut()
-                                && let Err(error) = watching.open(&server, state)
-                            {
+                            if let Err(error) = watching.open(&server, state) {
                                 stop = Some(Some(format!("{error:#}")));
                             }
                         }
                         WatchEvent::Opened(Err(error)) => stop = Some(Some(error.to_string())),
                         WatchEvent::Report(Some(Report::Ready)) => {
-                            if let Some(frames) = state.watching.as_ref().and_then(|watching| watching.frames.as_ref()) {
+                            if let Some(frames) = watching.shown(state).and_then(|shown| shown.frames.as_ref()) {
                                 frames.unlink();
                             }
                         }
                         WatchEvent::Report(Some(Report::Streaming)) => {
-                            if let Some(watching) = state.watching.as_mut() {
-                                watching.opening = false;
+                            if let Some(shown) = watching.shown(state) {
+                                shown.opening = false;
                             }
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(Report::Reconnecting)) => {
-                            if let Some(watching) = watch.as_ref() {
-                                discord.ping_stream(&watching.key);
-                            }
+                            discord.ping_stream(&watching.key);
                         }
                         WatchEvent::Report(Some(
                             Report::Sharing { .. }
@@ -893,10 +932,8 @@ pub(crate) async fn call(
                         )) => {}
                         WatchEvent::Report(None) => stop = Some(None),
                     }
-                    if let Some(error) = stop
-                        && let Some(stopped) = watch.take()
-                    {
-                        stopped.stop(discord, state);
+                    if let Some(error) = stop {
+                        watches.remove(index).stop(discord, state);
                         state.error = error;
                     }
                     snapshots.send_replace(state.clone());
@@ -929,8 +966,8 @@ pub(crate) async fn call(
                     Live::StreamUpdated { stream_key, viewers, .. } => {
                         let shown = if share.as_ref().is_some_and(|share| share.key.as_ref() == Some(&stream_key)) {
                             state.sharing.as_mut().map(|sharing| &mut sharing.viewers)
-                        } else if watch.as_ref().is_some_and(|watch| watch.key == stream_key) {
-                            state.watching.as_mut().map(|watching| &mut watching.viewers)
+                        } else if let Some(watching) = watches.iter().find(|watch| watch.key == stream_key) {
+                            watching.shown(state).map(|shown| &mut shown.viewers)
                         } else {
                             None
                         };
@@ -943,10 +980,8 @@ pub(crate) async fn call(
                     }
                     Live::StreamEnded { stream_key, reason } => {
                         // The streamer stopped, or Discord ended watching.
-                        if watch.as_ref().is_some_and(|watch| watch.key == stream_key)
-                            && let Some(stopped) = watch.take()
-                        {
-                            stopped.stop(discord, state);
+                        if watches.iter().any(|watch| watch.key == stream_key) {
+                            Watch::stop_where(&mut watches, discord, state, |watch| watch.key == stream_key);
                             snapshots.send_replace(state.clone());
                         }
                         if share.as_ref().is_some_and(|share| share.key.as_ref() == Some(&stream_key))
@@ -994,14 +1029,13 @@ pub(crate) async fn call(
                             stopped.stop(discord, state);
                             state.error = Some(error.to_string());
                         }
-                        if let Some(watching) = watch.as_mut().filter(|watching| watching.key == next.stream_key && watching.opening.is_none()) {
-                            if let Some(shown) = state.watching.as_mut() {
+                        if let Some(index) = watches.iter().position(|watching| watching.key == next.stream_key && watching.opening.is_none()) {
+                            let watching = &mut watches[index];
+                            if let Some(shown) = watching.shown(state) {
                                 shown.opening = true;
                             }
-                            if let Err(error) = watching.open(&next, state)
-                                && let Some(stopped) = watch.take()
-                            {
-                                stopped.stop(discord, state);
+                            if let Err(error) = watching.open(&next, state) {
+                                watches.remove(index).stop(discord, state);
                                 state.error = Some(format!("{error:#}"));
                             }
                         }
@@ -1042,9 +1076,7 @@ pub(crate) async fn call(
     if let Some(stopped) = share.take() {
         stopped.stop(discord, state);
     }
-    if let Some(stopped) = watch.take() {
-        stopped.stop(discord, state);
-    }
+    Watch::stop_where(&mut watches, discord, state, |_| true);
     state.phase = Phase::Leaving;
     snapshots.send_replace(state.clone());
     drop(ringback);

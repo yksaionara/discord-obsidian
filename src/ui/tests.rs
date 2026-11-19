@@ -982,33 +982,54 @@ fn a_chosen_device_that_went_away_shows_as_not_connected() {
         device("{speakers}", "Speakers"),
         device("{headphones}", "Headphones"),
     ];
-    let (rows, index) = device_rows(&both, Some("{headphones}"), &mut names);
-    assert_eq!(rows, ["Speakers", "Headphones"]);
-    assert_eq!(index, 1);
+    let (rows, index) = device_rows(&both, Some("{headphones}"), &mut names, true);
+    assert_eq!(rows, ["Default", "Speakers", "Headphones"]);
+    assert_eq!(index, 2);
     // They go away: still chosen, by the name they had, not another device.
-    let (rows, index) = device_rows(&both[..1], Some("{headphones}"), &mut names);
-    assert_eq!(rows, ["Speakers", "Headphones (not connected)"]);
-    assert_eq!(index, 1);
+    let (rows, index) = device_rows(&both[..1], Some("{headphones}"), &mut names, true);
+    assert_eq!(rows, ["Default", "Speakers", "Headphones (not connected)"]);
+    assert_eq!(index, 2);
     // A device known by its name, as on PulseAudio, has it in its id.
-    let (rows, index) = device_rows(&both[..1], Some("name:USB headset"), &mut HashMap::new());
-    assert_eq!(rows, ["Speakers", "USB headset (not connected)"]);
-    assert_eq!(index, 1);
-    // The default entry's id names the default it had; it stays the default.
+    let (rows, index) = device_rows(
+        &both[..1],
+        Some("name:USB headset"),
+        &mut HashMap::new(),
+        true,
+    );
+    assert_eq!(rows, ["Default", "Speakers", "USB headset (not connected)"]);
+    assert_eq!(index, 2);
+    // The default entry's id names the default it had; it stays the default,
+    // and the system's own default entry stands for Discord Obsidian's.
     let pulse = [
         device("name:default: Headset", "default: Headset"),
         device("name:Headset", "Headset"),
         device("name:Built-in", "Built-in"),
     ];
-    let (rows, index) = device_rows(&pulse, Some("name:default: Built-in"), &mut names);
+    let (rows, index) = device_rows(&pulse, Some("name:default: Built-in"), &mut names, true);
     assert_eq!(rows.len(), 3);
     assert_eq!(index, 0);
-    let (rows, index) = device_rows(&[], None, &mut names);
+    let (rows, index) = device_rows(&[], None, &mut names, false);
     assert!(rows.is_empty());
     assert_eq!(index, -1, "nothing to choose");
+    let (rows, index) = device_rows(&[], None, &mut names, true);
+    assert_eq!((rows, index), (vec![SharedString::from("Default")], 0));
     assert_eq!(
-        device_rows(&both, None, &mut names).1,
+        device_rows(&both, None, &mut names, true).1,
         0,
-        "the default, listed first"
+        "no choice is the default"
+    );
+    assert_eq!(
+        device_rows(&both, None, &mut names, false).1,
+        0,
+        "a camera's default is the first"
+    );
+    // Picking the first row chooses the default again; the others, devices.
+    assert_eq!(device_choice(&both, 0), Some(None));
+    assert_eq!(device_choice(&both, 2), Some(Some("{headphones}".into())));
+    assert_eq!(device_choice(&both, 3), None, "a device not connected");
+    assert_eq!(
+        device_choice(&pulse, 0),
+        Some(Some("name:default: Headset".into()))
     );
 }
 
@@ -5343,8 +5364,8 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
 #[test]
 #[cfg(feature = "discord")]
 fn channel_settings_cover_the_window_with_overview_and_permissions() {
-    use slint::Model;
     use obsidian_core::obsidian_discord::ready::permission;
+    use slint::Model;
     let (window, adapter, _directory) =
         discord_server_window_granting(permission::MANAGE_CHANNELS | permission::MANAGE_ROLES);
     window.invoke_prepare_menu("discord:10:11".into(), false);
@@ -5576,11 +5597,11 @@ fn edit_server_profile_opens_the_per_server_profile_editor() {
 #[test]
 #[cfg(feature = "discord")]
 fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
-    use slint::Model;
     use obsidian_core::{
         chat::{ServerProfile, ServerSettingsPage, SettingsSection},
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     let (window, adapter, _directory) = discord_server_window_granting(permission::MANAGE_GUILD);
     let texts = |window: &ObsidianWindow| -> Vec<String> {
         window
@@ -5662,11 +5683,11 @@ fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
 #[test]
 #[cfg(feature = "discord")]
 fn engagement_and_boost_perks_show_their_choices_and_locks() {
-    use slint::Model;
     use obsidian_core::{
         chat::{GuildSettings, ServerSettingsPage, SettingsSection},
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     let (window, adapter, _directory) = discord_server_window_granting(permission::MANAGE_GUILD);
     let names = |list: ModelRc<SharedString>| -> Vec<String> {
         list.iter().map(|name| name.to_string()).collect()
@@ -5740,11 +5761,11 @@ fn engagement_and_boost_perks_show_their_choices_and_locks() {
 #[cfg(feature = "discord")]
 #[test]
 fn moderation_shows_safety_setup_and_bans_as_discords_pages_do() {
-    use slint::Model;
     use obsidian_core::{
         chat::{Ban, GuildSettings, RoleMember, ServerSettingsPage, SettingsSection},
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     let (window, adapter, _directory) =
         discord_server_window_granting(permission::BAN_MEMBERS | permission::MANAGE_GUILD);
     window.invoke_prepare_menu("header:discord:10".into(), false);
@@ -5863,11 +5884,11 @@ fn moderation_shows_safety_setup_and_bans_as_discords_pages_do() {
 #[cfg(feature = "discord")]
 #[test]
 fn audit_log_shows_rows_that_open_their_numbered_lines() {
-    use slint::Model;
     use obsidian_core::{
         chat::{AuditEntry, AuditLog, AuditUser, ServerSettingsPage, SettingsSection},
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     let (window, adapter, _directory) = discord_server_window_granting(permission::VIEW_AUDIT_LOG);
     window.invoke_prepare_menu("header:discord:10".into(), false);
     window.invoke_choose_menu("header:discord:10".into(), false, "server-settings".into());
@@ -5955,7 +5976,6 @@ fn audit_log_shows_rows_that_open_their_numbered_lines() {
 #[cfg(feature = "discord")]
 #[test]
 fn members_and_invites_list_as_discords_pages_do() {
-    use slint::Model;
     use obsidian_core::{
         chat::{
             GuildSettings, JoinMethod, ListedMember, RoleMember, ServerInvite, ServerSettingsPage,
@@ -5963,6 +5983,7 @@ fn members_and_invites_list_as_discords_pages_do() {
         },
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     let (window, adapter, _directory) = discord_server_window_changed(
         permission::KICK_MEMBERS | permission::MANAGE_GUILD | permission::CREATE_INSTANT_INVITE,
         |server, _| {
@@ -6168,7 +6189,6 @@ fn delete_server_ends_the_owners_sidebar_and_asks_for_the_name() {
 #[cfg(feature = "discord")]
 #[test]
 fn emoji_and_stickers_show_as_discords_pages_do() {
-    use slint::Model;
     use obsidian_core::{
         chat::{
             GuildSettings, RoleMember, ServerEmoji, ServerSettingsPage, ServerSticker,
@@ -6176,6 +6196,7 @@ fn emoji_and_stickers_show_as_discords_pages_do() {
         },
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     let (window, adapter, _directory) =
         discord_server_window_changed(permission::CREATE_GUILD_EXPRESSIONS, |_, _| {});
     window.invoke_prepare_menu("header:discord:10".into(), false);
@@ -6311,11 +6332,11 @@ fn emoji_and_stickers_show_as_discords_pages_do() {
 #[test]
 #[cfg(feature = "discord")]
 fn roles_lock_what_ranks_above_her_and_the_permissions_she_lacks() {
-    use slint::Model;
     use obsidian_core::{
         chat::{RoleDetail, ServerRoles, ServerSettingsPage, SettingsSection},
         obsidian_discord::ready::permission,
     };
+    use slint::Model;
     // She holds Staff, which may kick.
     let (window, adapter, _directory) =
         discord_server_window_changed(permission::MANAGE_ROLES, |server, marks| {
@@ -6410,8 +6431,8 @@ fn roles_lock_what_ranks_above_her_and_the_permissions_she_lacks() {
 #[test]
 #[cfg(feature = "discord")]
 fn the_two_factor_prompt_offers_discords_methods() {
-    use slint::Model;
     use obsidian_core::chat::MfaMethod;
+    use slint::Model;
     let (window, adapter, _directory) = discord_server_window_granting(0);
     {
         let mut adapter = adapter.borrow_mut();

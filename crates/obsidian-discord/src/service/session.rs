@@ -287,6 +287,7 @@ async fn connected_session(
         tracker,
         shared,
         join: VoiceJoin::new(voice_ping),
+        guard: None,
         streams: StreamOpenings::new(),
         searches: MemberSearches::default(),
         previews: mpsc::unbounded_channel(),
@@ -317,6 +318,8 @@ struct Session<'a> {
     shared: &'a mut Shared,
     publisher: Publisher,
     join: VoiceJoin,
+    /// Leaves the call if Discord Obsidian is ended without quitting.
+    guard: Option<crate::call_guard::Guard>,
     streams: StreamOpenings,
     searches: MemberSearches,
     acks: ReadAcks,
@@ -367,6 +370,18 @@ impl Session<'_> {
                     Ok(())
                 }
                 request = requests.recv() => match request {
+                    Some(Request::Close { done }) => {
+                        for guild in self.tracker.own_voice_guilds() {
+                            let _ = self
+                                .gateway
+                                .update_voice_state(server(&guild), None, false, false, false)
+                                .await;
+                        }
+                        self.gateway.close().await;
+                        self.guard = None;
+                        let _ = done.send(());
+                        return Ended::Dropped;
+                    }
                     Some(request) => self.request(request).await,
                     None => {
                         self.gateway.close().await;
@@ -433,10 +448,19 @@ impl Session<'_> {
                 let sent = gateway
                     .update_voice_state(server(&guild), Some(&channel), true, false, false)
                     .await;
+                let token = self.shared.api.token().clone();
+                self.guard = None;
+                self.guard = crate::call_guard::Guard::start(&token, &guild);
                 self.join.start(guild, channel, reply);
                 sent
             }
+            // The run loop closes the session itself.
+            Request::Close { done } => {
+                let _ = done.send(());
+                Ok(())
+            }
             Request::Leave { guild } => {
+                self.guard = None;
                 // A call there on another client stays: no channel would
                 // take it out of that one too.
                 if !self.join.leave(&guild) && !self.tracker.in_voice_here(&guild) {

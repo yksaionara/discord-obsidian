@@ -29,6 +29,8 @@ mod emoji_text;
 #[cfg(feature = "desktop")]
 mod graphics;
 #[cfg(feature = "desktop")]
+mod hotkeys;
+#[cfg(feature = "desktop")]
 mod icon;
 #[cfg(feature = "desktop")]
 mod instance;
@@ -41,17 +43,15 @@ mod protocol;
 #[cfg(feature = "desktop")]
 mod push_to_talk;
 #[cfg(feature = "desktop")]
-mod hotkeys;
-#[cfg(feature = "desktop")]
 mod report;
-#[cfg(feature = "desktop")]
-mod window_icon;
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
 mod twemoji;
 #[cfg(feature = "desktop")]
 mod ui;
+#[cfg(feature = "desktop")]
+mod window_icon;
 #[cfg(feature = "desktop")]
 mod zoom;
 
@@ -88,6 +88,15 @@ fn main() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some(obsidian_core::stream_worker::ARGUMENT) {
         logging::init_to_stderr();
         return obsidian_core::stream_worker::run();
+    }
+    // A call's guard waits on a pipe, then perhaps leaves the call: no UI.
+    #[cfg(feature = "discord")]
+    if let Some(argument) = std::env::args().nth(1).filter(|argument| {
+        argument == obsidian_core::obsidian_discord::call_guard::ARGUMENT
+            || argument == "--call-guard-run"
+    }) {
+        obsidian_core::init_tls()?;
+        return obsidian_core::obsidian_discord::call_guard::run(&argument);
     }
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
     // First, so nothing a desktop handed over with the link is read as an option.

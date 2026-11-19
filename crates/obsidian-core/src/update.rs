@@ -5,8 +5,9 @@
 //! Update button, runs it silently: it closes the app, installs over it,
 //! and starts it again.
 //!
-//! Nothing runs at startup but a look for a downloaded installer; the check
-//! itself waits on a thread of its own, so starting stays as fast as before.
+//! Nothing runs at startup but a look for a downloaded installer; the checks
+//! run on a thread of its own, each minute, so starting stays as fast as
+//! before and a release shows within about a minute.
 
 use std::{
     io::Write,
@@ -124,48 +125,118 @@ struct Asset {
     digest: Option<String>,
 }
 
+/// Asks GitHub about its latest release, again and again, and downloads the
+/// installer of one newer than this build and than any already downloaded.
+/// It keeps its runtime and connection between checks, and asks with the
+/// last answer's ETag: GitHub answers an unchanged release with 304, which
+/// doesn't count against the 60 requests an hour it allows, so checking each
+/// minute costs nothing.
+pub struct Checker {
+    runtime: tokio::runtime::Runtime,
+    client: reqwest::Client,
+    etag: Option<String>,
+}
+
+impl Checker {
+    pub fn new() -> Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("no runtime for the update check")?;
+        let client = reqwest::Client::builder()
+            .user_agent(format!("dc-updater/{}", ours()))
+            .timeout(Duration::from_secs(600))
+            .connect_timeout(Duration::from_secs(15))
+            .build()
+            .context("no HTTP client")?;
+        Ok(Self {
+            runtime,
+            client,
+            etag: None,
+        })
+    }
+
+    /// What's ready to install after this check: a newer release's installer,
+    /// downloaded now, or one downloaded before.
+    pub fn check(&mut self, root: &Path) -> Result<Option<Pending>> {
+        let pending = pending(root);
+        let runtime = &self.runtime;
+        let found = runtime.block_on(latest(&self.client, &mut self.etag))?;
+        let Some(release) = found else {
+            return Ok(pending);
+        };
+        let version = release.tag_name.trim_start_matches('v').to_owned();
+        if release.draft || release.prerelease || !is_newer(&version) {
+            return Ok(pending);
+        }
+        if pending
+            .as_ref()
+            .is_some_and(|pending| parse(&pending.version) >= parse(&version))
+        {
+            return Ok(pending);
+        }
+        let downloaded = runtime.block_on(download(&self.client, root, &release, version));
+        if downloaded.is_err() {
+            // Asked again next time, rather than answered 304.
+            self.etag = None;
+        }
+        let downloaded = downloaded?;
+        if let Some(older) = pending {
+            let _ = std::fs::remove_file(older.installer);
+        }
+        Ok(Some(downloaded))
+    }
+}
+
 /// Asks GitHub for the latest release and downloads its installer when
 /// it's newer than this build: what's ready to install afterward.
 pub fn check(root: &Path) -> Result<Option<Pending>> {
-    if let Some(pending) = pending(root) {
-        return Ok(Some(pending));
-    }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("no runtime for the update check")?;
-    runtime.block_on(check_async(root))
+    Checker::new()?.check(root)
 }
 
-async fn check_async(root: &Path) -> Result<Option<Pending>> {
-    let client = reqwest::Client::builder()
-        .user_agent(format!("dc-updater/{}", ours()))
-        .timeout(Duration::from_secs(600))
-        .connect_timeout(Duration::from_secs(15))
-        .build()
-        .context("no HTTP client")?;
-    let answer = client
+/// The latest release, or none when it hasn't changed since `etag`'s.
+async fn latest(client: &reqwest::Client, etag: &mut Option<String>) -> Result<Option<Release>> {
+    let mut request = client
         .get(format!(
             "https://api.github.com/repos/{REPOSITORY}/releases/latest"
         ))
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .context("could not reach GitHub")?
+        .header("Accept", "application/vnd.github+json");
+    if let Some(etag) = etag.as_deref() {
+        request = request.header("If-None-Match", etag);
+    }
+    let response = request.send().await.context("could not reach GitHub")?;
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(None);
+    }
+    let response = response
         .error_for_status()
-        .context("GitHub has no latest release")?
+        .context("GitHub has no latest release")?;
+    let tag = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let answer = response
         .bytes()
         .await
         .context("GitHub's answer didn't arrive")?;
     let release: Release =
         serde_json::from_slice(&answer).context("GitHub's answer didn't read as a release")?;
-    if release.draft || release.prerelease || !is_newer(&release.tag_name) {
-        return Ok(None);
-    }
+    *etag = tag;
+    Ok(Some(release))
+}
+
+/// Downloads `release`'s installer into the update folder, checked against
+/// GitHub's digest.
+async fn download(
+    client: &reqwest::Client,
+    root: &Path,
+    release: &Release,
+    version: String,
+) -> Result<Pending> {
     let Some(asset) = release.assets.iter().find(|asset| asset.name == INSTALLER) else {
         bail!("release {} has no {INSTALLER}", release.tag_name);
     };
-    let version = release.tag_name.trim_start_matches('v').to_owned();
     let folder = folder(root);
     std::fs::create_dir_all(&folder).context("could not make the update folder")?;
     let partial = folder.join(format!("{version}.part"));
@@ -203,7 +274,7 @@ async fn check_async(root: &Path) -> Result<Option<Pending>> {
     let installer = folder.join(format!("{version}.exe"));
     std::fs::rename(&partial, &installer).context("could not keep the update")?;
     tracing::info!(version, "downloaded an update");
-    Ok(Some(Pending { version, installer }))
+    Ok(Pending { version, installer })
 }
 
 #[cfg(test)]

@@ -9,9 +9,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use slint::{
-    ComponentHandle, Model, ModelRc, SharedString, VecModel, winit_030::WinitWindowAccessor,
-};
 use obsidian_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
@@ -32,6 +29,9 @@ use obsidian_core::{
     spoiler,
     voice::{self, Phase},
 };
+use slint::{
+    ComponentHandle, Model, ModelRc, SharedString, VecModel, winit_030::WinitWindowAccessor,
+};
 
 use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
@@ -44,8 +44,8 @@ mod call_timer;
 mod callbacks;
 mod channel_settings;
 mod emoji_animation;
-mod games;
 mod game_mode;
+mod games;
 mod gifs;
 mod gta;
 mod menus;
@@ -53,6 +53,7 @@ mod messages;
 #[cfg(windows)]
 mod move_loop;
 mod name_style;
+mod obsidian;
 mod pictures;
 mod placement;
 mod polls;
@@ -63,16 +64,15 @@ mod shell;
 mod theme;
 mod tiles;
 mod title_bar;
-mod obsidian;
 
 use callbacks::bind_callbacks;
 use messages::*;
+use obsidian_ui::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
 use refresh::{Reach, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
-use obsidian_ui::*;
 
 /// How the desktop window ended.
 pub enum Exit {
@@ -119,6 +119,15 @@ pub fn run(
         #[cfg(feature = "discord")]
         if !preview {
             obsidian_core::discord_sounds::set_folder(&root);
+            // A killed process leaves its call through this.
+            let program = if cfg!(target_os = "linux") {
+                Ok(PathBuf::from("/proc/self/exe"))
+            } else {
+                std::env::current_exe()
+            };
+            if let Ok(program) = program {
+                obsidian_core::obsidian_discord::call_guard::enable(program);
+            }
         }
         #[cfg(windows)]
         if !preview
@@ -126,7 +135,9 @@ pub fn run(
         {
             match obsidian_core::update::apply(&pending, background) {
                 Ok(()) => return Ok(Exit::Closed),
-                Err(error) => tracing::warn!(error = format!("{error:#}"), "starting without the update"),
+                Err(error) => {
+                    tracing::warn!(error = format!("{error:#}"), "starting without the update")
+                }
             }
         }
         let plan = graphics::plan(renderer, layout.gpu_rendering, gpu_failure);
@@ -205,7 +216,7 @@ pub fn run(
     bind_callbacks(&window, &adapter);
     #[cfg(windows)]
     if !preview {
-        watch_updates(&window, adapter.borrow().root.clone());
+        watch_updates(adapter.borrow().root.clone());
     }
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
@@ -265,7 +276,7 @@ pub fn run(
     placement::flush(&adapter);
     // The icon goes before Discord Obsidian does, not when Windows next looks at it.
     adapter.tray = None;
-    adapter.stop_backend();
+    adapter.quit_backend();
     // A window made late, as from the tray after starting in it, failed on the GPU.
     if result.is_ok()
         && let Some(reason) = late_gpu_failure
@@ -284,52 +295,84 @@ pub fn run(
     }
 }
 
+/// How long quitting waits for Discord to hear that this account left.
+const QUIT_WAIT: Duration = Duration::from_secs(2);
+
 /// How long after starting the first update check waits, and how often it
-/// checks again while the app runs: often enough that a release shows
-/// within half an hour, at two of the 60 requests an hour GitHub allows.
+/// checks again while the app runs, in a call or not. An unchanged release
+/// costs GitHub's limit nothing; see `update::Checker`.
 #[cfg(windows)]
-const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(20);
+const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(5);
 #[cfg(windows)]
-const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[cfg(windows)]
 /// What this version changed, as its release notes say; see scripts/ship.ps1.
 const WHATS_NEW: &str = include_str!("../packaging/whats-new.txt");
 
-/// Checks for an update on a thread of its own, now and again, and shows the
-/// rail's Update pill once one is downloaded, in a call or not. Nothing
-/// installs by itself while the app runs: the pill installs it and restarts
-/// when clicked, and otherwise the next start does, before any window.
-fn watch_updates(window: &ObsidianWindow, root: PathBuf) {
-    let weak = window.as_weak();
-    let installing = root.clone();
-    window.on_apply_update(move || {
-        let Some(pending) = obsidian_core::update::pending(&installing) else {
+#[cfg(windows)]
+thread_local! {
+    /// The data folder updates download into, and the version downloaded,
+    /// which every window shows: the first, and each made again after
+    /// closing to the tray or starting in it.
+    static UPDATES: RefCell<(Option<PathBuf>, String)> = const { RefCell::new((None, String::new())) };
+}
+
+/// Shows a downloaded update in `window`, and installs it from its pill.
+#[cfg(windows)]
+fn show_update(window: &ObsidianWindow) {
+    UPDATES.with(|updates| window.set_update_version(updates.borrow().1.as_str().into()));
+    window.on_apply_update(|| {
+        let Some(root) = UPDATES.with(|updates| updates.borrow().0.clone()) else {
+            return;
+        };
+        let Some(pending) = obsidian_core::update::pending(&root) else {
             return;
         };
         match obsidian_core::update::apply(&pending, false) {
             Ok(()) => {
                 let _ = slint::quit_event_loop();
             }
-            Err(error) => tracing::warn!(error = format!("{error:#}"), "could not install the update"),
+            Err(error) => {
+                tracing::warn!(error = format!("{error:#}"), "could not install the update")
+            }
         }
     });
+}
+
+/// Checks for an update on a thread of its own, each minute, and shows the
+/// rail's Update pill once one is downloaded, in a call or not, in whichever
+/// window is open. Nothing installs by itself while the app runs: the pill
+/// installs it and restarts when clicked, and otherwise the next start does,
+/// before any window.
+#[cfg(windows)]
+fn watch_updates(root: PathBuf) {
+    UPDATES.with(|updates| updates.borrow_mut().0 = Some(root.clone()));
     let _ = std::thread::Builder::new()
         .name("update-check".into())
         .spawn(move || {
             std::thread::sleep(UPDATE_FIRST_CHECK);
+            let mut checker = match obsidian_core::update::Checker::new() {
+                Ok(checker) => checker,
+                Err(error) => {
+                    tracing::warn!(error = format!("{error:#}"), "no update checks");
+                    return;
+                }
+            };
+            let mut shown = String::new();
             loop {
-                match obsidian_core::update::check(&root) {
-                    Ok(Some(pending)) => {
-                        let weak = weak.clone();
-                        let version = pending.version.clone();
+                match checker.check(&root) {
+                    Ok(Some(pending)) if pending.version != shown => {
+                        shown.clone_from(&pending.version);
+                        let version = pending.version;
                         let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(window) = weak.upgrade() {
-                                window.set_update_version(version.into());
+                            if let Some(window) = shell::current_window() {
+                                window.set_update_version(version.as_str().into());
                             }
+                            UPDATES.with(|updates| updates.borrow_mut().1 = version);
                         });
                     }
-                    Ok(None) => {}
+                    Ok(_) => {}
                     Err(error) => tracing::info!(error = format!("{error:#}"), "no update check"),
                 }
                 std::thread::sleep(UPDATE_EVERY);
@@ -343,6 +386,8 @@ fn isolated_display() -> bool {
 }
 
 fn prepare(window: &ObsidianWindow) {
+    #[cfg(windows)]
+    show_update(window);
     // The entry is the setting, so each window reads it as it is.
     let autostart = AUTOSTART.get();
     window.set_autostart_available(autostart);
@@ -1748,6 +1793,10 @@ struct Models {
     participant_frames: Rc<VecModel<slint::Image>>,
     /// The streams in tiles of their own, as indexes of their participants.
     stream_tiles: Rc<VecModel<i32>>,
+    /// The streams being watched, and for each participant one more than
+    /// where theirs is among them, or 0.
+    watched_streams: Rc<VecModel<WatchedStream>>,
+    participant_watch: Rc<VecModel<i32>>,
     /// Who is in the open DM's call, shown above its messages.
     call_people: Rc<VecModel<PersonRow>>,
     /// The call's soundboard: headings and rows of sounds.
@@ -1811,6 +1860,8 @@ impl Models {
         window.set_watch_viewers(ModelRc::from(self.watch_viewers.clone()));
         window.set_participant_frames(ModelRc::from(self.participant_frames.clone()));
         window.set_stream_tiles(ModelRc::from(self.stream_tiles.clone()));
+        window.set_watched_streams(ModelRc::from(self.watched_streams.clone()));
+        window.set_participant_watch(ModelRc::from(self.participant_watch.clone()));
         window.set_call_people(ModelRc::from(self.call_people.clone()));
         window.set_soundboard_rows(ModelRc::from(self.soundboard_rows.clone()));
         window.set_entrance_rows(ModelRc::from(self.entrance_rows.clone()));
@@ -1939,6 +1990,8 @@ struct Adapter {
     rail_call: Option<String>,
     /// The call to offer joining again after a restart, until joined or dismissed.
     reconnect: Option<String>,
+    /// A call was on this run, so its ending means nothing to offer back.
+    was_in_call: bool,
     /// A hash of what the friends picker's rows were built from, so they're
     /// built again only once that changes.
     picker_shown: Option<u64>,
@@ -2039,7 +2092,12 @@ struct Adapter {
     /// The call's tile shown large, and whose stream was watched when the
     /// call last showed, so a stream starts large.
     call_focus: Option<tiles::Focus>,
-    watched: Option<String>,
+    watched: Vec<String>,
+    /// The watched stream the corner shows and whose viewers show: the large
+    /// one, or else the first watched.
+    watch_primary: Option<String>,
+    /// Each stream's volume before its mute button muted it, by person.
+    stream_unmuted: HashMap<String, f32>,
     /// Runs the microphone through Discord's processing while voice settings
     /// show the voice gate's sensitivity, or test the microphone, which
     /// plays it back too; see `refresh_gate_meter`.
@@ -2234,6 +2292,7 @@ impl Adapter {
                 arranging: None,
                 rail_call: None,
                 reconnect,
+                was_in_call: false,
                 picker_shown: None,
                 threads_shown: None,
                 forum_shown: None,
@@ -2280,7 +2339,9 @@ impl Adapter {
                 soundboard_volume_shown: None,
                 tiles: None,
                 call_focus: None,
-                watched: None,
+                watched: Vec::new(),
+                watch_primary: None,
+                stream_unmuted: HashMap::new(),
                 #[cfg(feature = "discord")]
                 gate_meter: None,
                 #[cfg(feature = "discord")]
@@ -2579,6 +2640,18 @@ impl Adapter {
         self.backend = None;
     }
 
+    /// As Discord Obsidian quits: the backend leaves its call and ends its
+    /// Discord session, waiting a moment for it, so quitting takes this
+    /// account out of the call at once.
+    fn quit_backend(&mut self) {
+        if let Some(events) = self.events.take() {
+            events.abort();
+        }
+        if let Some(backend) = self.backend.take() {
+            backend.shut_down(QUIT_WAIT);
+        }
+    }
+
     fn execute(&mut self, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
@@ -2777,6 +2850,7 @@ impl Adapter {
         if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
             return;
         }
+        tracing::debug!(?sound, "playing a sound");
         self.play(sound);
     }
 
@@ -3119,8 +3193,23 @@ fn device_label(name: &str) -> SharedString {
     }
 }
 
-/// A device picker's rows, and the chosen one's index. Without a choice,
-/// voice uses WebRTC's default device, which it lists first. A chosen device
+/// The row a microphone or speaker picker lists first: the system's default
+/// device, whichever it is at the time, as Discord's own "Default".
+const DEFAULT_ROW: &str = "Default";
+
+/// Whether a picker of `devices` lists [`DEFAULT_ROW`] first: microphones and
+/// speakers do, unless the system lists its default itself, as PulseAudio's
+/// "default: Device" entry.
+fn lists_default(devices: &[voice::Device], with_default: bool) -> bool {
+    with_default
+        && !devices
+            .iter()
+            .any(|device| device.id.starts_with(DEFAULT_DEVICE))
+}
+
+/// A device picker's rows, and the chosen one's index. With `with_default`,
+/// the first row is the system's default device, which voice uses without a
+/// choice; without, as for cameras, the first device is. A chosen device
 /// that isn't connected, such as Bluetooth headphones that went away, shows
 /// last as not connected, by the name it was last listed with, rather than
 /// as no device or as another one. `names` keeps those names. The default
@@ -3130,18 +3219,22 @@ fn device_rows(
     devices: &[voice::Device],
     chosen: Option<&str>,
     names: &mut HashMap<String, SharedString>,
+    with_default: bool,
 ) -> (Vec<SharedString>, i32) {
-    let mut rows: Vec<SharedString> = devices
-        .iter()
-        .map(|device| device_label(&device.name))
+    let default = lists_default(devices, with_default);
+    let mut rows: Vec<SharedString> = default
+        .then(|| SharedString::from(DEFAULT_ROW))
+        .into_iter()
+        .chain(devices.iter().map(|device| device_label(&device.name)))
         .collect();
-    for (device, row) in devices.iter().zip(&rows) {
+    let first = usize::from(default);
+    for (device, row) in devices.iter().zip(&rows[first..]) {
         if names.get(&device.id) != Some(row) {
             names.insert(device.id.clone(), row.clone());
         }
     }
     let index = match chosen {
-        None => (!devices.is_empty()).then_some(0),
+        None => (!rows.is_empty()).then_some(0),
         Some(chosen) => Some(
             devices
                 .iter()
@@ -3152,6 +3245,7 @@ fn device_rows(
                         .then(|| devices.iter().position(|device| default(&device.id)))
                         .flatten()
                 })
+                .map(|index| index + first)
                 .unwrap_or_else(|| {
                     let name = names
                         .get(chosen)
@@ -3167,6 +3261,21 @@ fn device_rows(
         .and_then(|index| i32::try_from(index).ok())
         .unwrap_or(-1);
     (rows, index)
+}
+
+/// What picking the row at `index` of a microphone or speaker picker chose:
+/// the system's default, as none, or a device by its id. None for a row
+/// that's no choice, such as a device that isn't connected.
+fn device_choice(devices: &[voice::Device], index: i32) -> Option<Option<String>> {
+    let index = usize::try_from(index).ok()?;
+    if lists_default(devices, true) {
+        match index.checked_sub(1) {
+            None => Some(None),
+            Some(index) => devices.get(index).map(|device| Some(device.id.clone())),
+        }
+    } else {
+        devices.get(index).map(|device| Some(device.id.clone()))
+    }
 }
 
 /// Repaints the popup on top and the shadow around it, telling Slint they're

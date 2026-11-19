@@ -609,6 +609,11 @@ enum Request {
     Leave {
         guild: String,
     },
+    /// Leaves any call and ends the session, so Discord takes this account
+    /// out of its call at once; `done` says when it's closed.
+    Close {
+        done: oneshot::Sender<()>,
+    },
     SelfState {
         guild: String,
         channel: String,
@@ -2433,9 +2438,9 @@ impl Discord {
         captcha: impl FnMut(&str),
     ) -> Result<invite::Joined> {
         let (reply, answer) = oneshot::channel();
-        self.requests
-            .send(Request::Session(reply))
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Discord Obsidian and try again."))?;
+        self.requests.send(Request::Session(reply)).map_err(|_| {
+            anyhow!("Discord isn't connected. Restart Discord Obsidian and try again.")
+        })?;
         let session = answer
             .await
             .ok()
@@ -3381,7 +3386,9 @@ impl Discord {
                 channel: channel.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Discord Obsidian and try again."))?;
+            .map_err(|_| {
+                anyhow!("Discord isn't connected. Restart Discord Obsidian and try again.")
+            })?;
         answer
             .await
             .map_err(|_| anyhow!("Discord disconnected while joining voice."))?
@@ -3391,6 +3398,16 @@ impl Discord {
         let _ = self.requests.send(Request::Leave {
             guild: guild.into(),
         });
+    }
+
+    /// Leaves any call this session is in and ends the session, as Discord
+    /// Obsidian quits: returns once Discord has been told, or the connection
+    /// is gone.
+    pub async fn close(&self) {
+        let (done, closed) = oneshot::channel();
+        if self.requests.send(Request::Close { done }).is_ok() {
+            let _ = closed.await;
+        }
     }
 
     /// Shows others whether this account is muted or deafened, and whether
@@ -3415,7 +3432,9 @@ impl Discord {
                 channel: channel.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Discord Obsidian and try again."))?;
+            .map_err(|_| {
+                anyhow!("Discord isn't connected. Restart Discord Obsidian and try again.")
+            })?;
         answer
             .await
             .map_err(|_| anyhow!("Discord disconnected while starting the stream."))?
@@ -3429,7 +3448,9 @@ impl Discord {
                 stream_key: stream_key.into(),
                 reply,
             })
-            .map_err(|_| anyhow!("Discord isn't connected. Restart Discord Obsidian and try again."))?;
+            .map_err(|_| {
+                anyhow!("Discord isn't connected. Restart Discord Obsidian and try again.")
+            })?;
         answer
             .await
             .map_err(|_| anyhow!("Discord disconnected while opening the stream."))?
