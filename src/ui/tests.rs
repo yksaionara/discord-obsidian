@@ -8619,3 +8619,132 @@ fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
     assert_eq!(profile::avatar_color(Some("b.png"), &waiting), None);
     assert_eq!(profile::avatar_color(None, &avatar), None);
 }
+
+/// Someone dragged from one voice channel to another lands where they're let
+/// go: let go at once, before the channels have noted the pointer, and after
+/// the list refreshed mid-drag, as it does whenever someone speaks, which
+/// makes the dragged row again. That used to leave the drag stuck to the
+/// pointer and drop on the channel it last noted.
+#[test]
+fn people_dragged_between_voice_channels_land_where_they_are_let_go() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    window.set_workspace(true);
+    let person = |name: &str, speaking| PersonRow {
+        id: name.into(),
+        person: format!("u-{name}").into(),
+        name: name.into(),
+        initial: name[..1].into(),
+        connected: true,
+        speaking,
+        ..Default::default()
+    };
+    let rooms = |speaking| {
+        ModelRc::new(VecModel::from(vec![
+            RoomRow {
+                id: "lounge".into(),
+                name: "Lounge".into(),
+                voice: true,
+                people: ModelRc::new(VecModel::from(vec![
+                    person("Hiro", speaking),
+                    person("Ann", false),
+                ])),
+                ..Default::default()
+            },
+            RoomRow {
+                id: "den".into(),
+                name: "Den".into(),
+                voice: true,
+                ..Default::default()
+            },
+            RoomRow {
+                id: "attic".into(),
+                name: "Attic".into(),
+                voice: true,
+                ..Default::default()
+            },
+        ]))
+    };
+    window.set_rooms(rooms(false));
+    let moves = Rc::new(RefCell::new(Vec::<(String, String, String)>::new()));
+    let seen = moves.clone();
+    window.on_move_voice_person(move |from, user, to| {
+        seen.borrow_mut()
+            .push((from.into(), user.into(), to.into()));
+    });
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    settle(&window);
+    // Where each row is: clicked down the channel list, a channel says
+    // it's selected and a person opens their profile.
+    let clicked = Rc::new(RefCell::new(String::new()));
+    let seen = clicked.clone();
+    window.on_select_room(move |id| *seen.borrow_mut() = id.into());
+    let seen = clicked.clone();
+    window.on_show_profile(move |person| *seen.borrow_mut() = person.into());
+    let mut rows: HashMap<String, Vec<f32>> = HashMap::new();
+    for y in (40..700).step_by(2) {
+        let position = slint::LogicalPosition::new(200., y as f32);
+        let button = PointerEventButton::Left;
+        window.window().dispatch_event(WindowEvent::PointerMoved { position });
+        window.window().dispatch_event(WindowEvent::PointerPressed { position, button });
+        window.window().dispatch_event(WindowEvent::PointerReleased { position, button });
+        let found = std::mem::take(&mut *clicked.borrow_mut());
+        if !found.is_empty() {
+            rows.entry(found).or_default().push(y as f32);
+        }
+    }
+    let centre = |label: &str| {
+        let ys = rows.get(label).unwrap_or_else(|| panic!("no row for {label}: {rows:?}"));
+        slint::LogicalPosition::new(200., (ys[0] + ys[ys.len() - 1]) / 2.)
+    };
+    let dispatch = |event| window.window().dispatch_event(event);
+    let button = PointerEventButton::Left;
+    let let_go = || {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+        settle(&window);
+    };
+    let (hiro, den, attic) = (centre("u-Hiro"), centre("den"), centre("attic"));
+
+    // A flick: pressed, dragged over Den and on to Attic, let go there at once.
+    dispatch(WindowEvent::PointerMoved { position: hiro });
+    dispatch(WindowEvent::PointerPressed { position: hiro, button });
+    let past = slint::LogicalPosition::new(hiro.x + 12., hiro.y);
+    dispatch(WindowEvent::PointerMoved { position: past });
+    dispatch(WindowEvent::PointerMoved { position: den });
+    dispatch(WindowEvent::PointerMoved { position: attic });
+    dispatch(WindowEvent::PointerReleased { position: attic, button });
+    let_go();
+    assert_eq!(
+        moves.borrow_mut().drain(..).collect::<Vec<_>>(),
+        [("lounge".into(), "u-Hiro".into(), "attic".into())]
+    );
+
+    // The list refreshes mid-drag: the release still drops, on Den.
+    let hiro = centre("u-Hiro");
+    dispatch(WindowEvent::PointerMoved { position: hiro });
+    dispatch(WindowEvent::PointerPressed { position: hiro, button });
+    let past = slint::LogicalPosition::new(hiro.x + 12., hiro.y);
+    dispatch(WindowEvent::PointerMoved { position: past });
+    window.set_rooms(rooms(true));
+    settle(&window);
+    dispatch(WindowEvent::PointerMoved { position: attic });
+    dispatch(WindowEvent::PointerMoved { position: den });
+    dispatch(WindowEvent::PointerReleased { position: den, button });
+    let_go();
+    assert_eq!(
+        moves.borrow_mut().drain(..).collect::<Vec<_>>(),
+        [("lounge".into(), "u-Hiro".into(), "den".into())]
+    );
+
+    // Nothing is left following the pointer: a click on Attic moves no one.
+    dispatch(WindowEvent::PointerMoved { position: attic });
+    dispatch(WindowEvent::PointerPressed { position: attic, button });
+    dispatch(WindowEvent::PointerReleased { position: attic, button });
+    let_go();
+    assert!(moves.borrow().is_empty());
+    window.hide().unwrap();
+}

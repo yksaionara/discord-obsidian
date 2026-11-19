@@ -496,7 +496,13 @@ The window follows Discord's arrangement:
   under it lights in the accent colour, and dropping them there moves them
   (`PATCH /guilds/{guild}/members/{user}` with `channel_id`, the Move To
   that their menu offers, refused where it doesn't), or for this account,
-  joins that channel. A server channel's row, hovered or selected, shows
+  joins that channel. The drop lands a tick after the release, once each
+  channel has noted whether the pointer is over it, so a quick flick lands
+  where it was let go. While dragging, a layer over the list takes the
+  pointer wherever the pressed row is gone: the list makes its rows again
+  whenever it refreshes, as when someone speaks, and the release went with
+  the old row, which left the drag stuck to the pointer. A press there means
+  the release was missed, outside the window, and gives the drag up. A server channel's row, hovered or selected, shows
   Discord's buttons after a voice channel's chat button: Create Invite and
   Edit Channel, each where the channel's menu offers it. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the

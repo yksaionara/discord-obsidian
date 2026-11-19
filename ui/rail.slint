@@ -1410,10 +1410,27 @@ export component RoomList inherits Rectangle {
         root.person-to = ""; StreamHover.on-row = false; Tip.text = "";
     }
     function drop-person() {
-        if root.person-to != "" && root.person-to != root.person-from {
+        if root.person-user != "" && root.person-to != "" && root.person-to != root.person-from {
             root.move-voice-person(root.person-from, root.person-user, root.person-to);
         }
-        root.person-user = ""; root.person-from = ""; root.person-to = "";
+        root.cancel-person();
+    }
+    function cancel-person() {
+        root.person-user = ""; root.person-from = ""; root.person-to = ""; root.person-dropping = false;
+    }
+    // Released at (x, y) in the window. The drop waits a tick: each voice
+    // channel notes it's under the pointer in a `changed` handler, which
+    // Slint runs after the event, so a quick flick would otherwise drop on
+    // the channel the pointer left.
+    property <bool> person-dropping;
+    function release-person(x: length, y: length) {
+        if root.person-user == "" || root.person-dropping { return; }
+        root.person-x = x; root.person-y = y;
+        root.person-dropping = true;
+    }
+    Timer {
+        interval: 30ms; running: root.person-dropping;
+        triggered => { root.drop-person(); }
     }
     /// Someone in a voice channel was clicked: their row, and where it is
     /// in the window, which their profile opens beside.
@@ -1642,7 +1659,7 @@ export component RoomList inherits Rectangle {
                     // A voice channel under someone dragged from another.
                     property <bool> person-over: room.voice && root.person-user != ""
                         && root.person-x >= root.absolute-position.x && root.person-x < root.absolute-position.x + root.width
-                        && root.person-y >= self.absolute-position.y - 2px && root.person-y < self.absolute-position.y + self.height + self.people;
+                        && root.person-y >= self.absolute-position.y && root.person-y < self.absolute-position.y + self.height + self.people;
                     changed person-over => {
                         if self.person-over { root.person-to = room.id; }
                         else if root.person-to == room.id { root.person-to = ""; }
@@ -1698,7 +1715,12 @@ export component RoomList inherits Rectangle {
                                     self.dragged = false;
                                 }
                                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && self.dragged {
-                                    root.drop-person();
+                                    self.dragged = false;
+                                    root.release-person(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                }
+                                if event.kind == PointerEventKind.cancel && self.dragged {
+                                    self.dragged = false;
+                                    root.cancel-person();
                                 }
                                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                     root.open-voice-menu(room.id, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
@@ -1788,7 +1810,12 @@ export component RoomList inherits Rectangle {
                                     self.dragged = false;
                                 }
                                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && self.dragged {
-                                    root.drop-person();
+                                    self.dragged = false;
+                                    root.release-person(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                }
+                                if event.kind == PointerEventKind.cancel && self.dragged {
+                                    self.dragged = false;
+                                    root.cancel-person();
                                 }
                                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                     root.open-voice-menu(root.voice-channel, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
@@ -1835,6 +1862,26 @@ export component RoomList inherits Rectangle {
                         }
                     }
                 }
+            }
+        }
+    }
+    // While someone is dragged, this takes the pointer wherever the row they
+    // started on is gone: a refresh of the list (someone speaking, joining)
+    // makes its rows again, and the release went with the old row, which
+    // left the drag stuck. A press here means the release was missed
+    // altogether, outside the window, and gives up the drag.
+    if root.person-user != "": TouchArea {
+        mouse-cursor: MouseCursor.grabbing;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                root.person-x = self.absolute-position.x + self.mouse-x;
+                root.person-y = self.absolute-position.y + self.mouse-y;
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                root.release-person(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+            if event.kind == PointerEventKind.down && !root.person-dropping {
+                root.cancel-person();
             }
         }
     }
