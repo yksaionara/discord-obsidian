@@ -1,5 +1,2 @@
-- New: drag someone in a voice channel onto another voice channel to move them there, as in Discord, where you may move members. Drag yourself to join it.
-- New: hover a server to see who's in its voice channels and who's streaming there, as in Discord.
-- New: Discord's own icons throughout, from the mic, headphones and settings to the header and menus.
-- Fixed: the mute and deafen shortcuts work while Discord Obsidian is the window in front too, not only in other apps.
-- Calls and the connection to Discord now behave as Discord's current client does: a dropped call asks for another voice server, pinned messages update live, voice channel statuses show, and app buttons in messages work.
+- Fixed: Go Live no longer closes at random. When Discord's stream server drops the connection, your stream, and any stream you're watching, picks back up on its own, the way Discord's own client does.
+- Fixed: dragging someone between voice channels no longer gets stuck to the cursor, and they land in the channel you let go on.
