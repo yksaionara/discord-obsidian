@@ -1,3 +1,5 @@
+- Fixed: Go Live keeps going when you turn your monitor off, change resolution, or a game in full screen switches the screen's mode. Viewers see the last picture until the screen is back, then it carries on by itself.
+- Fixed: sharing Valorant (and other games in full screen at their own resolution) works: the stream no longer gives up on the game's screen the first time it switches mode.
 - New: watch several streams at once, like Discord. "Watch" watches one, the eye button next to it adds another, and clicking a stream makes it the big one. Each stream has its own mute button, and right-clicking someone gives Stop Watching and Mute.
 - Fixed: quitting, Alt+F4 and Task Manager's End task now take you out of the call right away instead of leaving you stuck in it.
 - Fixed: the Update button shows up in every window, including after starting in the tray, and updates are found within about a minute.
