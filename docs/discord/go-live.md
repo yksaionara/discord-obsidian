@@ -187,7 +187,20 @@ one running as administrator may be, waits for the game to fill its screen
 in front and shares that screen through duplication meanwhile, the last
 picture staying while it's away (`wait_for_front`); WebRTC's capturer gave
 games black or nothing. Cameras, screens duplication can't open, and other
-windows Windows can't capture go through WebRTC's capturer. A frame within 4% of the stream's size each way, as a window
+windows Windows can't capture go through WebRTC's capturer.
+What's shared going away doesn't end the stream: a screen turned off,
+changing resolution, behind the secure desktop, or taken by a game in full
+screen at its own resolution, and a window capture whose device went with
+the screen or a driver reset, are opened again once they're back, 50 ms after
+and then up to a second apart, while the last picture goes on every 100 ms.
+A screen is found again by its name (`\\.\DISPLAY1`), on a new device, since
+its monitor handle and output change when it's turned off and on; the only
+screen is the one shared under whatever name it comes back with. A shared
+window's screen that refuses duplication, as one does for a moment while a
+game changes its mode, is asked again for 2 seconds, then the window goes
+through window capture and its screen is tried again when it's next in
+front; three refusals in a row keep it with window capture. A shared window
+that closes ends the stream. A frame within 4% of the stream's size each way, as a window
 gaining or losing a row gives, is scaled to it instead of opening the
 encoder again with a keyframe. While sharing, the worker asks Windows for
 1 ms timers (`timeBeginPeriod`), which it otherwise rounds to 15.6 ms in

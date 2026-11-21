@@ -55,6 +55,11 @@ const BUFFERS: i32 = 2;
 
 /// A window being captured.
 pub struct WindowCapture {
+    window: u64,
+    /// Whether the capture stopped with its device, as it does when the
+    /// screen is turned off or the graphics driver resets; [`Self::reopen`]
+    /// starts it again.
+    broken: bool,
     device: ID3D11Device,
     context: ID3D11DeviceContext,
     winrt_device: IDirect3DDevice,
@@ -125,6 +130,8 @@ impl WindowCapture {
             session.StartCapture()?;
             let (width, height) = even(size);
             Ok(Self {
+                window,
+                broken: false,
                 device,
                 context,
                 winrt_device,
@@ -139,9 +146,18 @@ impl WindowCapture {
     }
 
     /// Waits up to `timeout_ms` for the window to draw, keeping the newest
-    /// frame when several came.
+    /// frame when several came. A capture that stopped with its device is
+    /// [`Next::Lost`]; a window that's gone fails.
     pub fn next(&mut self, timeout_ms: u32) -> Result<Next> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms.into());
+        let timeout = std::time::Duration::from_millis(timeout_ms.into());
+        if self.broken {
+            if !crate::duplication::window_exists(self.window) {
+                bail!("That screen or window is gone.");
+            }
+            std::thread::sleep(timeout.max(std::time::Duration::from_millis(10)));
+            return Ok(Next::Lost);
+        }
+        let deadline = std::time::Instant::now() + timeout;
         loop {
             let mut newest = None;
             while let Ok(frame) = self.pool.TryGetNextFrame() {
@@ -152,13 +168,38 @@ impl WindowCapture {
             if let Some(frame) = newest {
                 let taken = self.take(&frame);
                 let _ = frame.Close();
-                return taken.map(|taken| if taken { Next::Frame } else { Next::Timeout });
+                return Ok(match taken {
+                    Ok(true) => Next::Frame,
+                    Ok(false) => Next::Timeout,
+                    Err(error) => {
+                        tracing::debug!(error = format!("{error:#}"), "the window's frame couldn't be read");
+                        self.broken = true;
+                        Next::Lost
+                    }
+                });
             }
             if std::time::Instant::now() >= deadline {
+                // Frames stop coming, without an error, once the device is
+                // gone with the screen.
+                // SAFETY: a plain call on the device this capture owns.
+                if unsafe { self.device.GetDeviceRemovedReason() }.is_err() {
+                    self.broken = true;
+                    return Ok(Next::Lost);
+                }
                 return Ok(Next::Timeout);
             }
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
+    }
+
+    /// Starts capturing the window again after [`Next::Lost`], on a new
+    /// device, keeping the last picture until the window draws again.
+    pub fn reopen(&mut self) -> Result<()> {
+        let mut fresh = Self::open(self.window)?;
+        std::mem::swap(&mut fresh.picture, &mut self.picture);
+        fresh.have_picture = self.have_picture;
+        *self = fresh;
+        Ok(())
     }
 
     /// Copies `frame`'s picture into the buffer: whether it had one. A

@@ -26,7 +26,7 @@ use windows::{
             Dxgi::{
                 Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
                 CreateDXGIFactory1, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_NOT_FOUND,
-                DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
+                DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTPUT_DESC,
                 DXGI_OUTDUPL_POINTER_SHAPE_INFO, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput,
                 IDXGIOutput1, IDXGIOutputDuplication, IDXGIResource,
             },
@@ -135,10 +135,18 @@ pub enum Next {
 pub struct Duplication {
     device: ID3D11Device,
     context: ID3D11DeviceContext,
-    output: IDXGIOutput1,
-    duplication: IDXGIOutputDuplication,
+    /// None while the screen is away: turned off, changing mode, or behind
+    /// the secure desktop. [`Self::reopen`] finds it again.
+    duplication: Option<IDXGIOutputDuplication>,
+    /// The screen's name, as `\\.\DISPLAY1`: its monitor handle and its
+    /// place in DXGI's list change when it's turned off and on again, and
+    /// its name doesn't.
+    name: [u16; 32],
+    /// Whether it was the desktop's only screen, so one that comes back
+    /// under another name is still the one shared.
+    lone: bool,
     staging: Option<ID3D11Texture2D>,
-    /// The screen's size in pixels.
+    /// The size of `picture` in pixels: the screen's, as of its last frame.
     pub width: u32,
     pub height: u32,
     /// The last picture, at the screen's size, without the pointer.
@@ -183,6 +191,76 @@ impl std::fmt::Display for Unavailable {
 
 impl std::error::Error for Unavailable {}
 
+/// How many times, [`OPEN_RETRY`] apart, opening asks a screen that's between
+/// modes, as one is for a moment while a game in full screen takes it or
+/// hands it back.
+const OPEN_TRIES: u32 = 20;
+const OPEN_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The screens on the desktop, with their adapters and descriptions.
+///
+/// # Safety
+/// DXGI calls on a factory the caller owns.
+unsafe fn screens(factory: &IDXGIFactory1) -> Result<Vec<(IDXGIAdapter1, IDXGIOutput, DXGI_OUTPUT_DESC)>> {
+    let mut found = vec![];
+    // SAFETY: as the function says.
+    unsafe {
+        for adapter_index in 0.. {
+            let adapter = match factory.EnumAdapters1(adapter_index) {
+                Ok(adapter) => adapter,
+                Err(error) if error.code() == DXGI_ERROR_NOT_FOUND => break,
+                Err(error) => return Err(error).context("listing graphics adapters"),
+            };
+            for output_index in 0.. {
+                let Ok(output) = adapter.EnumOutputs(output_index) else { break };
+                if let Ok(desc) = output.GetDesc()
+                    && desc.AttachedToDesktop.as_bool()
+                {
+                    found.push((adapter.clone(), output, desc));
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// A Direct3D device on `adapter`, its copies ahead of a game's work.
+///
+/// # Safety
+/// Direct3D calls on an adapter the caller owns.
+unsafe fn device_on(adapter: &IDXGIAdapter1) -> Result<(ID3D11Device, ID3D11DeviceContext)> {
+    let mut device = None;
+    let mut context = None;
+    // SAFETY: as the function says; the out pointers live through the call.
+    unsafe {
+        D3D11CreateDevice(
+            adapter,
+            D3D_DRIVER_TYPE_UNKNOWN,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut device),
+            None,
+            Some(&mut context),
+        )
+        .map_err(|error| Unavailable(format!("no Direct3D device: {error}")))?;
+    }
+    let device: ID3D11Device = device.context("no Direct3D device")?;
+    let context = context.context("no Direct3D context")?;
+    // Each frame's copy waits on the GPU, which a game keeps busy: ahead of
+    // the game's work, as OBS puts its own, the copy doesn't hold the stream
+    // back. It's a small copy, and Windows may refuse; the copy then waits
+    // its turn.
+    if let Ok(dxgi) = device.cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>()
+        // SAFETY: a plain call on the device made above.
+        && let Err(error) = unsafe { dxgi.SetGPUThreadPriority(7) }
+    {
+        tracing::debug!(%error, "the screen's copies keep the GPU's usual priority");
+    }
+    Ok((device, context))
+}
+
 impl Duplication {
     /// Duplicates the screen `id` names: a monitor handle, as WebRTC's
     /// screen list gives, or else a screen's place in DXGI's list. Without
@@ -191,27 +269,7 @@ impl Duplication {
         // SAFETY: DXGI and Direct3D calls on interfaces this function owns.
         unsafe {
             let factory: IDXGIFactory1 = CreateDXGIFactory1().context("no DXGI factory")?;
-            let mut outputs: Vec<(IDXGIAdapter1, IDXGIOutput)> = vec![];
-            for adapter_index in 0.. {
-                let adapter = match factory.EnumAdapters1(adapter_index) {
-                    Ok(adapter) => adapter,
-                    Err(error) if error.code() == DXGI_ERROR_NOT_FOUND => break,
-                    Err(error) => return Err(error).context("listing graphics adapters"),
-                };
-                for output_index in 0.. {
-                    match adapter.EnumOutputs(output_index) {
-                        Ok(output) => outputs.push((adapter.clone(), output)),
-                        Err(_) => break,
-                    }
-                }
-            }
-            let described: Vec<_> = outputs
-                .iter()
-                .filter_map(|(adapter, output)| {
-                    let desc = output.GetDesc().ok()?;
-                    desc.AttachedToDesktop.as_bool().then_some((adapter, output, desc))
-                })
-                .collect();
+            let described = screens(&factory)?;
             let chosen = id
                 .and_then(|id| {
                     described
@@ -225,47 +283,39 @@ impl Duplication {
                     })
                 })
                 .or_else(|| described.first());
-            let Some((adapter, output, _)) = chosen else {
+            let Some((adapter, output, desc)) = chosen else {
                 bail!(Unavailable("no screen to duplicate".into()));
             };
             let output: IDXGIOutput1 = output
                 .cast()
                 .map_err(|_| Unavailable("this Windows has no desktop duplication".into()))?;
-            let mut device = None;
-            let mut context = None;
-            D3D11CreateDevice(
-                *adapter,
-                D3D_DRIVER_TYPE_UNKNOWN,
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&mut device),
-                None,
-                Some(&mut context),
-            )
-            .map_err(|error| Unavailable(format!("no Direct3D device: {error}")))?;
-            let device: ID3D11Device = device.context("no Direct3D device")?;
-            let context = context.context("no Direct3D context")?;
-            // Each frame's copy waits on the GPU, which a game keeps busy:
-            // ahead of the game's work, as OBS puts its own, the copy
-            // doesn't hold the stream back. It's a small copy, and Windows
-            // may refuse; the copy then waits its turn.
-            if let Ok(dxgi) = device.cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>()
-                && let Err(error) = dxgi.SetGPUThreadPriority(7)
-            {
-                tracing::debug!(%error, "the screen's copies keep the GPU's usual priority");
-            }
-            let duplication = output
-                .DuplicateOutput(&device)
-                .map_err(|error| Unavailable(format!("could not duplicate the screen: {error}")))?;
+            let (device, context) = device_on(adapter)?;
+            // A screen between modes refuses for a moment: one refusal, as a
+            // game in full screen at its own resolution gave while it took
+            // the screen, turned duplication off for the rest of the stream,
+            // and the game came out black or not at all.
+            let mut tries = 1;
+            let duplication = loop {
+                match output.DuplicateOutput(&device) {
+                    Ok(duplication) => break duplication,
+                    Err(error) if tries < OPEN_TRIES => {
+                        tries += 1;
+                        tracing::debug!(%error, "the screen isn't ready to duplicate yet");
+                        std::thread::sleep(OPEN_RETRY);
+                    }
+                    Err(error) => {
+                        bail!(Unavailable(format!("could not duplicate the screen: {error}")))
+                    }
+                }
+            };
             let mode = duplication.GetDesc().ModeDesc;
             let (width, height) = (mode.Width.max(2), mode.Height.max(2));
             Ok(Self {
                 device,
                 context,
-                output,
-                duplication,
+                duplication: Some(duplication),
+                name: desc.DeviceName,
+                lone: described.len() == 1,
                 staging: None,
                 width,
                 height,
@@ -277,52 +327,80 @@ impl Duplication {
         }
     }
 
-    /// Opens the same screen again after [`Next::Lost`].
+    /// Opens the same screen again after [`Next::Lost`]: found again by its
+    /// name, on a new device, as a screen turned off and on again comes back
+    /// as another output, maybe on another adapter; the old output and
+    /// device opened nothing again, and the stream stopped. The last picture
+    /// stays until the screen gives a new one, at whatever size it has now.
     pub fn reopen(&mut self) -> Result<()> {
         // SAFETY: as in `open`.
         unsafe {
-            let duplication = self
-                .output
-                .DuplicateOutput(&self.device)
+            let factory: IDXGIFactory1 = CreateDXGIFactory1().context("no DXGI factory")?;
+            let described = screens(&factory)?;
+            let found = described
+                .iter()
+                .find(|(_, _, desc)| desc.DeviceName == self.name)
+                .or_else(|| (self.lone && described.len() == 1).then(|| &described[0]));
+            let Some((adapter, output, desc)) = found else {
+                bail!("the screen isn't back yet");
+            };
+            let output: IDXGIOutput1 = output.cast().context("no desktop duplication")?;
+            let (device, context) = device_on(adapter)?;
+            let duplication = output
+                .DuplicateOutput(&device)
                 .context("could not duplicate the screen again")?;
-            let mode = duplication.GetDesc().ModeDesc;
-            let (width, height) = (mode.Width.max(2), mode.Height.max(2));
-            if (width, height) != (self.width, self.height) {
-                self.width = width;
-                self.height = height;
-                self.picture = I420Buffer::new(width, height);
-                self.staging = None;
-                self.have_picture = false;
-            }
-            self.duplication = duplication;
+            self.name = desc.DeviceName;
+            self.device = device;
+            self.context = context;
+            // The staging texture was the old device's.
+            self.staging = None;
+            self.duplication = Some(duplication);
         }
         Ok(())
     }
 
-    /// Waits up to `timeout_ms` for the screen to change.
+    /// Waits up to `timeout_ms` for the screen to change. Any failure of the
+    /// screen's own is [`Next::Lost`], as a screen turned off, changing mode
+    /// or behind the secure desktop gives: the stream goes on with the last
+    /// picture until [`Self::reopen`] finds it again, where such a failure
+    /// had ended the stream.
     pub fn next(&mut self, timeout_ms: u32) -> Result<Next> {
+        let Some(duplication) = self.duplication.clone() else {
+            std::thread::sleep(std::time::Duration::from_millis(timeout_ms.max(10).into()));
+            return Ok(Next::Lost);
+        };
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource: Option<IDXGIResource> = None;
         // SAFETY: the out pointers live through the call.
-        let acquired = unsafe {
-            self.duplication
-                .AcquireNextFrame(timeout_ms, &mut info, &mut resource)
-        };
+        let acquired = unsafe { duplication.AcquireNextFrame(timeout_ms, &mut info, &mut resource) };
         match acquired {
             Ok(()) => {}
             Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(Next::Timeout),
-            Err(error) if error.code() == DXGI_ERROR_ACCESS_LOST => return Ok(Next::Lost),
-            Err(error) => return Err(error).context("could not take the screen's frame"),
+            Err(error) => {
+                if error.code() != DXGI_ERROR_ACCESS_LOST {
+                    tracing::debug!(%error, "the screen's duplication stopped");
+                }
+                self.duplication = None;
+                return Ok(Next::Lost);
+            }
         }
         let result = self.take(&info, resource);
         // SAFETY: a frame was acquired above.
-        let released = unsafe { self.duplication.ReleaseFrame() };
-        if let Err(error) = released
-            && error.code() == DXGI_ERROR_ACCESS_LOST
-        {
+        let released = unsafe { duplication.ReleaseFrame() };
+        let changed = match result {
+            Ok(changed) => changed,
+            Err(error) if error.downcast_ref::<Unavailable>().is_some() => return Err(error),
+            // A device gone with the screen fails the copy.
+            Err(error) => {
+                tracing::debug!(error = format!("{error:#}"), "the screen's frame couldn't be read");
+                self.duplication = None;
+                return Ok(Next::Lost);
+            }
+        };
+        if released.is_err() {
+            self.duplication = None;
             return Ok(Next::Lost);
         }
-        let changed = result?;
         Ok(if changed { Next::Frame } else { Next::Timeout })
     }
 
@@ -430,8 +508,9 @@ impl Duplication {
         let mut required = 0u32;
         let mut info = DXGI_OUTDUPL_POINTER_SHAPE_INFO::default();
         // SAFETY: the buffer is `size` bytes, as the call is told.
+        let Some(duplication) = self.duplication.as_ref() else { return };
         let read = unsafe {
-            self.duplication.GetFramePointerShape(
+            duplication.GetFramePointerShape(
                 size,
                 buffer.as_mut_ptr().cast(),
                 &mut required,
@@ -667,6 +746,36 @@ mod tests {
         assert_eq!(shown.len(), screen.len());
         assert!(luma(&mut duplication.picture) == screen);
         eprintln!("{}x{}: {frames} frames in 2 s", duplication.width, duplication.height);
+    }
+
+    /// A screen that went away, as one turned off does, is found again by
+    /// its name, keeps its last picture meanwhile, and gives frames again.
+    /// `cargo test -p obsidian-core reopens -- --ignored`, on its own: two
+    /// duplications of one screen in one process refuse each other.
+    #[test]
+    #[ignore = "needs a screen"]
+    fn reopens_a_screen_that_went_away() {
+        let mut duplication = Duplication::open(None).expect("opens");
+        let started = std::time::Instant::now();
+        while !duplication.has_picture() && started.elapsed() < std::time::Duration::from_secs(2) {
+            let _ = duplication.next(50).expect("a frame");
+        }
+        assert!(duplication.has_picture());
+        duplication.duplication = None;
+        assert!(matches!(duplication.next(10).expect("lost"), Next::Lost));
+        assert!(duplication.has_picture(), "the last picture stays");
+        duplication.reopen().expect("opens again");
+        assert!(duplication.duplication.is_some());
+        let started = std::time::Instant::now();
+        let mut frames = 0;
+        while started.elapsed() < std::time::Duration::from_secs(1) {
+            match duplication.next(50).expect("a frame") {
+                Next::Frame => frames += 1,
+                Next::Timeout => {}
+                Next::Lost => panic!("lost again"),
+            }
+        }
+        eprintln!("{frames} frames after opening again");
     }
 }
 

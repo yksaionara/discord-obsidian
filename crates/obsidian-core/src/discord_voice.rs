@@ -824,6 +824,11 @@ pub(crate) async fn call(
                             continue;
                         }
                         Some(Report::Ended { error }) => {
+                            // Shown in the window too, but gone from there
+                            // once dismissed.
+                            if let Some(error) = &error {
+                                tracing::warn!(%error, "sharing ended");
+                            }
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
                             }

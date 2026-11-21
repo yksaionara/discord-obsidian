@@ -1345,6 +1345,9 @@ fn capture_screen(
     // capture, on the GPU drawing it, until that fails on this system.
     #[allow(unused_mut)]
     let mut window_capturing = cfg!(windows);
+    // Times in a row duplication couldn't open a shared window's screen.
+    #[cfg(windows)]
+    let mut duplication_refused = 0u32;
     loop {
         #[cfg(windows)]
         if duplicating {
@@ -1365,8 +1368,25 @@ fn capture_screen(
                 match capture_duplicated(id, window, &sink, &mut max_width, &mut max_height, stop, report) {
                     Ok(None) => return Ok(()),
                     Ok(Some(next)) => {
+                        duplication_refused = 0;
                         source = next;
                         continue;
+                    }
+                    // A game's screen can refuse while the game changes its
+                    // mode: window capture shares it meanwhile, and the
+                    // screen is tried again when the game is next in front.
+                    // Only a screen that keeps refusing stays with window
+                    // capture.
+                    Err(error)
+                        if window.is_some()
+                            && error.downcast_ref::<crate::duplication::Unavailable>().is_some()
+                            && duplication_refused + 1 < DUPLICATION_REFUSALS =>
+                    {
+                        duplication_refused += 1;
+                        tracing::warn!(
+                            error = format!("{error:#}"),
+                            "the window's screen can't be duplicated yet; sharing it through window capture meanwhile"
+                        );
                     }
                     Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
                         tracing::warn!(error = format!("{error:#}"), "sharing through WebRTC's capturer");
@@ -1424,6 +1444,11 @@ fn capture_screen(
 /// so it moves between duplication and window capture.
 #[cfg(windows)]
 const FRONT_CHECK: Duration = Duration::from_millis(250);
+
+/// How many times in a row duplication may refuse a shared window's screen
+/// before the window stays with window capture.
+#[cfg(windows)]
+const DUPLICATION_REFUSALS: u32 = 3;
 
 /// Shares `source` through WebRTC's capturer, or a camera, until stopped.
 /// On Windows, gives back a shared window that came to fill its screen in
@@ -1658,7 +1683,7 @@ impl FrameSource for crate::window_capture::WindowCapture {
         crate::window_capture::WindowCapture::next(self, timeout_ms)
     }
     fn reopen(&mut self) -> Result<()> {
-        Ok(())
+        crate::window_capture::WindowCapture::reopen(self)
     }
     fn has_picture(&self) -> bool {
         crate::window_capture::WindowCapture::has_picture(self)
@@ -1672,6 +1697,13 @@ impl FrameSource for crate::window_capture::WindowCapture {
 /// whose capture gives black frames, which nothing else would show.
 #[cfg(windows)]
 const BLACK_WARNING: Duration = Duration::from_secs(5);
+
+/// How soon a screen or window that went away is opened again, and the
+/// longest between tries while it stays away, as a screen turned off does.
+#[cfg(windows)]
+const LOST_RETRY_FIRST: Duration = Duration::from_millis(50);
+#[cfg(windows)]
+const LOST_RETRY_MOST: Duration = Duration::from_secs(1);
 
 /// Sends `frames`' pictures at the stream's rate at most, and the last one
 /// again every [`IDLE_REPEAT`] while nothing changes, until stopped, until
@@ -1701,6 +1733,9 @@ fn capture_frames(
     // Since when every picture sent was black, and whether the log said so.
     let mut black_since: Option<Instant> = None;
     let mut said_black = false;
+    // While the screen or window is away, when to try opening it again, and
+    // how long until the try after.
+    let mut lost: Option<(Instant, Duration)> = None;
     while !stop.load(Ordering::Relaxed) {
         if front_checked.elapsed() >= FRONT_CHECK {
             front_checked = Instant::now();
@@ -1718,15 +1753,31 @@ fn capture_frames(
         match frames.next(wait.as_millis().min(100) as u32)? {
             Next::Frame => pending = true,
             Next::Timeout => {}
+            // A mode change, a screen turned off, a game in full screen
+            // taking the screen at its own resolution, or the secure
+            // desktop: opened again once it's back, sooner at first. The
+            // last picture goes on meanwhile, so the stream stays up and
+            // viewers see where it was.
             Next::Lost => {
-                // A mode change, or the secure desktop: open it again
-                // once it's back.
-                std::thread::sleep(Duration::from_millis(50));
-                if let Err(error) = frames.reopen() {
-                    tracing::debug!(error = format!("{error:#}"), "the screen isn't back yet");
+                let now = Instant::now();
+                let (retry_at, backoff) = *lost.get_or_insert_with(|| {
+                    tracing::info!("what's shared went away; sharing it again once it's back");
+                    (now + LOST_RETRY_FIRST, LOST_RETRY_FIRST)
+                });
+                if now >= retry_at {
+                    match frames.reopen() {
+                        Ok(()) => {
+                            tracing::info!("what's shared is back");
+                            lost = None;
+                            pending = true;
+                        }
+                        Err(error) => {
+                            tracing::debug!(error = format!("{error:#}"), "what's shared isn't back yet");
+                            let backoff = (backoff * 2).min(LOST_RETRY_MOST);
+                            lost = Some((now + backoff, backoff));
+                        }
+                    }
                 }
-                pending = true;
-                continue;
             }
         }
         let now = Instant::now();
