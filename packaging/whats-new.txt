@@ -1,7 +1,11 @@
-- Fixed: Go Live keeps going when you turn your monitor off, change resolution, or a game in full screen switches the screen's mode. Viewers see the last picture until the screen is back, then it carries on by itself.
-- Fixed: sharing Valorant (and other games in full screen at their own resolution) works: the stream no longer gives up on the game's screen the first time it switches mode.
-- New: watch several streams at once, like Discord. "Watch" watches one, the eye button next to it adds another, and clicking a stream makes it the big one. Each stream has its own mute button, and right-clicking someone gives Stop Watching and Mute.
-- Fixed: quitting, Alt+F4 and Task Manager's End task now take you out of the call right away instead of leaving you stuck in it.
-- Fixed: the Update button shows up in every window, including after starting in the tray, and updates are found within about a minute.
-- Fixed: the "You were in a voice channel" banner only shows once after quitting in a call and fades after 10 seconds.
+- New: Voice settings laid out like Discord's: Input Profile (Voice Isolation, Studio, Custom), Automatically Adjust Input Sensitivity, Noise Suppression (DeepFilterNet, Standard, None), Echo Cancellation, and gain control that evens out friends who are too loud or too quiet. Show Advanced Voice Settings has Discord's extra options, including Global Attenuation and Quality of Service.
+- New: Discord's themes: Light, Ash, Dark and Onyx (pure black), 21 colour themes, and Sync with computer. The old themes are under More Themes.
+- New: slash commands, app pop-ups and the Apps menu, apps' select menus, voice messages, and bookmarks and reminders.
+- New: the voice panel shows Discord's words: RTC Connecting, Voice Connected, Video Connected.
+- Fixed: Go Live no longer gets stuck on starting. It connects right away, and stops with an error if it can't go live within 35 seconds.
+- Changed: Go Live goes up to 1440p and 360 fps, and the frame rate menu no longer gets cut off.
+- Fixed: Go Live keeps going when you turn your monitor off, change resolution, or a game in full screen switches the screen's mode, so sharing Valorant works.
+- New: watch several streams at once, each with its own mute button.
+- Fixed: quitting, Alt+F4 and Task Manager's End task take you out of the call right away.
+- Fixed: the Update button shows up in every window, and updates are found within about a minute.
 - New: Default at the top of the microphone and speaker lists, which follows your Windows default device.
