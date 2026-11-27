@@ -769,14 +769,22 @@ component StageTile inherits Rectangle {
         triggered => { root.unfocusing = false; root.unfocus(); }
     }
     /// A stream shows here: large, the wheel zooms it toward the pointer,
-    /// up to 8x, and a drag moves it.
+    /// up to 8x, and a drag moves it. As in Discord's client, the wheel
+    /// eases there: each notch zooms 15%, gliding over a quarter second,
+    /// and notches in a row carry on from where the last one is going; a
+    /// drag follows the pointer at once.
     in property <bool> zoomable;
-    out property <float> zoom: 1;
-    out property <length> pan-x: 0px;
-    out property <length> pan-y: 0px;
+    property <float> zoom-to: 1;
+    property <length> pan-x-to: 0px;
+    property <length> pan-y-to: 0px;
+    property <bool> gliding: true;
+    out property <float> zoom: root.zoom-to;
+    out property <length> pan-x: root.pan-x-to;
+    out property <length> pan-y: root.pan-y-to;
+    animate zoom, pan-x, pan-y { duration: root.gliding && !Theme.reduce-motion ? 250ms : 0ms; easing: cubic-bezier(0.215, 0.61, 0.355, 1); }
     property <length> grab-x;
     property <length> grab-y;
-    function reset-zoom() { root.zoom = 1; root.pan-x = 0px; root.pan-y = 0px; }
+    function reset-zoom() { root.gliding = true; root.zoom-to = 1; root.pan-x-to = 0px; root.pan-y-to = 0px; }
     changed focused => { root.reset-zoom(); }
     changed zoomable => { root.reset-zoom(); }
     changed width => { root.reset-zoom(); }
@@ -784,11 +792,13 @@ component StageTile inherits Rectangle {
     pure function clamp-pan(pan: length, size: length, zoom: float) -> length {
         return max(size - size * zoom, min(0px, pan));
     }
-    // Zooms to `zoom`, keeping the point at x, y where it is.
+    // Zooms to `zoom`, keeping the point at x, y where it is. The pan
+    // follows the zoom in step, so the point stays put as both glide.
     function zoom-at(x: length, y: length, zoom: float) {
-        root.pan-x = root.clamp-pan(x - (x - root.pan-x) / root.zoom * zoom, root.width, zoom);
-        root.pan-y = root.clamp-pan(y - (y - root.pan-y) / root.zoom * zoom, root.height, zoom);
-        root.zoom = zoom;
+        root.gliding = true;
+        root.pan-x-to = root.clamp-pan(x - (x - root.pan-x-to) / root.zoom-to * zoom, root.width, zoom);
+        root.pan-y-to = root.clamp-pan(y - (y - root.pan-y-to) / root.zoom-to * zoom, root.height, zoom);
+        root.zoom-to = zoom;
     }
     border-radius: root.full ? 0px : 12px; clip: true;
     accessible-role: button; accessible-label: root.label;
@@ -797,10 +807,10 @@ component StageTile inherits Rectangle {
     property <bool> stop-shown: root.stop-label != "" && (touch.has-hover || root.focused);
     @children
     touch := TouchArea {
-        mouse-cursor: root.zoom > 1 ? (self.pressed ? MouseCursor.grabbing : MouseCursor.grab)
+        mouse-cursor: root.zoom-to > 1 ? (self.pressed ? MouseCursor.grabbing : MouseCursor.grab)
             : root.focused ? MouseCursor.default : MouseCursor.pointer;
         clicked => {
-            if root.focused && !root.full && root.zoom <= 1 { root.unfocusing = true; } else { root.clicked(); }
+            if root.focused && !root.full && root.zoom-to <= 1 { root.unfocusing = true; } else { root.clicked(); }
         }
         double-clicked => { root.unfocusing = false; if root.focused { root.full-screen(!root.full); } }
         pointer-event(event) => {
@@ -808,34 +818,37 @@ component StageTile inherits Rectangle {
                 root.right-clicked(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             }
             if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                root.grab-x = root.pan-x; root.grab-y = root.pan-y;
+                root.grab-x = root.pan-x-to; root.grab-y = root.pan-y-to;
             }
             // The middle button puts the picture back as it was.
-            if event.button == PointerEventButton.middle && event.kind == PointerEventKind.down && root.zoom > 1 {
+            if event.button == PointerEventButton.middle && event.kind == PointerEventKind.down && root.zoom-to > 1 {
                 root.reset-zoom();
             }
         }
         moved => {
-            if root.zoom > 1 {
-                root.pan-x = root.clamp-pan(root.grab-x + self.mouse-x - self.pressed-x, root.width, root.zoom);
-                root.pan-y = root.clamp-pan(root.grab-y + self.mouse-y - self.pressed-y, root.height, root.zoom);
+            if root.zoom-to > 1 && self.pressed {
+                root.gliding = false;
+                root.pan-x-to = root.clamp-pan(root.grab-x + self.mouse-x - self.pressed-x, root.width, root.zoom-to);
+                root.pan-y-to = root.clamp-pan(root.grab-y + self.mouse-y - self.pressed-y, root.height, root.zoom-to);
             }
         }
         scroll-event(event) => {
             // A small tile leaves the wheel to the grid, which scrolls.
-            if !root.zoomable || !root.focused || event.delta-y == 0 || (root.zoom <= 1 && event.delta-y < 0) {
+            if !root.zoomable || !root.focused || event.delta-y == 0 || (root.zoom-to <= 1 && event.delta-y < 0) {
                 return reject;
             }
+            // A wheel's notch comes as 60 px; a touchpad's smaller steps
+            // zoom as much less.
             root.zoom-at(self.mouse-x, self.mouse-y,
-                max(1, min(8, event.delta-y > 0 ? root.zoom * 1.2 : root.zoom / 1.2)));
+                max(1, min(8, root.zoom-to * Math.pow(1.15, max(-2, min(2, event.delta-y / 60px))))));
             return accept;
         }
-        if root.zoom > 1: Rectangle {
+        if root.zoom-to > 1: Rectangle {
             x: 10px; y: 10px; width: zoom-text.preferred-width + 20px; height: 28px;
             border-radius: 14px; background: zoom-touch.has-hover ? #000000d9 : #000000a6;
             accessible-role: button; accessible-label: "Reset zoom";
             zoom-text := Text {
-                text: (round(root.zoom * 10) / 10) + "x  ·  Reset";
+                text: (round(root.zoom-to * 10) / 10) + "x  ·  Reset";
                 color: #ffffff; font-size: 13px; font-weight: 700;
                 horizontal-alignment: center; vertical-alignment: center;
             }
@@ -998,6 +1011,8 @@ export component ParticipantGrid inherits Flickable {
     callback stop-sharing;
     /// A right click on someone, with where it was in the window.
     callback open-volume(PersonRow, length, length);
+    /// A right click on a stream being watched, with where it was.
+    callback open-stream-menu(PersonRow, length, length);
     /// Where the tiles are, so cameras are decoded only for tiles in sight,
     /// at their size: the columns, a tile's width and height, the gap, the
     /// first row's top, how far the grid is scrolled and its height; then
@@ -1129,7 +1144,7 @@ export component ParticipantGrid inherits Flickable {
                 root.focus-tile(self.slot);
             }
         }
-        right-clicked(x, y) => { root.open-volume(self.person, x, y); }
+        right-clicked(x, y) => { if self.watched { root.open-stream-menu(self.person, x, y); } else { root.open-volume(self.person, x, y); } }
         stop => { root.stop-watching(self.person.id); }
         full-screen(on) => { root.full-screen(on); }
         unfocus => { if self.watched { root.focus-tile(-1); } else { root.watch-stream(self.person.id); } }
@@ -1183,7 +1198,7 @@ export component ParticipantGrid inherits Flickable {
                 root.focus-tile(self.slot);
             }
         }
-        right-clicked(x, y) => { root.open-volume(person, x, y); }
+        right-clicked(x, y) => { if self.watched { root.open-stream-menu(person, x, y); } else { root.open-volume(person, x, y); } }
         stop => { root.stop-watching(person.id); }
         full-screen(on) => { root.full-screen(on); }
         unfocus => { if self.streams-here && !self.watched { root.watch-stream(person.id); } else { root.focus-tile(-1); } }
@@ -1223,6 +1238,85 @@ export component ParticipantGrid inherits Flickable {
 
 // The call's controls under the stage: mute, deafen, the soundboard, the
 // camera, share the screen, and leave.
+// A button in the call bar, as Discord's: an icon on the bar's dark fill,
+// lighter under the pointer; red while it warns, as a muted microphone
+// does, and green while it's live, as a stream is. Its name shows above it
+// while the pointer is on it.
+component BarButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> alert;
+    in property <bool> live;
+    callback clicked;
+    width: 44px; height: 40px;
+    border-radius: 8px;
+    background: root.live ? (touch.has-hover ? #248046 : #23a55a.with-alpha(0.3))
+        : root.alert ? (touch.has-hover ? Theme.danger.with-alpha(0.32) : Theme.danger.with-alpha(0.2))
+        : touch.has-hover && root.enabled ? Theme.overlay.with-alpha(0.09) : transparent;
+    animate background { duration: Theme.quick; }
+    opacity: root.enabled ? 1 : 0.5;
+    accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image {
+        source: root.icon; width: 20px; height: 20px; image-fit: contain;
+        colorize: root.live ? #ffffff : root.alert ? Theme.danger-text : Theme.text;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { Tip.text = ""; root.clicked(); }
+        changed has-hover => {
+            if self.has-hover {
+                Tip.text = root.label;
+                Tip.side = 0;
+                Tip.x = root.absolute-position.x + root.width / 2;
+                Tip.y = root.absolute-position.y;
+            } else if Tip.text == root.label {
+                Tip.text = "";
+            }
+        }
+    }
+}
+
+// The caret beside a call bar button that opens its menu, pointing up while
+// the menu is open, as Discord's does.
+component BarCaret inherits Rectangle {
+    in property <string> label;
+    in property <bool> open;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: 22px; height: 40px; border-radius: 8px;
+    background: (touch.has-hover || root.open) && root.enabled ? Theme.overlay.with-alpha(0.09) : transparent;
+    animate background { duration: Theme.quick; }
+    opacity: root.enabled ? 1 : 0.5;
+    accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image {
+        source: root.open ? @image-url("icons/chevron-up.svg") : @image-url("icons/chevron-down.svg");
+        width: 16px; height: 16px; image-fit: contain; colorize: Theme.text;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { Tip.text = ""; root.clicked(); }
+    }
+}
+
+// A group of call bar buttons on one dark, rounded fill.
+component BarGroup inherits Rectangle {
+    background: Theme.raised; border-radius: 10px;
+    border-width: 1px; border-color: Theme.edge;
+    width: group-row.preferred-width; height: 48px;
+    group-row := HorizontalLayout {
+        padding: 4px; spacing: 2px;
+        @children
+    }
+}
+
+// The bar under a call, as Discord's: the microphone and the camera, each
+// with its menu's caret; your stream, with its menu's caret while it's on,
+// the soundboard and the call's other options; and leaving.
 export component CallControls inherits HorizontalLayout {
     in property <bool> muted;
     in property <bool> deafened;
@@ -1235,64 +1329,421 @@ export component CallControls inherits HorizontalLayout {
     in property <bool> camera-on;
     /// The camera is on its way, until its first picture.
     in property <bool> camera-starting;
+    /// Which of the bar's menus is open, whose caret points up.
+    in property <bool> mic-menu-open;
+    in property <bool> camera-menu-open;
+    in property <bool> share-menu-open;
+    in property <bool> more-menu-open;
     callback toggle-mute;
     callback toggle-deafen;
     callback toggle-camera;
     callback toggle-share;
     /// The call has Discord's soundboard.
     in property <bool> can-soundboard;
-    /// Sharing starts from a menu, opened at this point in the window.
+    /// Each menu opens above the point in the window it's given.
     callback open-share-menu(length, length);
+    callback open-mic-menu(length, length);
+    callback open-camera-menu(length, length);
+    callback open-more-menu(length, length);
     /// The soundboard, opened above this point in the window.
     callback open-soundboard(length, length);
     callback leave-voice;
-    alignment: center; spacing: 12px; padding: 16px; padding-top: 8px;
-    IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
-        label: root.muted ? "Unmute" : "Mute"; alert: root.muted; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
-        clicked => { root.toggle-mute(); }
+    alignment: center; spacing: 8px; padding: 16px; padding-top: 8px;
+    devices := BarGroup {
+        BarButton {
+            icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+            label: root.muted ? "Unmute" : "Mute"; alert: root.muted;
+            enabled: root.voice-ready;
+            clicked => { root.toggle-mute(); }
+        }
+        BarCaret {
+            label: "Input Options"; open: root.mic-menu-open;
+            clicked => { root.open-mic-menu(devices.absolute-position.x, devices.absolute-position.y); }
+        }
+        if root.can-film: BarButton {
+            icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
+            label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn Off Camera" : "Turn On Camera";
+            live: root.camera-on;
+            enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
+            clicked => { root.toggle-camera(); }
+        }
+        if root.can-film: BarCaret {
+            label: "Video Options"; open: root.camera-menu-open;
+            clicked => { root.open-camera-menu(devices.absolute-position.x + devices.width - 44px - 22px - 4px, devices.absolute-position.y); }
+        }
     }
-    IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
-        label: root.deafened ? "Undeafen" : "Deafen"; alert: root.deafened; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
-        clicked => { root.toggle-deafen(); }
-    }
-    if root.can-soundboard: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard"; tint: Theme.text;
-        enabled: root.voice-ready; fill: Theme.raised;
-        clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
-    }
-    if root.can-film: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
-        label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera"; tint: Theme.text;
-        enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
-        fill: root.camera-on ? Theme.live.with-alpha(0.22) : Theme.raised;
-        clicked => { root.toggle-camera(); }
-    }
-    if root.can-share || root.sharing: IconButton {
-        size: 52px; glyph: 22px; radius: 26px;
-        icon: root.sharing ? @image-url("icons/screen-share-off.svg") : @image-url("icons/screen-share.svg");
-        label: root.sharing ? "Stream options" : "Share your screen"; tint: Theme.text;
-        enabled: root.voice-ready;
-        fill: root.sharing ? Theme.live.with-alpha(0.22) : Theme.raised;
-        clicked => { root.open-share-menu(self.absolute-position.x, self.absolute-position.y); }
+    actions := BarGroup {
+        if root.can-share || root.sharing: share := BarButton {
+            icon: @image-url("icons/screen-share.svg");
+            label: root.sharing ? "Stream Options" : "Share Your Screen";
+            live: root.sharing;
+            enabled: root.voice-ready;
+            clicked => { root.open-share-menu(actions.absolute-position.x, actions.absolute-position.y); }
+        }
+        if root.sharing: BarCaret {
+            label: "Stream Options"; open: root.share-menu-open;
+            clicked => { root.open-share-menu(actions.absolute-position.x, actions.absolute-position.y); }
+        }
+        if root.can-soundboard: BarButton {
+            icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";
+            enabled: root.voice-ready;
+            clicked => { root.open-soundboard(self.absolute-position.x, actions.absolute-position.y); }
+        }
+        more := BarButton {
+            icon: @image-url("icons/ellipsis.svg"); label: "More Options";
+            clicked => { root.open-more-menu(self.absolute-position.x, actions.absolute-position.y); }
+        }
     }
     Rectangle {
-        width: 76px; height: 52px; border-radius: 26px;
+        width: 64px; height: 48px; border-radius: 10px;
         background: leave-touch.has-hover ? Theme.danger-hover : Theme.danger;
+        animate background { duration: Theme.quick; }
         opacity: root.voice-leaving ? 0.5 : 1;
-        accessible-role: button; accessible-label: "Leave voice"; accessible-enabled: !root.voice-leaving;
+        accessible-role: button; accessible-label: "Disconnect"; accessible-enabled: !root.voice-leaving;
         accessible-action-default => { if !root.voice-leaving { root.leave-voice(); } }
         Image { source: @image-url("icons/phone-off.svg"); width: 22px; height: 22px; colorize: Theme.on-danger; }
-        leave-touch := TouchArea { enabled: !root.voice-leaving; mouse-cursor: MouseCursor.pointer; clicked => { root.leave-voice(); } }
+        leave-touch := TouchArea {
+            enabled: !root.voice-leaving; mouse-cursor: MouseCursor.pointer;
+            clicked => { Tip.text = ""; root.leave-voice(); }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = "Disconnect"; Tip.side = 0;
+                    Tip.x = parent.absolute-position.x + parent.width / 2; Tip.y = parent.absolute-position.y;
+                } else if Tip.text == "Disconnect" {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}
+
+// A row of the call bar's menus that opens a list beside it, as Discord's
+// Input Device does: its name, what's chosen under it, and an arrow.
+component CallSubRow inherits MenuItem {
+    plain: true; submenu: true;
+}
+
+// A slider in the call bar's menus, as Discord's: its name above a thin
+// blurple bar, without a number.
+component CallSlider inherits VerticalLayout {
+    in property <string> label;
+    in-out property <int> value;
+    in property <int> maximum: 200;
+    callback changed(int);
+    callback committed(int);
+    padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 4px; spacing: 6px;
+    Text { text: root.label; color: Theme.text; font-size: 14px; font-weight: 600; }
+    VolumeSlider {
+        label: ""; shown: ""; maximum: root.maximum; full-mark: false;
+        value <=> root.value;
+        changed(volume) => { root.changed(volume); }
+        committed(volume) => { root.committed(volume); }
+    }
+}
+
+// A list a call bar menu opens beside a row: a choice marked with a check.
+component CallChoices inherits Rectangle {
+    in property <[string]> choices;
+    in property <int> current;
+    in property <string> empty;
+    callback chose(int);
+    background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    height: choice-rows.preferred-height;
+    TouchArea { }
+    choice-rows := VerticalLayout {
+        padding: 6px; spacing: 2px;
+        for choice[index] in root.choices: MenuItem {
+            text: choice; checked: index == root.current;
+            clicked => { root.chose(index); }
+        }
+        if root.choices.length == 0: HorizontalLayout {
+            padding: 8px;
+            Label { text: root.empty; }
+        }
+    }
+}
+
+// The microphone's menu from its caret in the call bar, as Discord's: the
+// input device, the input profile and the output device, each a list
+// beside it; the input volume, the microphone's level and the output
+// volume; deafening; and the voice settings.
+export component CallMicMenu inherits Rectangle {
+    in property <[string]> microphones;
+    in property <int> microphone-index;
+    in property <[string]> speakers;
+    in property <int> speaker-index;
+    /// Discord's input profiles, offered on Discord calls.
+    in property <bool> profiles;
+    in property <int> input-profile;
+    in-out property <int> microphone-volume;
+    in-out property <int> speaker-volume;
+    /// The microphone's level, from 0 to 1.
+    in property <float> input-level;
+    in property <bool> deafened;
+    callback select-microphone(int);
+    callback select-speaker(int);
+    callback choose-profile(int);
+    /// A volume moved, and the last of a drag.
+    callback volumes-changed;
+    callback volumes-committed;
+    callback toggle-deafen;
+    callback settings;
+    property <[string]> profile-names: ["Voice Isolation", "Studio", "Custom"];
+    property <length> menu-width: 280px;
+    property <length> sub-width: 260px;
+    // The list open beside the menu: 0 the microphones, 1 the profiles, 2
+    // the speakers; and how far down it starts.
+    property <int> sub: -1;
+    property <length> sub-y;
+    property <[string]> sub-choices: root.sub == 0 ? root.microphones : root.sub == 1 ? root.profile-names : root.speakers;
+    property <int> sub-current: root.sub == 0 ? root.microphone-index : root.sub == 1 ? root.input-profile : root.speaker-index;
+    // Tall enough from the start for the longest list beside it.
+    property <length> tallest-list: max(root.microphones.length, root.speakers.length, 3) * 34px + 12px;
+    out property <length> content-width: root.menu-width + 4px + root.sub-width;
+    out property <length> content-height: max(panel.height, root.tallest-list);
+    function open-list(which: int, y: length) {
+        root.sub = which;
+        root.sub-y = y;
+    }
+    panel := Rectangle {
+        x: 0px; y: root.content-height - self.height;
+        width: root.menu-width; height: rows.preferred-height;
+        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        TouchArea { }
+        rows := VerticalLayout {
+            padding: 6px; spacing: 2px;
+            input-row := CallSubRow {
+                text: "Input Device";
+                subtitle: root.microphone-index >= 0 && root.microphone-index < root.microphones.length ? root.microphones[root.microphone-index] : "None";
+                highlighted: self.has-hover || root.sub == 0;
+                hovered => { root.open-list(0, panel.y + self.y + 6px); }
+                clicked => { root.open-list(0, panel.y + self.y + 6px); }
+            }
+            if root.profiles: CallSubRow {
+                text: "Input Profile"; subtitle: root.profile-names[root.input-profile];
+                highlighted: self.has-hover || root.sub == 1;
+                hovered => { root.open-list(1, panel.y + self.y + 6px); }
+                clicked => { root.open-list(1, panel.y + self.y + 6px); }
+            }
+            CallSubRow {
+                text: "Output Device";
+                subtitle: root.speaker-index >= 0 && root.speaker-index < root.speakers.length ? root.speakers[root.speaker-index] : "None";
+                highlighted: self.has-hover || root.sub == 2;
+                hovered => { root.open-list(2, panel.y + self.y + 6px); }
+                clicked => { root.open-list(2, panel.y + self.y + 6px); }
+            }
+            Rectangle {
+                height: 9px;
+                Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+            }
+            CallSlider {
+                label: "Input Volume"; value <=> root.microphone-volume;
+                changed => { root.sub = -1; root.volumes-changed(); }
+                committed => { root.volumes-committed(); }
+            }
+            VerticalLayout {
+                padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 8px;
+                Text { text: "Input Level"; color: Theme.text; font-size: 14px; font-weight: 600; }
+                HorizontalLayout {
+                    height: 16px; spacing: 3px;
+                    accessible-role: progress-indicator; accessible-label: "Input level";
+                    accessible-value: round(root.input-level * 100) + "%";
+                    for tick in 36: Rectangle {
+                        border-radius: 1.5px;
+                        background: (tick + 0.5) / 36 <= root.input-level ? #23a55a : Theme.line;
+                    }
+                }
+            }
+            CallSlider {
+                label: "Output Volume"; value <=> root.speaker-volume;
+                changed => { root.sub = -1; root.volumes-changed(); }
+                committed => { root.volumes-committed(); }
+            }
+            Rectangle {
+                height: 9px;
+                Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+            }
+            MenuItem {
+                text: "Deafen"; plain: true; checkbox: true; checked: root.deafened;
+                hovered => { root.sub = -1; }
+                clicked => { root.toggle-deafen(); }
+            }
+            MenuItem {
+                text: "Voice Settings"; icon: @image-url("icons/settings.svg");
+                hovered => { root.sub = -1; }
+                clicked => { root.settings(); }
+            }
+        }
+    }
+    if root.sub >= 0: CallChoices {
+        x: root.menu-width + 4px; width: root.sub-width;
+        y: max(0px, min(root.sub-y - 6px, root.content-height - self.height));
+        choices: root.sub-choices; current: root.sub-current;
+        empty: root.sub == 0 ? "No microphones found." : "No speakers found.";
+        chose(index) => {
+            if root.sub == 0 { root.select-microphone(index); }
+            else if root.sub == 1 { root.choose-profile(index); }
+            else { root.select-speaker(index); }
+        }
+    }
+}
+
+// The camera's menu from its caret in the call bar, as Discord's: the
+// camera, in a list beside it; a preview of it; and the video settings.
+export component CallCameraMenu inherits Rectangle {
+    in property <[string]> cameras;
+    in property <int> camera-index;
+    callback select-camera(int);
+    callback preview;
+    callback settings;
+    property <length> menu-width: 260px;
+    property <length> sub-width: 240px;
+    property <bool> list-open;
+    out property <length> content-width: root.menu-width + 4px + root.sub-width;
+    out property <length> content-height: max(panel.height, max(1, root.cameras.length) * 34px + 12px);
+    panel := Rectangle {
+        x: 0px; y: root.content-height - self.height;
+        width: root.menu-width; height: rows.preferred-height;
+        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        TouchArea { }
+        rows := VerticalLayout {
+            padding: 6px; spacing: 2px;
+            camera-row := CallSubRow {
+                text: "Camera";
+                subtitle: root.camera-index >= 0 && root.camera-index < root.cameras.length ? root.cameras[root.camera-index] : "None";
+                highlighted: self.has-hover || root.list-open;
+                hovered => { root.list-open = true; }
+                clicked => { root.list-open = true; }
+            }
+            Rectangle {
+                height: 9px;
+                Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+            }
+            MenuItem {
+                text: "Preview Camera"; icon: @image-url("icons/eye.svg");
+                hovered => { root.list-open = false; }
+                clicked => { root.preview(); }
+            }
+            MenuItem {
+                text: "Video Settings"; icon: @image-url("icons/settings.svg");
+                hovered => { root.list-open = false; }
+                clicked => { root.settings(); }
+            }
+        }
+    }
+    if root.list-open: CallChoices {
+        x: root.menu-width + 4px; width: root.sub-width;
+        y: max(0px, min(panel.y, root.content-height - self.height));
+        choices: root.cameras; current: root.camera-index;
+        empty: "No cameras found.";
+        chose(index) => { root.select-camera(index); }
+    }
+}
+
+// The call's other options, from the bar's "..." as Discord's: inviting to
+// the channel, the grid, and the voice and video settings.
+export component CallMoreMenu inherits Rectangle {
+    in property <bool> can-invite;
+    /// Every tile shows alike; off, one is shown large.
+    in property <bool> grid-view;
+    callback invite;
+    callback toggle-grid;
+    callback settings;
+    width: 260px; height: rows.preferred-height;
+    background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    TouchArea { }
+    rows := VerticalLayout {
+        padding: 6px; spacing: 2px;
+        if root.can-invite: MenuItem {
+            text: "Invite to Voice"; icon: @image-url("icons/user-plus.svg");
+            clicked => { root.invite(); }
+        }
+        if root.can-invite: Rectangle {
+            height: 9px;
+            Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+        }
+        MenuItem {
+            text: "Grid View"; plain: true; checkbox: true; checked: root.grid-view;
+            clicked => { root.toggle-grid(); }
+        }
+        Rectangle {
+            height: 9px;
+            Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+        }
+        MenuItem {
+            text: "Voice & Video Settings"; icon: @image-url("icons/settings.svg");
+            clicked => { root.settings(); }
+        }
+    }
+}
+
+// A watched stream's menu, from a right click on it, as Discord's: stop
+// watching; its sound's mute and volume; Stream Attenuation; and the rest
+// of its streamer's menu.
+export component StreamMenu inherits Rectangle {
+    in-out property <int> stream-volume;
+    in property <bool> attenuation;
+    callback stop-watching;
+    /// Mutes the stream, or unmutes it to the volume it had.
+    callback mute(bool);
+    callback volume-changed(int, bool);
+    callback toggle-attenuation;
+    callback more;
+    property <int> unmuted: 100;
+    width: 260px; height: rows.preferred-height;
+    background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    TouchArea { }
+    rows := VerticalLayout {
+        padding: 6px; spacing: 2px;
+        MenuItem {
+            text: "Stop Watching"; icon: @image-url("icons/screen-share-off.svg");
+            clicked => { root.stop-watching(); }
+        }
+        Rectangle {
+            height: 9px;
+            Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+        }
+        MenuItem {
+            text: "Mute"; plain: true; checkbox: true; checked: root.stream-volume == 0;
+            clicked => {
+                if root.stream-volume == 0 {
+                    root.stream-volume = max(1, root.unmuted);
+                    root.mute(false);
+                } else {
+                    root.unmuted = root.stream-volume;
+                    root.stream-volume = 0;
+                    root.mute(true);
+                }
+                root.volume-changed(root.stream-volume, true);
+            }
+        }
+        CallSlider {
+            label: "Stream Volume"; maximum: 500; value <=> root.stream-volume;
+            changed(volume) => { root.volume-changed(volume, false); }
+            committed(volume) => { root.volume-changed(volume, true); }
+        }
+        Rectangle {
+            height: 9px;
+            Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+        }
+        MenuItem {
+            text: "Stream Attenuation"; subtitle: "Automatically reduce stream volume when people are talking.";
+            plain: true; checkbox: true; checked: root.attenuation;
+            clicked => { root.toggle-attenuation(); }
+        }
+        Rectangle {
+            height: 9px;
+            Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
+        }
+        MenuItem {
+            text: "More Options"; plain: true; submenu: true;
+            clicked => { root.more(); }
+        }
     }
 }
 

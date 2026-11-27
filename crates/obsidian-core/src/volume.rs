@@ -11,7 +11,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         LazyLock, RwLock,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
 
@@ -89,6 +89,9 @@ static CHANGED: LazyLock<watch::Sender<u64>> = LazyLock::new(|| watch::channel(0
 /// The microphone's and the speakers' gains in every call, as f32 bits.
 static MICROPHONE: AtomicU32 = AtomicU32::new(1f32.to_bits());
 static SPEAKERS: AtomicU32 = AtomicU32::new(1f32.to_bits());
+static STREAM_ATTENUATION: AtomicBool = AtomicBool::new(true);
+static STREAM_STRENGTH: AtomicU32 = AtomicU32::new(50);
+static STREAMS_DUCKED: AtomicBool = AtomicBool::new(false);
 
 fn volumes(kind: Kind) -> &'static RwLock<HashMap<String, f32>> {
     &VOLUMES[kind as usize]
@@ -156,13 +159,44 @@ pub fn soundboard_muted(person: &str) -> bool {
 }
 
 /// How loud `person` plays: as chosen, times the speakers' volume, or
-/// silent while muted here.
+/// silent while muted here; a stream lower while [`duck_streams`] says.
 pub fn heard(kind: Kind, person: &str) -> f32 {
     if kind == Kind::Voice && muted(person) {
         0.0
+    } else if kind == Kind::Stream && STREAMS_DUCKED.load(Ordering::Relaxed) {
+        get(kind, person) * speakers() * ducked_gain()
     } else {
         get(kind, person) * speakers()
     }
+}
+
+/// Turns Discord's Stream Attenuation on or off, with its strength from 1
+/// to 100: watched streams play lower while people in the call talk. On at
+/// 50, as Discord's client starts.
+pub fn set_stream_attenuation(on: bool, strength: u32) {
+    STREAM_ATTENUATION.store(on, Ordering::Relaxed);
+    STREAM_STRENGTH.store(strength.clamp(1, 100), Ordering::Relaxed);
+    if !on {
+        duck_streams(false);
+    }
+}
+
+pub fn stream_attenuation() -> bool {
+    STREAM_ATTENUATION.load(Ordering::Relaxed)
+}
+
+/// Lowers the watched streams while people talk, or lets them back up.
+pub fn duck_streams(ducked: bool) {
+    if STREAMS_DUCKED.swap(ducked, Ordering::Relaxed) != ducked {
+        CHANGED.send_modify(|changes| *changes += 1);
+    }
+}
+
+/// A stream's gain while ducked: Discord's sidechain compression at its
+/// strength, here a fixed cut of up to 24 dB at full strength, 12 dB at 50.
+fn ducked_gain() -> f32 {
+    let strength = STREAM_STRENGTH.load(Ordering::Relaxed) as f32;
+    10f32.powf(-strength * 0.24 / 20.0)
 }
 
 /// Sets how loud the microphone sends in every call, from 0.0 to [`MAX`].

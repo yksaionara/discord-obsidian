@@ -293,11 +293,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   close button or a click outside the image closes it. It can save the image
   too.
 - Send through the SDK's persistent send queue. A message appears at once,
-  dimmed; if it hasn't gone after 450 ms, three accent dots that rise in turn
-  and the word Sending fade in under it (`SendingIndicator`), and they only
-  redraw while they show. They're drawn in the space the timeline keeps
-  below its last message, so the message doesn't move as it's sent; one
-  queued behind it is only dimmed. After a connection problem it shows "Not sent yet",
+  dimmed until it's sent, as Discord's does, and turns red if it can't be.
+  After a connection problem it shows "Not sent yet",
   with a clock, and goes out
   by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
   probing the homeserver. A refused message shows "Not sent" with a warning
@@ -621,9 +618,9 @@ The window follows Discord's arrangement:
   their roles in a submenu of checkboxes, and Time out, Kick and Ban last, in
   red, as this account's permissions and its rank against theirs allow, then
   Copy ID; see [Discord](discord/servers.md#a-server-members-menu). In a Discord
-  server's call, or under a voice channel, their volume sits above that
-  menu, which adds a Mute just for you, Move to and, in red, Server mute,
-  Server deafen and Disconnect; see
+  server's call, or under a voice channel, that menu adds Discord's User
+  Volume slider, a Mute just for you, Move to and, in red, Server Mute,
+  Server Deafen and Disconnect; see
   [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Time out and Ban ask how long
   or how much in their dialog, and each asks a reason. In a one-to-one DM, the
   other person's menu is the DM's own, less Mark as read and Copy link, and

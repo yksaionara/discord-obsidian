@@ -8,7 +8,14 @@ mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
 opens a menu that chooses the input or output device and links to the full
 settings. Deafen also mutes the microphone; undeafening turns it back on if it
 was on when deafening and leaves it muted otherwise, while unmuting when
-deafened undeafens too. The voice view shows the participants and
+deafened undeafens too. The bar under the call is Discord's: the microphone
+and the camera, each with a caret; the stream, with a caret while it's on,
+the soundboard and "..."; and Disconnect in red. The microphone's caret
+opens Input Device, Input Profile and Output Device, each a list beside the
+menu, the input and output volumes with the microphone's level between them,
+Deafen and Voice Settings; the camera's opens Camera, Preview Camera and
+Video Settings; "..." opens Invite to Voice, Grid View and Voice & Video
+Settings. The voice view shows the participants and
 their mute, deafen and speaking state; a deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in

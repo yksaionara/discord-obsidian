@@ -228,7 +228,11 @@ impl Application {
         // there.
         let in_voice = self.voice_person(place, user).is_some();
         if in_voice && !me {
-            choices.extend([MenuChoice::LocalMute, MenuChoice::SoundboardMute]);
+            choices.extend([
+                MenuChoice::UserVolume,
+                MenuChoice::LocalMute,
+                MenuChoice::SoundboardMute,
+            ]);
         } else if in_voice && state.voice.active() && state.voice.room.as_deref() == Some(place) {
             choices.extend([MenuChoice::SelfMute, MenuChoice::SelfDeafen]);
         }

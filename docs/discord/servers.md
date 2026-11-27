@@ -76,10 +76,13 @@ copying them.
 ## Someone's menu in a voice channel
 
 Right-clicking someone in a server's call, or under a voice channel in the
-channel list, opens their volumes above their menu as a member
-of the server, with what Discord's client adds there, in its order:
+channel list, opens their menu as a member of the server, with what
+Discord's client adds there, in its order and its words, without icons but
+on Copy User ID:
 
-- After Add note: Mute, a box that mutes them for this account alone and
+- After Add Friend Nickname, on its own between lines: User Volume,
+  Discord's slider, up to 200%.
+- Then Mute, a box that mutes them for this account alone and
   keeps their volume for when it's unticked, and Mute Soundboard, a box
   that silences the soundboard sounds they play, for this account alone;
   Discord Obsidian remembers both, as Discord's client keeps them locally. One's own
@@ -91,7 +94,7 @@ of the server, with what Discord's client adds there, in its order:
   own lists those it may join, and choosing one joins it there, as Discord's
   client does. Choosing one for someone else is `PATCH
   /guilds/{id}/members/{user}` with `{"channel_id": ...}`.
-- In red, before Time out: Server mute and Server deafen, boxes ticked from
+- In red, before Time out: Server Mute and Server Deafen, boxes ticked from
   their voice state's `mute` and `deaf`, which need Mute Members and Deafen
   Members, and send `{"mute": ...}` or `{"deaf": ...}`; then Disconnect,
   which needs Move Members and sends `{"channel_id": null}`, without asking,
@@ -100,8 +103,9 @@ of the server, with what Discord's client adds there, in its order:
 The tracker keeps a voice state's own `self_mute` and `self_deaf` apart from
 the server's `mute` and `deaf`, so the channel list and the call show a
 server mute or deafen in red, as Discord's client does. Discord's Disable
-Video and Apps aren't offered yet. In a DM's call or a
-Matrix room's, the right click still sets only the volume.
+Video, View Verification Code, Ask to Stream and Open in Mod View aren't
+offered yet. In a DM's call or a Matrix room's, the right click still opens
+only the volume.
 
 Discord answers each change with GUILD_MEMBER_UPDATE, or for a kick with
 GUILD_MEMBER_REMOVE, and for a ban with GUILD_BAN_ADD as well, and sends the

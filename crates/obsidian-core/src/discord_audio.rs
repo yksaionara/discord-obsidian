@@ -430,19 +430,31 @@ impl Capture {
         self.talking.load(Ordering::Relaxed)
     }
 
-    /// Whether the microphone has given nothing but silence for
-    /// [`SILENT_FOR`], as a device that isn't plugged in, is muted at the
-    /// system or isn't allowed to record does: Discord then warns that it
-    /// isn't detecting any input.
+    /// Whether the microphone has given nothing but silence, below
+    /// [`SILENT_LEVEL`], since it opened, for at least [`SILENT_FOR`], as a
+    /// device that isn't plugged in, is muted at the system or isn't allowed
+    /// to record does: Discord then warns that it isn't detecting any input.
+    /// Like Discord, once the microphone gave any sound it never counts as
+    /// silent again until it's opened anew, so a quiet room or someone who
+    /// doesn't talk doesn't set it off.
     pub fn silent(&self) -> bool {
         self.silent.load(Ordering::Relaxed)
     }
 }
 
-/// Blocks of a microphone's samples, all within this of zero, in a row
-/// before it counts as giving nothing: five seconds.
+/// Blocks of a microphone's samples below [`SILENT_LEVEL`] in a row before it
+/// counts as giving nothing: five seconds.
 const SILENT_FOR: u32 = 500;
-const SILENT_PEAK: i16 = 4;
+/// Discord's no-input threshold (`setNoInputThreshold(-100)`), in dBFS:
+/// digital silence, far below any real microphone's own hiss.
+const SILENT_LEVEL: f32 = -100.0;
+
+/// Whether `block`'s level is below [`SILENT_LEVEL`].
+fn silence(block: &[i16]) -> bool {
+    let energy: f64 = block.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
+    let floor = 32_768.0 * 10f64.powf(f64::from(SILENT_LEVEL) / 20.0);
+    energy < floor * floor * block.len() as f64
+}
 
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -622,11 +634,15 @@ pub fn speakers(
     Ok((Speakers { stop }, frames))
 }
 
-/// The microphone's processing, block by block, as the input profile asks:
-/// WebRTC cancels echo and filters out rumble, the chosen suppressor takes
-/// out noise and hears speech, WebRTC suppresses noise if that's the one
-/// chosen and controls the gain of what's left, and the microphone's volume
-/// goes on. The gate decides what's sent.
+/// The microphone's processing, block by block, as the input profile asks,
+/// in the order of Discord's client: the microphone's volume goes on first,
+/// as the device's own level would; WebRTC filters out rumble, cancels echo,
+/// suppresses noise if that's the suppressor chosen and controls the gain;
+/// then the chosen suppressor takes out noise and hears speech, as Krisp
+/// does after WebRTC's processing in Discord. Gain control so hears the
+/// room's noise and doesn't lift a noisy microphone past it, and the volume
+/// only moves the level gain control starts from. The gate decides what's
+/// sent.
 struct Processing {
     /// Echo cancellation and the high-pass filter, while either is asked,
     /// with what they were made for.
@@ -672,8 +688,8 @@ impl Processing {
     }
 
     /// Makes WebRTC's modules for what `settings` ask, again only when that
-    /// changed: echo cancellation and the high-pass filter first, noise
-    /// suppression and gain control after the suppressor.
+    /// changed: echo cancellation and the high-pass filter first, then
+    /// noise suppression and gain control, both before the suppressor.
     fn make(&mut self, settings: &crate::noise::Processing) {
         let echo = (settings.echo_cancellation, settings.high_pass);
         if echo != self.echo_made || (self.echo.is_none() && echo != (false, false)) {
@@ -705,8 +721,24 @@ impl Processing {
     fn block(&mut self, block: &mut [i16]) -> &[[f32; BLOCK]] {
         let settings = crate::noise::processing();
         self.make(&settings);
+        // The volume, as one gain that never lifts a peak into clipping.
+        for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
+            *value = f32::from(*sample);
+        }
+        self.leveler.process(
+            &mut self.samples,
+            SAMPLE_RATE,
+            false,
+            crate::volume::microphone(),
+        );
+        for (sample, value) in block.iter_mut().zip(&self.samples) {
+            *sample = value.clamp(-32768.0, 32767.0) as i16;
+        }
         if let Some(echo) = &mut self.echo {
             let _ = echo.process_stream(block, SAMPLE_RATE as i32, 1);
+        }
+        if let Some(gain) = &mut self.gain {
+            let _ = gain.process_stream(block, SAMPLE_RATE as i32, 1);
         }
         let chosen = settings.suppressor;
         if self.denoiser.suppressor() != chosen {
@@ -739,23 +771,9 @@ impl Processing {
         for (sample, value) in block.iter_mut().zip(&self.samples) {
             *sample = value.clamp(-32768.0, 32767.0) as i16;
         }
-        if let Some(gain) = &mut self.gain {
-            let _ = gain.process_stream(block, SAMPLE_RATE as i32, 1);
-        }
-        // The gate hears the voice at its volume, as it's sent.
-        let volume = crate::volume::microphone();
-        let level = decibels(block) + 20.0 * volume.log10();
+        // The gate hears the voice as it's sent.
+        let level = decibels(block);
         self.level = level;
-        for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
-            *value = f32::from(*sample);
-        }
-        // Only the volume: WebRTC's gain control evens the voice out, as in
-        // Discord's client.
-        self.leveler
-            .process(&mut self.samples, SAMPLE_RATE, false, volume);
-        for (sample, value) in block.iter_mut().zip(&self.samples) {
-            *sample = value.clamp(-32768.0, 32767.0) as i16;
-        }
         for value in &mut self.samples {
             *value /= 32768.0;
         }
@@ -901,17 +919,19 @@ impl CaptureRequest {
         }
         let mut block = [0i16; BLOCK];
         let mut quiet = 0u32;
+        // Discord stops looking once the microphone gave anything at all.
+        let mut heard = false;
         while !self.stop.load(Ordering::Relaxed) {
             stream.read(&mut block);
-            quiet = if block
-                .iter()
-                .all(|sample| sample.unsigned_abs() <= SILENT_PEAK.unsigned_abs())
-            {
-                quiet.saturating_add(1)
-            } else {
-                0
-            };
-            let silent = quiet >= SILENT_FOR;
+            if !heard {
+                if silence(&block) {
+                    quiet = quiet.saturating_add(1);
+                } else {
+                    heard = true;
+                    quiet = 0;
+                }
+            }
+            let silent = !heard && quiet >= SILENT_FOR;
             if silent != self.silent.load(Ordering::Relaxed) {
                 self.silent.store(silent, Ordering::Relaxed);
             }
@@ -1170,6 +1190,20 @@ mod tests {
             gate.block(&block(1.0), -30.0, false).len(),
             OPEN_AFTER as usize + 2
         );
+    }
+
+    #[test]
+    fn only_digital_silence_counts_as_no_input() {
+        // Discord's threshold is -100 dBFS: a microphone's faintest hiss,
+        // one step of 16 bits, is -90 dBFS and counts as input.
+        assert!(silence(&[0; BLOCK]));
+        let hiss: Vec<i16> = (0..BLOCK)
+            .map(|at| if at % 2 == 0 { 1 } else { -1 })
+            .collect();
+        assert!(!silence(&hiss));
+        let mut click = [0i16; BLOCK];
+        click[7] = 400;
+        assert!(!silence(&click));
     }
 
     #[test]

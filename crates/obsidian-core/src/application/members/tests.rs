@@ -485,6 +485,7 @@ fn in_a_voice_channel_the_menu_adds_what_the_call_offers_in_discords_order() {
             Call,
             AddNote,
             AddNickname,
+            UserVolume,
             LocalMute,
             SoundboardMute,
             ServerNickname,

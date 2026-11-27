@@ -499,6 +499,7 @@ pub(crate) async fn call(
         // Other applications lowered while someone speaks, and until when.
         let mut attenuation = 0.0f32;
         let mut attenuated_until: Option<std::time::Instant> = None;
+        let mut ducked_until: Option<std::time::Instant> = None;
         let mut volumes = crate::volume::changes();
         // The voice connection dropped, and the call ends when `lost` comes
         // unless Discord says it moved the call meanwhile.
@@ -570,9 +571,11 @@ pub(crate) async fn call(
                 state.warning = None;
                 snapshots.send_replace(state.clone());
             }
-            // Discord's No Audio Detected Warning.
+            // Discord's No Audio Detected Warning, which it only gives in
+            // voice activity mode.
             let silent = crate::noise::silence_warning()
                 && !state.muted
+                && !crate::push_to_talk::on()
                 && capture.as_ref().is_some_and(Capture::silent);
             let warned = state.warning.as_deref() == Some(NO_INPUT);
             if silent && state.warning.is_none() {
@@ -584,6 +587,14 @@ pub(crate) async fn call(
             }
             // Discord's Global Attenuation, held a moment past the last word.
             let others = !state.deafened && !hearing.speaking().is_empty();
+            // Discord's Stream Attenuation: the streams watched go down while
+            // people talk, and back up a moment after the last word.
+            if others && crate::volume::stream_attenuation() {
+                ducked_until = Some(std::time::Instant::now() + ATTENUATION_HOLD);
+            }
+            crate::volume::duck_streams(
+                ducked_until.is_some_and(|until| until > std::time::Instant::now()),
+            );
             let wanted = crate::noise::attenuation(talking, others);
             if wanted > 0.0 {
                 attenuated_until = Some(std::time::Instant::now() + ATTENUATION_HOLD);
@@ -1140,6 +1151,7 @@ pub(crate) async fn call(
     }
     Watch::stop_where(&mut watches, discord, state, |_| true);
     crate::audio_io::attenuate(0.0);
+    crate::volume::duck_streams(false);
     state.phase = Phase::Leaving;
     snapshots.send_replace(state.clone());
     drop(ringback);

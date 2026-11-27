@@ -68,6 +68,8 @@ pub enum MenuChoice {
     /// Give the server to them, from Members in its settings.
     TransferOwnership,
     // A member's in a voice channel, as its menu there offers them.
+    /// How loud someone plays for this account, as Discord's slider.
+    UserVolume,
     /// Mute someone for this account alone, as a box to tick.
     LocalMute,
     /// Mute the soundboard sounds someone plays, for this account alone,

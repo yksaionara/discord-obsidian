@@ -100,10 +100,11 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
     } else {
         app.menu_choices(id)
     };
-    // Discord's menus have an icon on Copy ID alone; a person's also take its
-    // order. A call's and a thread's keep theirs.
-    let plain = thread.is_none() && in_voice.is_none();
-    if plain && person {
+    // Discord's menus have an icon on Copy ID alone, someone's in a call
+    // too; a person's elsewhere also take its order. A call's keep theirs,
+    // and a thread's its icons.
+    let plain = thread.is_none();
+    if plain && person && in_voice.is_none() {
         discord_order(&mut choices);
     }
     let id = match (in_voice, thread) {
@@ -147,6 +148,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 MenuChoice::Kick => (format!("Kick {}", name()), &icons.kick),
                 MenuChoice::Ban => (format!("Ban {}", name()), &icons.ban),
                 MenuChoice::Invite if server => ("Invite to server".into(), &icons.befriend),
+                MenuChoice::CopyId if person => ("Copy User ID".into(), &icons.id),
                 MenuChoice::CreateChannel if server => ("Create channel".into(), &icons.create),
                 MenuChoice::CreateChannel if voice => {
                     ("Create voice channel".into(), &icons.create)
@@ -162,6 +164,20 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
             // account stands with someone, then notifications, roles,
             // copying, and moderation; a channel's management, then deleting it.
             let starts = match choice {
+                // In a call, Discord's menu keeps someone's mutes with
+                // their nickname and how this account stands with them.
+                MenuChoice::ServerNickname
+                | MenuChoice::Apps
+                | MenuChoice::InviteToServer
+                | MenuChoice::Unfriend
+                | MenuChoice::Ignore
+                | MenuChoice::Unignore
+                | MenuChoice::Block
+                | MenuChoice::Unblock
+                    if in_voice.is_some() =>
+                {
+                    8
+                }
                 MenuChoice::InviteToServer
                 | MenuChoice::AddFriend
                 | MenuChoice::AcceptFriend
@@ -195,6 +211,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::Roles
                 | MenuChoice::MoveTo => 4,
                 MenuChoice::MoveUp | MenuChoice::MoveDown => 9,
+                MenuChoice::UserVolume => 10,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
                 | MenuChoice::SelfMute
@@ -373,17 +390,17 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::MoveUp => ("Move up", &icons.move_up),
         MenuChoice::MoveDown => ("Move down", &icons.move_down),
         MenuChoice::Unpin => ("Unpin", &icons.unpin),
-        MenuChoice::Call if in_call => ("Join call", &icons.call),
-        MenuChoice::Call => ("Start call", &icons.call),
-        MenuChoice::AddNote => ("Add note", &icons.note),
-        MenuChoice::AddNickname => ("Add friend nickname", &icons.nickname),
-        MenuChoice::EditNickname => ("Change friend nickname", &icons.nickname),
+        MenuChoice::Call if in_call => ("Join Call", &icons.call),
+        MenuChoice::Call => ("Start a Call", &icons.call),
+        MenuChoice::AddNote => ("Add Note", &icons.note),
+        MenuChoice::AddNickname => ("Add Friend Nickname", &icons.nickname),
+        MenuChoice::EditNickname => ("Change Friend Nickname", &icons.nickname),
         MenuChoice::CloseDm => ("Close DM", &icons.cancel),
         MenuChoice::LeaveGroup => ("Leave group", &icons.leave),
-        MenuChoice::InviteToServer => ("Invite to server", &icons.befriend),
-        MenuChoice::Unfriend => ("Remove friend", &icons.unfriend),
+        MenuChoice::InviteToServer => ("Invite to Server", &icons.befriend),
+        MenuChoice::Unfriend => ("Remove Friend", &icons.unfriend),
         MenuChoice::Ignore => ("Ignore", &icons.ignore),
-        MenuChoice::Unignore => ("Stop ignoring", &icons.ignore),
+        MenuChoice::Unignore => ("Stop Ignoring", &icons.ignore),
         MenuChoice::Block => ("Block", &icons.block),
         MenuChoice::Unblock => ("Unblock", &icons.block),
         MenuChoice::Mute => ("Mute", &icons.mute),
@@ -391,7 +408,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::CopyLink => ("Copy link", &icons.copy),
         MenuChoice::CopyId => ("Copy ID", &icons.id),
         MenuChoice::Mention => ("Mention", &icons.mention),
-        MenuChoice::ServerNickname => ("Change nickname", &icons.rename),
+        MenuChoice::ServerNickname => ("Change Nickname", &icons.rename),
         MenuChoice::Roles => ("Roles", &icons.roles),
         MenuChoice::Apps => ("Apps", &icons.apps),
         MenuChoice::RemoveTimeout => ("Remove timeout", &icons.timeout),
@@ -403,8 +420,10 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::SoundboardMute => ("Mute Soundboard", &icons.soundboard),
         MenuChoice::SelfDeafen => ("Deafen", &icons.deafen),
         MenuChoice::MoveTo => ("Move to", &icons.move_to),
-        MenuChoice::ServerMute => ("Server mute", &icons.mic_off),
-        MenuChoice::ServerDeafen => ("Server deafen", &icons.deafen),
+        MenuChoice::ServerMute => ("Server Mute", &icons.mic_off),
+        MenuChoice::ServerDeafen => ("Server Deafen", &icons.deafen),
+        // Drawn as Discord's slider; see MenuRow.
+        MenuChoice::UserVolume => ("User Volume", &icons.mute),
         MenuChoice::Disconnect => ("Disconnect", &icons.disconnect),
         // Notify::dress names these.
         MenuChoice::ChannelMute => ("Mute", &icons.mute),
@@ -523,6 +542,10 @@ const INVITE_TO: &str = "invite-to:";
 /// How someone's menu in a voice channel names its target: this, the
 /// channel's room id, `/`, and their id, which has no `/`.
 const IN_VOICE: &str = "in-voice:";
+
+/// The id of the row a menu draws as Discord's User Volume slider, as
+/// `ui/controls.slint`'s MenuRows knows it.
+const USER_VOLUME: &str = "user-volume";
 
 /// The voice channel and the person a voice channel's menu is about.
 fn voice_target(target: &str) -> Option<(&str, &str)> {
@@ -1058,6 +1081,8 @@ pub(super) fn choose(
         MenuChoice::Disconnect => voice(MemberChange::Move(None)),
         // Notify's choices, above.
         MenuChoice::ChannelMute | MenuChoice::ChannelNotifications => None,
+        // The slider sets it as it moves.
+        MenuChoice::UserVolume => None,
         MenuChoice::Invite => Some(Action::OpenInvite(target)),
         MenuChoice::PinChannel | MenuChoice::UnpinChannel => Some(Action::PinChannel {
             room: target,
@@ -1161,7 +1186,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 68] = [
+const CHOICES: [MenuChoice; 69] = [
     MenuChoice::MarkRead,
     MenuChoice::MoveUp,
     MenuChoice::MoveDown,
@@ -1230,6 +1255,7 @@ const CHOICES: [MenuChoice; 68] = [
     MenuChoice::ServerMute,
     MenuChoice::ServerDeafen,
     MenuChoice::Disconnect,
+    MenuChoice::UserVolume,
 ];
 
 fn choice_id(choice: MenuChoice) -> &'static str {
@@ -1278,6 +1304,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::ServerNotifications => "server-notifications",
         MenuChoice::HideMuted => "hide-muted",
         MenuChoice::Invite => "invite",
+        MenuChoice::UserVolume => USER_VOLUME,
         MenuChoice::PinChannel => "pin-channel",
         MenuChoice::UnpinChannel => "unpin-channel",
         MenuChoice::AddToChannelList => "add-to-channel-list",

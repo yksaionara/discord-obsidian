@@ -41,10 +41,10 @@ import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "obsidian/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, MenuRows, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow, WatchedStream } from "voice.slint";
+import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, CallMicMenu, CallCameraMenu, CallMoreMenu, StreamMenu, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow, WatchedStream } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar, CommandRow, CommandChip, CommandBar, CommandList, CommandOptions } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, SendingIndicator, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoiceRecorder, VoiceRecorderBar, SelectMenus, SelectMenuPopup, Polls, Logged } from "messages.slint";
+import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoiceRecorder, VoiceRecorderBar, SelectMenus, SelectMenuPopup, Polls, Logged } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -885,6 +885,8 @@ export component ObsidianWindow inherits Window {
     in property <[int]> stream-tiles;
     /// The call's tile shown large, by its place in the grid; -1 for none.
     in property <int> call-focus: -1;
+    /// The call's channel takes invites from this account.
+    in property <bool> voice-invite;
     /// The large tile fills the screen, over the whole window.
     property <bool> stage-full;
     changed call-focus => { if root.call-focus < 0 { root.stage-full = false; } }
@@ -1520,7 +1522,6 @@ export component ObsidianWindow inherits Window {
         if person.person == "" { return; }
         root.header-menu = false;
         root.anchor(x, y, 0px, 0px, true);
-        root.voice-menu-volume = !person.local;
         root.volume-person = person.person;
         root.volume-name = person.name;
         root.volume-live = person.live;
@@ -1531,7 +1532,19 @@ export component ObsidianWindow inherits Window {
         root.menu-target = "in-voice:" + room + "/" + person.person;
         root.menu-person = true;
         root.prepare-menu(root.menu-target, true);
+        // A server's menu has Discord's User Volume among its rows; a DM's
+        // or a Matrix call's has only the volumes.
+        root.voice-menu-volume = !person.local && !root.voice-menu-rows;
         if root.voice-menu-volume || root.voice-menu-rows { voice-menu.show(); }
+    }
+    // A watched stream's menu, from a right click on it.
+    property <PersonRow> stream-menu-person;
+    in-out property <bool> stream-attenuation: true;
+    function open-stream-menu(person: PersonRow, x: length, y: length) {
+        root.anchor(x, y, 0px, 0px, true);
+        root.stream-menu-person = person;
+        root.stream-volume = root.volume-of(person.person, true);
+        stream-menu.show();
     }
     /// Stop watching this participant's stream, or every stream for "".
     callback stop-watching(string);
@@ -1861,11 +1874,24 @@ export component ObsidianWindow inherits Window {
     // The device menus open above the toggle whose caret was clicked.
     property <length> menu-x;
     property <length> menu-y;
-    function open-settings() { input-menu.close(); output-menu.close(); root.settings-section = 1; root.settings-open = true; root.refresh-devices(); }
+    function open-settings() {
+        input-menu.close(); output-menu.close(); call-mic-menu.close(); call-camera-menu.close(); call-more-menu.close();
+        root.settings-section = 1; root.settings-open = true; root.refresh-devices();
+    }
+    // The call bar's menus open above the button whose caret was clicked.
+    function open-call-menu(which: int, x: length, y: length) {
+        root.menu-x = x; root.menu-y = y;
+        root.refresh-devices();
+        if which == 0 { call-mic-menu.show(); }
+        else if which == 1 { call-camera-menu.show(); }
+        else { call-more-menu.show(); }
+    }
     property <bool> input-open: input-menu.is-open;
+    // Either microphone menu shows the level.
+    property <bool> level-shown: input-menu.is-open || call-mic-menu.is-open;
     property <bool> output-open: output-menu.is-open;
-    changed input-open => { root.input-level = 0; root.meter-note = ""; root.metering(root.input-open); }
-    Timer { interval: 50ms; running: root.input-open; triggered => { root.meter-tick(); } }
+    changed level-shown => { root.input-level = 0; root.meter-note = ""; root.metering(root.level-shown); }
+    Timer { interval: 50ms; running: root.level-shown; triggered => { root.meter-tick(); } }
     // The Discord gate's meter runs while voice settings show it.
     property <bool> gate-metered: root.settings-open && root.settings-section == 1 && root.discord-linked && root.input-mode == 0;
     property <bool> mic-test-running: root.settings-open && root.settings-section == 1 && root.discord-linked && root.mic-testing;
@@ -1905,6 +1931,50 @@ export component ObsidianWindow inherits Window {
             heading: "OUTPUT DEVICE"; devices: root.speakers; current: root.speaker-index;
             empty: "No speakers found. Connect one, then reopen this menu.";
             select(index) => { root.select-speaker(index); }
+            settings => { root.open-settings(); }
+        }
+    }
+    call-mic-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.menu-x));
+        y: max(8px, root.menu-y - self.height - 8px);
+        width: call-mic.content-width; height: call-mic.content-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        call-mic := CallMicMenu {
+            microphones: root.microphones; microphone-index: root.microphone-index;
+            speakers: root.speakers; speaker-index: root.speaker-index;
+            profiles: root.discord-linked; input-profile: root.input-profile;
+            microphone-volume <=> root.microphone-volume; speaker-volume <=> root.speaker-volume;
+            input-level: root.input-level; deafened: root.deafened;
+            select-microphone(index) => { root.select-microphone(index); }
+            select-speaker(index) => { root.select-speaker(index); }
+            choose-profile(index) => { root.input-profile = index; root.preferences-changed(); }
+            volumes-changed => { root.call-volumes-changed(); }
+            volumes-committed => { root.preferences-changed(); }
+            toggle-deafen => { root.toggle-deafen(); }
+            settings => { root.open-settings(); }
+        }
+    }
+    call-camera-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.menu-x));
+        y: max(8px, root.menu-y - self.height - 8px);
+        width: call-camera.content-width; height: call-camera.content-height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        call-camera := CallCameraMenu {
+            cameras: root.cameras; camera-index: root.camera-index;
+            select-camera(index) => { root.select-camera(index); }
+            preview => { root.open-settings(); root.camera-testing = true; }
+            settings => { root.open-settings(); }
+        }
+    }
+    call-more-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.menu-x));
+        y: max(8px, root.menu-y - self.height - 8px);
+        width: call-more.width; height: call-more.height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        call-more := CallMoreMenu {
+            can-invite: root.voice-invite; grid-view: root.call-focus < 0;
+            invite => { call-more-menu.close(); root.choose-menu(root.voice-channel, false, "invite"); }
+            toggle-grid => { root.focus-tile(root.call-focus < 0 ? 0 : -1); }
             settings => { root.open-settings(); }
         }
     }
@@ -2435,6 +2505,8 @@ export component ObsidianWindow inherits Window {
             x: 0px; y: voice-menu.head;
             narrowest: 260px;
             rows: root.menu-rows; submenus: root.menu-submenus;
+            slider-value <=> root.voice-volume;
+            slid(volume, last) => { root.volume-changed(root.volume-person, false, volume, last); }
             room: root.width - 8px - root.anchor-x; tallest: root.height - 16px - voice-menu.head;
             room-below: root.height - 8px - voice-menu.top - voice-menu.head;
             chose(id) => {
@@ -2444,6 +2516,20 @@ export component ObsidianWindow inherits Window {
             }
             toggled(id) => { root.choose-menu(root.menu-target, root.menu-person, id); }
             close => { voice-menu.close(); }
+        }
+    }
+    stream-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
+        y: root.anchor-y + self.height <= root.height - 8px ? root.anchor-y : max(8px, root.anchor-y - self.height);
+        width: stream-menu-content.width; height: stream-menu-content.height;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        stream-menu-content := StreamMenu {
+            stream-volume <=> root.stream-volume; attenuation: root.stream-attenuation;
+            stop-watching => { stream-menu.close(); root.stop-watching(root.stream-menu-person.id); }
+            mute(muted) => { root.mute-stream(root.stream-menu-person.person, muted); }
+            volume-changed(volume, last) => { root.volume-changed(root.stream-menu-person.person, true, volume, last); }
+            toggle-attenuation => { root.stream-attenuation = !root.stream-attenuation; root.preferences-changed(); }
+            more => { stream-menu.close(); root.open-voice-menu(root.voice-channel, root.stream-menu-person, root.anchor-x, root.anchor-y); }
         }
     }
     // From a button, the menu opens left of it, level with its top, or right of
@@ -3246,6 +3332,7 @@ export component ObsidianWindow inherits Window {
                                     mute-stream(person, muted) => { root.mute-stream(person, muted); }
                                     stop-sharing => { if root.sharing { root.toggle-share(); } }
                                     open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
+                                    open-stream-menu(person, x, y) => { root.open-stream-menu(person, x, y); }
                                     tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
                                         root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
                                     }
@@ -3255,6 +3342,11 @@ export component ObsidianWindow inherits Window {
                                     can-share: root.can-share; sharing: root.sharing;
                                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                                     can-soundboard: root.can-soundboard;
+                                    mic-menu-open: call-mic-menu.is-open; camera-menu-open: call-camera-menu.is-open;
+                                    share-menu-open: live-menu.is-open; more-menu-open: call-more-menu.is-open;
+                                    open-mic-menu(x, y) => { root.open-call-menu(0, x, y); }
+                                    open-camera-menu(x, y) => { root.open-call-menu(1, x, y); }
+                                    open-more-menu(x, y) => { root.open-call-menu(2, x, y); }
                                     toggle-camera => { root.toggle-camera(); }
                                     toggle-mute => { root.toggle-mute(); }
                                     toggle-deafen => { root.toggle-deafen(); }
@@ -3473,11 +3565,6 @@ export component ObsidianWindow inherits Window {
                                                         root.anchor(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, 0px, 0px, true);
                                                         root.open-menu(message);
                                                     }
-                                                }
-                                                // In the last row's space below it, as the text starts,
-                                                // so sending doesn't change the row's height.
-                                                if message.delivery == "Sending..." && index == root.messages.length - 1: SendingIndicator {
-                                                    x: 72px; y: parent.height - (root.detached ? 52px : 20px) + 1px;
                                                 }
                                                 col := VerticalLayout {
                                                     padding-top: message.day != "" || message.unread-start ? 12px : message.first ? ClientStyle.message-group-gap : 1px;
@@ -4152,6 +4239,7 @@ export component ObsidianWindow inherits Window {
                 mute-stream(person, muted) => { root.mute-stream(person, muted); }
                 stop-sharing => { if root.sharing { root.toggle-share(); } }
                 open-volume(person, x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
+                open-stream-menu(person, x, y) => { root.open-stream-menu(person, x, y); }
                 tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height) => {
                     root.call-tiles(columns, width, height, gap, top, scrolled, shown, focused, focus-width, focus-height);
                 }

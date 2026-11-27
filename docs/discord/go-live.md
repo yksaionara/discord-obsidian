@@ -25,8 +25,17 @@ has a second tile for the stream. A stream starts large as watching it
 begins; a click on another watched stream's tile shows that one large, and
 when the large one stops, another watched one takes its place. A watched
 stream's tile has its sound's mute at its foot, shown on hover or while
-muted, and the large one full screen beside it; right-clicking someone whose
-stream is watched adds Stop Watching and Mute above the stream volume. The
+muted, and the large one full screen beside it. Right-clicking a watched
+stream opens Discord's stream menu: Stop Watching, the stream's Mute and
+volume, Stream Attenuation, and More Options, which opens its streamer's
+menu. Stream Attenuation, on by default as in Discord, plays every watched
+stream 12 dB lower, at Discord's default strength of 50, while anyone in
+the call talks, and back up 600 ms after the last word; Discord's client
+compresses the stream under the voices instead. The wheel zooms the large
+stream toward the pointer, up to 8x, 15% a notch, gliding there over a
+quarter second as Discord's does; a drag moves it at once. While this
+account streams or watches a stream, Discord Obsidian keeps the screen on
+and the computer awake (`SetThreadExecutionState` on Windows). The
 corner while the call is off screen, and the viewers shown over a stream,
 follow the large stream, or else the first watched. A stream stays watched
 in its tile after a click beside it. While the call is off

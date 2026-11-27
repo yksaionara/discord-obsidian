@@ -2044,19 +2044,19 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Profile",
             "Mention",
             "Message",
-            "Start call",
-            "Add note",
-            "Add friend nickname",
-            "Remove friend",
+            "Start a Call",
+            "Add Note",
+            "Add Friend Nickname",
+            "Remove Friend",
             "Ignore",
             "Block",
-            "Change nickname",
+            "Change Nickname",
             "Apps",
             "Roles",
             "Time out Dave",
             "Kick Dave",
             "Ban Dave",
-            "Copy ID",
+            "Copy User ID",
         ]
     );
     let marked = |pick: fn(&MenuRow) -> bool| -> Vec<&str> {
@@ -2068,16 +2068,16 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     assert_eq!(
         marked(|row| row.separated),
         [
-            "Remove friend",
-            "Change nickname",
+            "Remove Friend",
+            "Change Nickname",
             "Time out Dave",
-            "Copy ID"
+            "Copy User ID"
         ]
     );
     assert_eq!(
         marked(|row| row.danger),
         [
-            "Remove friend",
+            "Remove Friend",
             "Block",
             "Time out Dave",
             "Kick Dave",
@@ -2225,9 +2225,9 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
     let rows: Vec<MenuRow> = window.get_menu_rows().iter().collect();
     let at = rows
         .iter()
-        .position(|row| row.text == "Invite to server")
+        .position(|row| row.text == "Invite to Server")
         .unwrap();
-    assert_eq!(rows[at + 1].text, "Remove friend");
+    assert_eq!(rows[at + 1].text, "Remove Friend");
     assert!(
         rows[at].separated,
         "it starts the group of how she stands with them"
@@ -9151,6 +9151,78 @@ fn review_settings_snapshots() {
     window.set_voice_advanced(true);
     save("voice-advanced.png", 1280., 3200.);
     window.set_settings_open(false);
+    // A call, with the call bar's menus, as Discord's.
+    window.set_workspace(true);
+    window.set_room_selected(true);
+    window.set_voice_room(true);
+    window.set_voice_chat(false);
+    window.set_voice_here(true);
+    window.set_voice_ready(true);
+    window.set_can_film(true);
+    window.set_can_share(true);
+    window.set_sharing(true);
+    window.set_can_soundboard(true);
+    window.set_cameras(ModelRc::new(VecModel::from(vec![SharedString::from(
+        "OBS Virtual Camera",
+    )])));
+    window.set_participants(ModelRc::new(VecModel::from(vec![
+        PersonRow {
+            id: "1".into(),
+            name: "hiro".into(),
+            initial: "H".into(),
+            local: true,
+            connected: true,
+            ..Default::default()
+        },
+        PersonRow {
+            id: "2".into(),
+            name: "saaaiiiiii".into(),
+            initial: "S".into(),
+            connected: true,
+            ..Default::default()
+        },
+    ])));
+    save("call.png", 1600., 900.);
+    // The carets and "...", where this window's call bar puts them.
+    for (x, name) in [
+        (851., "call-mic.png"),
+        (921., "call-camera.png"),
+        (1087., "call-more.png"),
+    ] {
+        let position = slint::LogicalPosition::new(x, 860.);
+        for event in [
+            slint::platform::WindowEvent::PointerMoved { position },
+            slint::platform::WindowEvent::PointerPressed {
+                position,
+                button: slint::platform::PointerEventButton::Left,
+            },
+            slint::platform::WindowEvent::PointerReleased {
+                position,
+                button: slint::platform::PointerEventButton::Left,
+            },
+        ] {
+            window.window().dispatch_event(event);
+        }
+        save(name, 1600., 900.);
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::KeyPressed {
+                text: slint::platform::Key::Escape.into(),
+            });
+        let away = slint::LogicalPosition::new(5., 5.);
+        for event in [
+            slint::platform::WindowEvent::PointerPressed {
+                position: away,
+                button: slint::platform::PointerEventButton::Left,
+            },
+            slint::platform::WindowEvent::PointerReleased {
+                position: away,
+                button: slint::platform::PointerEventButton::Left,
+            },
+        ] {
+            window.window().dispatch_event(event);
+        }
+    }
     // The main window, on the local preview's sample server.
     let runtime = tempfile::tempdir().unwrap();
     let adapter = Adapter::new(

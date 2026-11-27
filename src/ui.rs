@@ -1444,6 +1444,9 @@ struct VoiceSettings {
     attenuate_self: bool,
     attenuate_others: bool,
     quality_of_service: bool,
+    /// Discord's Stream Attenuation, from a stream's menu: streams play
+    /// lower while people talk.
+    stream_attenuation: bool,
 }
 
 impl Default for VoiceSettings {
@@ -1462,6 +1465,7 @@ impl Default for VoiceSettings {
             attenuate_self: false,
             attenuate_others: true,
             quality_of_service: false,
+            stream_attenuation: true,
         }
     }
 }
@@ -1480,6 +1484,10 @@ impl VoiceSettings {
         noise::set_switch_warning(self.switch_warning);
         noise::set_attenuation(self.attenuation, self.attenuate_self, self.attenuate_others);
         noise::set_quality_of_service(self.quality_of_service);
+        obsidian_core::volume::set_stream_attenuation(
+            self.stream_attenuation,
+            STREAM_ATTENUATION_STRENGTH,
+        );
         // Matrix calls even the voice out with Discord Obsidian's leveling,
         // as Discord's gain control does.
         obsidian_core::leveling::set_enabled(noise::processing().gain_control);
@@ -1499,6 +1507,7 @@ impl VoiceSettings {
         window.set_attenuate_self(self.attenuate_self);
         window.set_attenuate_others(self.attenuate_others);
         window.set_quality_of_service(self.quality_of_service);
+        window.set_stream_attenuation(self.stream_attenuation);
     }
 
     fn chosen(window: &ObsidianWindow) -> Self {
@@ -1516,9 +1525,13 @@ impl VoiceSettings {
             attenuate_self: window.get_attenuate_self(),
             attenuate_others: window.get_attenuate_others(),
             quality_of_service: window.get_quality_of_service(),
+            stream_attenuation: window.get_stream_attenuation(),
         }
     }
 }
+
+/// Discord's Stream Attenuation strength, as its client starts.
+const STREAM_ATTENUATION_STRENGTH: u32 = 50;
 
 /// Custom's suppressor as the dropdown shows it: RNNoise, which it no
 /// longer offers, shows as Standard.

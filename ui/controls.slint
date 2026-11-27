@@ -891,6 +891,91 @@ export component SpoilerCover inherits Rectangle {
     }
 }
 
+// How loud something sounds, from 0% to `maximum`: a marigold fill up to the
+// value. Above 100%, as Discord allows for people, a mark shows 100%, and a
+// drag snaps to it nearby. Dragging reports each step through `changed` and the
+// last through `committed`; the arrow keys move 5% at a time. Other amounts
+// set `shown`, `step` and `full-mark`.
+export component VolumeSlider inherits Rectangle {
+    in property <string> label;
+    in-out property <int> value: 100;
+    in property <int> maximum: 200;
+    /// The value as the slider says it.
+    in property <string> shown: root.value + "%";
+    in property <int> step: 5;
+    /// Marks 100% and snaps to it.
+    in property <bool> full-mark: root.maximum > 100;
+    callback changed(int);
+    callback committed(int);
+    height: column.preferred-height;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: root.shown;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: root.step;
+    accessible-action-increment => { root.move(root.step); }
+    accessible-action-decrement => { root.move(-root.step); }
+    forward-focus: focus;
+    function set(value: int) {
+        let clamped = max(0, min(root.maximum, value));
+        if clamped != root.value {
+            root.value = clamped;
+            root.changed(clamped);
+        }
+    }
+    function move(by: int) {
+        root.set(root.value + by);
+        root.committed(root.value);
+    }
+    function point(x: length) {
+        let value = round(max(0, min(1, x / track.width)) * root.maximum);
+        root.set(root.full-mark && abs(value - 100) <= 4 ? 100 : value);
+    }
+    column := VerticalLayout {
+        spacing: 6px;
+        if root.label != "" || root.shown != "": HorizontalLayout {
+            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
+            Text { text: root.shown; color: Theme.text; font-size: 13px; font-weight: 600; }
+        }
+        track := Rectangle {
+            height: 18px;
+            Rectangle { y: (parent.height - self.height) / 2; height: 4px; border-radius: 2px; background: Theme.field; }
+            Rectangle {
+                x: 0; y: (parent.height - self.height) / 2; width: parent.width * min(1, root.value / root.maximum); height: 4px;
+                border-radius: 2px; background: Theme.accent;
+            }
+            if root.full-mark: Rectangle { x: parent.width * 100 / root.maximum - 1px; y: (parent.height - self.height) / 2; width: 2px; height: 10px; background: Theme.secondary; }
+            Rectangle {
+                x: parent.width * min(1, root.value / root.maximum) - self.width / 2; y: (parent.height - self.height) / 2;
+                width: 14px; height: 14px; border-radius: 7px; background: Theme.text;
+                border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+            }
+            touch := TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                        focus.focus();
+                        root.point(self.mouse-x);
+                    }
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                        root.committed(root.value);
+                    }
+                }
+                moved => { if self.pressed { root.point(self.mouse-x); } }
+            }
+        }
+    }
+    focus := FocusScope {
+        width: 0; height: 0;
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.DownArrow { root.move(-root.step); return accept; }
+            if event.text == Key.RightArrow || event.text == Key.UpArrow { root.move(root.step); return accept; }
+            return reject;
+        }
+    }
+}
+
 // One choice in a menu, with a check beside the current one. It may have a
 // second line under its text, a box to tick, or an arrow to its submenu.
 export component MenuItem inherits Rectangle {
@@ -919,6 +1004,8 @@ export component MenuItem inherits Rectangle {
     in property <image> trailing;
     /// Drawn as the pointer's choice; a ContextMenu moves it with the keys too.
     in property <bool> highlighted: pointer.has-hover;
+    /// The pointer is on it.
+    out property <bool> has-hover: pointer.has-hover;
     callback clicked;
     callback hovered;
     property <bool> current: root.checked && !root.checkbox;
@@ -1030,6 +1117,8 @@ export struct MenuRow {
     initial: string,
     /// An icon at its end: the send arrow on an app's command.
     trailing: image,
+    // A row whose id is "user-volume" is drawn as Discord's User Volume
+    // slider, set from the ContextMenu's `slider-value`.
 }
 
 // The rows of a ContextMenu or of a submenu.
@@ -1040,6 +1129,10 @@ export component MenuRows inherits VerticalLayout {
     in property <int> current;
     /// The row whose submenu is open, drawn as chosen while the pointer is away.
     in property <int> holding: -1;
+    /// The User Volume row's value, as a percentage up to 200.
+    in-out property <int> slider-value: 100;
+    /// It moved, and whether it was the last of a drag.
+    callback slid(int, bool);
     callback hovered(int);
     callback clicked(int);
     /// A row became the current one: which, how far down the window, and
@@ -1052,7 +1145,17 @@ export component MenuRows inherits VerticalLayout {
             height: 9px;
             Rectangle { height: 1px; background: Theme.line; }
         }
-        MenuItem {
+        if row.id == "user-volume": VerticalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 4px; spacing: 6px;
+            Text { text: row.text; color: Theme.text; font-size: 14px; font-weight: 500; }
+            VolumeSlider {
+                label: ""; shown: ""; maximum: 200; full-mark: false;
+                value <=> root.slider-value;
+                changed(volume) => { root.slid(volume, false); }
+                committed(volume) => { root.slid(volume, true); }
+            }
+        }
+        if row.id != "user-volume": MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
             checkbox: row.checkbox; checked: row.checked; disabled: row.disabled; plain: row.plain;
             picture: row.picture; initial: row.initial; trailing: row.trailing;
@@ -1093,6 +1196,9 @@ export component ContextMenu inherits Rectangle {
     // A menu and a submenu are as wide as their rows, within these.
     in property <length> narrowest: 255px;
     property <length> widest: 320px;
+    /// The User Volume row's value; see MenuRows.
+    in-out property <int> slider-value: 100;
+    callback slid(int, bool);
     out property <length> menu-width: max(root.narrowest, min(root.widest, main.preferred-width));
     property <length> submenu-width: max(root.narrowest, min(root.widest, sub.preferred-width));
     out property <bool> has-submenus: root.submenus.length > 0;
@@ -1199,6 +1305,8 @@ export component ContextMenu inherits Rectangle {
             main := MenuRows {
                 width: root.menu-width;
                 rows: root.rows; submenus: root.submenus;
+                slider-value <=> root.slider-value;
+                slid(volume, last) => { root.slid(volume, last); }
                 current: root.sub-current >= 0 ? -1 : root.current;
                 holding: root.sub-open ? root.sub-row : -1;
                 hovered(index) => {
@@ -1286,91 +1394,6 @@ export component DeviceMenu inherits Rectangle {
         @children
         Rectangle { height: 1px; background: Theme.line; }
         MenuItem { text: "Voice settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
-    }
-}
-
-// How loud something sounds, from 0% to `maximum`: a marigold fill up to the
-// value. Above 100%, as Discord allows for people, a mark shows 100%, and a
-// drag snaps to it nearby. Dragging reports each step through `changed` and the
-// last through `committed`; the arrow keys move 5% at a time. Other amounts
-// set `shown`, `step` and `full-mark`.
-export component VolumeSlider inherits Rectangle {
-    in property <string> label;
-    in-out property <int> value: 100;
-    in property <int> maximum: 200;
-    /// The value as the slider says it.
-    in property <string> shown: root.value + "%";
-    in property <int> step: 5;
-    /// Marks 100% and snaps to it.
-    in property <bool> full-mark: root.maximum > 100;
-    callback changed(int);
-    callback committed(int);
-    height: column.preferred-height;
-    accessible-role: slider;
-    accessible-label: root.label;
-    accessible-value: root.shown;
-    accessible-value-minimum: 0;
-    accessible-value-maximum: root.maximum;
-    accessible-value-step: root.step;
-    accessible-action-increment => { root.move(root.step); }
-    accessible-action-decrement => { root.move(-root.step); }
-    forward-focus: focus;
-    function set(value: int) {
-        let clamped = max(0, min(root.maximum, value));
-        if clamped != root.value {
-            root.value = clamped;
-            root.changed(clamped);
-        }
-    }
-    function move(by: int) {
-        root.set(root.value + by);
-        root.committed(root.value);
-    }
-    function point(x: length) {
-        let value = round(max(0, min(1, x / track.width)) * root.maximum);
-        root.set(root.full-mark && abs(value - 100) <= 4 ? 100 : value);
-    }
-    column := VerticalLayout {
-        spacing: 6px;
-        HorizontalLayout {
-            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
-            Text { text: root.shown; color: Theme.text; font-size: 13px; font-weight: 600; }
-        }
-        track := Rectangle {
-            height: 18px;
-            Rectangle { y: (parent.height - self.height) / 2; height: 4px; border-radius: 2px; background: Theme.field; }
-            Rectangle {
-                x: 0; y: (parent.height - self.height) / 2; width: parent.width * root.value / root.maximum; height: 4px;
-                border-radius: 2px; background: Theme.accent;
-            }
-            if root.full-mark: Rectangle { x: parent.width * 100 / root.maximum - 1px; y: (parent.height - self.height) / 2; width: 2px; height: 10px; background: Theme.secondary; }
-            Rectangle {
-                x: parent.width * root.value / root.maximum - self.width / 2; y: (parent.height - self.height) / 2;
-                width: 14px; height: 14px; border-radius: 7px; background: Theme.text;
-                border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
-            }
-            touch := TouchArea {
-                mouse-cursor: MouseCursor.pointer;
-                pointer-event(event) => {
-                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                        focus.focus();
-                        root.point(self.mouse-x);
-                    }
-                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
-                        root.committed(root.value);
-                    }
-                }
-                moved => { if self.pressed { root.point(self.mouse-x); } }
-            }
-        }
-    }
-    focus := FocusScope {
-        width: 0; height: 0;
-        key-pressed(event) => {
-            if event.text == Key.LeftArrow || event.text == Key.DownArrow { root.move(-root.step); return accept; }
-            if event.text == Key.RightArrow || event.text == Key.UpArrow { root.move(root.step); return accept; }
-            return reject;
-        }
     }
 }
 
@@ -1498,7 +1521,8 @@ export component SensitivitySlider inherits Rectangle {
             drop-shadow-blur: 3px; drop-shadow-color: #0000004d;
             border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
         }
-        if !root.automatic: TouchArea {
+        sensitivity-touch := TouchArea {
+            enabled: !root.automatic;
             mouse-cursor: MouseCursor.pointer;
             pointer-event(event) => {
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
@@ -1510,6 +1534,18 @@ export component SensitivitySlider inherits Rectangle {
                 }
             }
             moved => { if self.pressed { root.point(self.mouse-x); } }
+        }
+        // Discord's tooltip over the handle, with the threshold, while the
+        // pointer is on the bar or drags it.
+        if !root.automatic && (sensitivity-touch.has-hover || sensitivity-touch.pressed): Rectangle {
+            x: parent.width * track.handle - self.width / 2; y: -self.height - 6px;
+            width: decibel-text.preferred-width + 16px; height: 30px;
+            border-radius: 5px; background: #111214;
+            drop-shadow-blur: 8px; drop-shadow-color: #0000003d;
+            decibel-text := Text {
+                text: root.value + "dB"; color: #f2f3f5; font-size: 14px; font-weight: 600;
+                horizontal-alignment: center; vertical-alignment: center;
+            }
         }
     }
     focus := FocusScope {

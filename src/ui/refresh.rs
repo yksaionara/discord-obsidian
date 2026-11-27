@@ -3801,7 +3801,16 @@ impl Adapter {
                     .as_deref()
                     .is_some_and(|room| Network::of(room) == Network::Discord),
         );
+        window.set_voice_invite(
+            !state.preview
+                && voice.active()
+                && voice.room.as_deref().is_some_and(|room| {
+                    Network::of(room) == Network::Discord
+                        && self.app.menu_choices(room).contains(&MenuChoice::Invite)
+                }),
+        );
         window.set_sharing(voice.sharing.is_some());
+        stay_awake(voice.sharing.is_some() || !voice.watching.is_empty());
         window.set_share_resolution(match voice.quality.resolution {
             voice::Resolution::P480 => 0,
             voice::Resolution::P720 => 1,
@@ -5573,4 +5582,29 @@ fn follow_recording(
         recorder.set_duration(i32::try_from(recorded.duration_ms).unwrap_or(i32::MAX));
     }
     true
+}
+
+/// Keeps the screen on and the computer awake while this account streams or
+/// watches a stream, as Discord's client does, so neither idles into sleep
+/// mid-stream; lets them go once it doesn't. Asks Windows only on a change.
+fn stay_awake(on: bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static AWAKE: AtomicBool = AtomicBool::new(false);
+    if AWAKE.swap(on, Ordering::Relaxed) == on {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Power::{
+            ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
+        };
+        let flags = if on {
+            ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED
+        } else {
+            ES_CONTINUOUS
+        };
+        // SAFETY: takes flags only. The UI thread asks, and lives as long as
+        // the window, which the request lasts with.
+        unsafe { SetThreadExecutionState(flags) };
+    }
 }
