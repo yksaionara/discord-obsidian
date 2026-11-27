@@ -15,9 +15,11 @@ Scope for the beta:
 - DM and group DM calls, both incoming with ringing and outgoing.
 - One connection at a time across Discord Obsidian and Discord. Joining Discord voice asks
   to leave a Discord Obsidian call, and the other way round.
-- The same devices, push-to-talk, voice activation, echo cancellation and
-  voice leveling as Discord Obsidian calls. Noise suppression is DeepFilterNet, or
-  RNNoise, rather than WebRTC's, as described under Microphone below.
+- The same devices and push-to-talk as Discord Obsidian calls, and Discord's
+  Voice settings: its input profiles, noise suppression (DeepFilterNet where
+  Discord runs Krisp, or WebRTC's, its Standard), echo cancellation, gain
+  control, input sensitivity and advanced voice settings, as described under
+  Microphone below.
 
 Clicking a voice channel joins through the same voice dock and one-call rule as
 Matrix voice. Calls start with the microphone on unless Settings turns that
@@ -76,6 +78,13 @@ libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
 
 ## Connection details
+
+The voice panel's status uses Discord's words for its RTC connection's
+states: "RTC Connecting" in yellow while joining or reconnecting, "Voice
+Connected" in green, "Video Connected" while this account's camera or a
+stream of its own is on, and "Disconnected" in red. A stream starting shows
+"Streaming to" the channel at once, as Discord's panel does, and its LIVE tag
+once it is.
 
 As in Discord's voice panel, the dock's status has a signal icon graded by
 the call's connection, and hovering it or the status shows the last ping
@@ -357,13 +366,62 @@ whose sounds are `testing/fixtures`' tones.
 
 ## Microphone
 
-Discord's own client suppresses noise with Krisp, a neural network, and
-WebRTC's suppressor sounded different from it. So Discord Obsidian's Discord microphone
-runs, in 10 ms blocks: WebRTC's echo cancellation and high-pass filter; if
-asked, taking the room's echo out; a noise suppressor, which also tells the
-gate which blocks are speech; WebRTC's gain control on what's left; then
-Discord Obsidian's leveling and the microphone's volume, from
-[Settings](../voice.md#sounds).
+Settings › Voice & Video lays the microphone out as Discord's Voice
+settings do, with its words, and Discord Obsidian runs what each setting
+names as Discord's client does (`obsidian_core::noise::processing`):
+
+- **Input Profile**: Voice Isolation, Studio or Custom, with the values
+  Discord's client sets for each (`e7` in its voice settings store). Voice
+  Isolation is Krisp, echo cancellation, gain control, and the automatic
+  input sensitivity with Krisp's voice activity. Studio, "open mic with no
+  processing", turns all of that off, with the high-pass filter, and opens
+  the gate at -84 dBFS. Custom, Discord's default, shows the settings below.
+- **Automatically Adjust Input Sensitivity**, on unless turned off, or the
+  sensitivity by hand from -100 to 0 dBFS (`input_sensitivity`, -60 unless
+  changed), on Discord's bar: yellow below the handle, green above it, each
+  brighter up to the microphone's level. Automatically, the gate opens 10 dB
+  above the noise it hears between words, from -70 to -40 dBFS: that noise
+  falls to a quieter block within a few blocks and rises 1 dB a second, a
+  fifth of that while the gate is open.
+- **Noise Suppression**: a dropdown in Discord's order. Its first choice is
+  Krisp in Discord's client and DeepFilterNet here, labelled as such, since
+  Krisp is a licensed SDK Discord Obsidian can't carry; "Standard" is WebRTC's
+  suppressor, as Discord's Standard is, running after echo cancellation and
+  before gain control; "None" leaves the noise in. Kept as
+  `noise_suppression`; one from before, `rnnoise`, shows as Standard.
+- **Echo Cancellation**: WebRTC's AEC3, on unless turned off.
+- **Push to Talk**, a switch for the input mode, with its keybind and
+  release delay below it.
+- **Show Advanced Voice Settings** opens the rest: Automatic Gain Control
+  (WebRTC's AGC2, adaptive digital, as LiveKit's processing module sets it
+  up; it also turns Discord Obsidian's leveling on or off for Matrix calls);
+  Advanced Voice Activity (the suppressor's speech estimate decides what the
+  automatic gate sends, as Krisp's does in Discord; off, and with the
+  sensitivity set by hand, the level alone decides); Bypass System Audio
+  Input Processing (WASAPI's raw mode on Windows, past the effects the
+  driver and Windows add, where the device allows it, for microphones
+  opened after); Audio Device Suggestions (a banner naming an audio device
+  that wasn't listed before in this run); No Audio Detected Warning (Discord's
+  words in the voice panel while the microphone has given nothing but
+  silence for 5 s, unmuted); Switch Voice Channel Warning (off, joining
+  another voice channel switches without asking); Global Attenuation (other
+  applications' session volumes go down by that percentage while you speak
+  or others do, as chosen, and come back 600 ms after the last word; Windows
+  only, 0% by default); and Quality Of Service (voice and stream packets on
+  connections made after it go out as qWAVE's voice traffic on Windows, DSCP
+  Expedited Forwarding elsewhere; off by default, as some routers misbehave).
+
+`layout.json` keeps these under `voice`, with Discord's defaults for any
+missing. Every call takes a change at its next block, rebuilding WebRTC's
+modules only when what they run changes.
+
+So the Discord microphone runs, in 10 ms blocks: WebRTC's echo cancellation
+and high-pass filter, as asked; a noise suppressor, which also tells the
+gate which blocks are speech; WebRTC's noise suppression if Standard is
+chosen, and its gain control, as asked; then the microphone's volume, from
+[Settings](../voice.md#sounds). Discord Obsidian's own leveling no longer runs
+on Discord calls: WebRTC's gain control evens the voice out, as in Discord's
+client.
 
 The suppressor is DeepFilterNet 3, through libDF, its Rust implementation on
 tract (crate `deep_filter`; the code and the model's weights are MIT or
@@ -382,20 +440,21 @@ is down, so it runs in full then, and with the key up only its encoder runs,
 whatever the microphone hears.
 
 RNNoise, through `nnnoiseless` (BSD-3-Clause), lets keyboard clicks through,
-and they hold the gate open. Settings → Voice & video → "Noise suppression in
-Discord calls" still chooses it, to compare the two, as does Off, for a quiet
-room: RNNoise then only tells the gate which blocks are speech. Discord Obsidian keeps
-the choice in `layout.json` as `noise_suppression`. A call going on switches
-at its next block, after DeepFilterNet's 0.2 s load if switching to it.
+and they hold the gate open, so the dropdown no longer offers it; it stays
+for comparisons (`OBSIDIAN_SUPPRESSOR=rnnoise` below). With Standard or None,
+RNNoise only tells the gate which blocks are speech. A call going on
+switches at its next block, after DeepFilterNet's 0.2 s load if switching
+to it.
 Muting closes the microphone, but the call's microphone thread,
 `obsidian-discord-in`, waits with the suppressor until the call ends, 39 MiB
 for DeepFilterNet, so unmuting or switching microphones doesn't load it
 again. What it kept from before made no difference: after 30 s of another
 room, the PESQ of what the gate sent moved by at most 0.02.
 
-"Noise suppression strength" limits how far noise is turned down: Full takes
-out all it can, Medium at most 30 dB and Light 20 dB (`noise_strength`, Medium
-unless changed). Full cuts people's laughs: DeepFilterNet takes high-pitched
+DeepFilterNet turns noise down by at most 30 dB, which Settings no longer
+changes, as Discord has no such setting; `noise::set_strength` offers Full,
+Medium (that 30 dB) and Light (20 dB) to tests and comparisons. Full cuts
+people's laughs: DeepFilterNet takes high-pitched
 giggles (a pitch of 440-760 Hz) for noise, with its SNR estimate at -15 dB as
 for typing, and puts out silence for them. The lighter limits let a few more
 chair creaks open the gate. libDF's threshold for silencing a block, a pitch
@@ -407,9 +466,10 @@ mix of the input it lines up with, a block earlier. Below 20 dB, typing that
 DeepFilterNet left got past the gate's level after gain control, so there's no
 lighter step.
 
-The voice gate opens on three blocks in a row that the suppressor takes for
-speech and that are louder than the input sensitivity, -60 dBFS unless changed,
-or that are 18 dB louder still. While open, each such block holds it another
+The voice gate opens on three blocks in a row that are louder than the
+input sensitivity and, with the automatic sensitivity and Advanced Voice
+Activity, that the suppressor takes for speech, or that are 18 dB louder
+still. While open, each such block holds it another
 400 ms. What DeepFilterNet leaves of a mouse click comes out over two blocks,
 since its frames overlap, louder than the sensitivity, and its estimate takes
 it for speech, so fewer than three blocks let clicks open the gate. Under
@@ -417,10 +477,7 @@ speech, DeepFilterNet turns clicks down far less than in pauses; the declicker,
 below, takes out more. Levels are RMS over the block, after gain control and
 at the microphone's volume, so at 0% the gate stays shut and a boosted quiet
 microphone opens it sooner.
-"Input sensitivity in Discord calls" sets it from -80 to 0 dBFS
-(`input_sensitivity`); behind its handle, the microphone's level goes from
-green through orange at -18 dBFS to red at -6, with whether the gate is open.
-While the setting shows, Discord Obsidian runs the chosen microphone through a call's
+While the input sensitivity shows, Discord Obsidian runs the chosen microphone through a call's
 processing on a thread of its own, `obsidian-gate-meter`, and sends nothing; in
 a call that's a second copy of the processing. DeepFilterNet takes a block for
 speech when its own estimate of the block's SNR is at least 5 dB, RNNoise when
@@ -436,7 +493,7 @@ The mic test in Settings › Voice & video, its "Mic Test" button, plays the
 microphone back as a call would send it, as Discord's does: the same
 processing, gate and volumes, at the speaker volume, on the chosen
 speakers, through a stream the system lists as "Mic test". Its row of ticks shows the
-level the gate hears, over the sensitivity slider's 80 dB, green while the
+level the gate hears, over the sensitivity bar's 100 dB, green while the
 gate is open. It's the gate meter above playing back (`GateMeter::test`), so
 the microphone goes through the processing once while both show, and a new
 microphone or speakers starts it again on them. One 10 ms block plays for
@@ -460,8 +517,9 @@ that shifts phase left much of a click between 4 and 10 kHz. Rebuilding the
 click's samples from the speech around them (least-squares AR interpolation)
 did worse: at 48 kHz an order of 32 spans less than a pitch period.
 
-"Take out your room's echo in Discord calls" (`reduce_room_echo`, off unless
-turned on) is for a voice that sounds far away in a bare room: the reverb the
+Taking out the room's echo (`noise::set_dereverb`, off; Settings no longer
+offers it, as Discord has no such setting) is for a voice that sounds far
+away in a bare room: the reverb the
 room puts on it, which echo cancellation doesn't touch, since that only takes
 out what the speakers play. It's online weighted prediction error (WPE;
 Yoshioka and Nakatani 2012, in Caroselli et al.'s 2017 recursive least squares

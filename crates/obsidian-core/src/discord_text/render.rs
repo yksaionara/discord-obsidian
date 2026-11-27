@@ -37,6 +37,12 @@ pub(super) fn notification(
         body = if message
             .attachments
             .iter()
+            .any(|attachment| attachment.voice.is_some())
+        {
+            "Sent a voice message".into()
+        } else if message
+            .attachments
+            .iter()
             .any(|attachment| attachment.shown == Shown::Sticker)
         {
             "Sent a sticker".into()
@@ -126,6 +132,13 @@ pub(super) fn found(
                 preview_failed: false,
                 placement: Placement::Message,
                 spoiler: attachment.spoiler,
+                voice: attachment
+                    .voice
+                    .as_ref()
+                    .map(|voice| crate::chat::VoiceClip {
+                        duration_ms: voice.duration_ms,
+                        waveform: voice.waveform.clone(),
+                    }),
                 video: attachment.video_url.is_some(),
                 gif: super::gifs::favorite_gif(attachment),
                 url: Some(
@@ -706,9 +719,16 @@ pub(super) fn chat_card(
                     large: *large,
                 },
                 Row::Buttons(buttons) => CardRow::Buttons(buttons.iter().map(button).collect()),
-                Row::Select { text, disabled } => CardRow::Select {
+                Row::Select {
+                    text,
+                    disabled,
+                    menu,
+                } => CardRow::Select {
                     text: text.clone(),
                     disabled: *disabled,
+                    menu: menu
+                        .as_ref()
+                        .map(|menu| Arc::new(select_menu(discord, server, menu))),
                 },
                 Row::Unknown => CardRow::Unknown,
             })
@@ -793,6 +813,44 @@ pub(super) fn publish(
 /// The Discord message id of a sent message's timeline item.
 pub(super) fn sent_id(item: &str) -> Option<&str> {
     item.strip_prefix("d:")
+}
+
+/// An app's select menu as Discord Obsidian offers it, its options' emoji
+/// written as a button's are.
+fn select_menu(
+    discord: &Discord,
+    server: Option<&obsidian_discord::ready::Server>,
+    menu: &obsidian_discord::components::SelectMenu,
+) -> crate::chat::SelectMenu {
+    use obsidian_discord::components::SelectKind as Kind;
+    crate::chat::SelectMenu {
+        kind: match menu.kind {
+            Kind::Text => crate::chat::SelectKind::Text,
+            Kind::User => crate::chat::SelectKind::User,
+            Kind::Role => crate::chat::SelectKind::Role,
+            Kind::Mentionable => crate::chat::SelectKind::Mentionable,
+            Kind::Channel => crate::chat::SelectKind::Channel,
+        },
+        custom_id: menu.custom_id.clone(),
+        options: menu
+            .options
+            .iter()
+            .map(|option| crate::chat::SelectOption {
+                label: option.label.clone(),
+                value: option.value.clone(),
+                description: option.description.clone(),
+                emoji: option
+                    .emoji
+                    .as_ref()
+                    .map(|emoji| discord.render(server, emoji)),
+                default: option.default,
+            })
+            .collect(),
+        defaults: menu.defaults.clone(),
+        channel_types: menu.channel_types.clone(),
+        min: menu.min,
+        max: menu.max,
+    }
 }
 
 #[cfg(test)]

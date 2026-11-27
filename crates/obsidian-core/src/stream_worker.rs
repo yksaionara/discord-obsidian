@@ -510,6 +510,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 previewed: None,
                 requality: None,
                 reopen: false,
+                last_size: None,
             };
             report(Report::Ready);
             #[cfg(windows)]
@@ -644,6 +645,9 @@ struct Sink {
     /// yet, and whether the encoder opens again for its new rate.
     requality: Option<(u32, u32)>,
     reopen: bool,
+    /// The size of the last frame sent, so the stream connects as soon as
+    /// Discord names its server, even while what's shared gives no frame.
+    last_size: Option<(u32, u32)>,
 }
 
 struct Video {
@@ -799,26 +803,9 @@ impl Sink {
             _ => picture,
         };
         let (width, height) = (picture.width(), picture.height());
+        self.last_size = Some((width, height));
         if let Some(server) = self.server.take() {
-            let (offers, encoder) = self.offers(width, height)?;
-            let sender = StreamSender::start(server, width, height, self.fps, offers)?;
-            let sound = if self.sound {
-                stream_audio::Capture::start(sender.sound())
-                    .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
-                    })
-                    .ok()
-            } else {
-                None
-            };
-            self.video = Some(Video {
-                sender,
-                encoder,
-                sound,
-                measured: (Instant::now(), 0),
-                keyframed: None,
-                encoded: None,
-            });
+            self.connect(server, width, height)?;
         }
         let reopen = std::mem::take(&mut self.reopen);
         let Some(video) = self.video.as_ref() else {
@@ -922,6 +909,31 @@ impl Sink {
         Ok(())
     }
 
+    /// Connects the stream to `server` at `width` by `height`, with its
+    /// encoder and, if asked, other applications' sound.
+    fn connect(&mut self, server: StreamServer, width: u32, height: u32) -> Result<()> {
+        let (offers, encoder) = self.offers(width, height)?;
+        let sender = StreamSender::start(server, width, height, self.fps, offers)?;
+        let sound = if self.sound {
+            stream_audio::Capture::start(sender.sound())
+                .inspect_err(|error| {
+                    tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                })
+                .ok()
+        } else {
+            None
+        };
+        self.video = Some(Video {
+            sender,
+            encoder,
+            sound,
+            measured: (Instant::now(), 0),
+            keyframed: None,
+            encoded: None,
+        });
+        Ok(())
+    }
+
     /// The codecs to offer Discord, most wanted first, and an encoder for
     /// the first: AV1, then H265, where the GPU's encoder for each opens,
     /// then H264. Discord streams the first every viewer decodes. Each is
@@ -981,7 +993,16 @@ impl Sink {
         let mut switch = None;
         while let Ok(control) = self.controls.try_recv() {
             match control {
-                Control::Send(server) => self.server = Some(server),
+                // At once, at the last frame's size: what's shared may give
+                // no frame for a while, as a window that's minimized or a
+                // screen that doesn't change, and the stream would wait
+                // for one to connect.
+                Control::Send(server) => match self.last_size {
+                    Some((width, height)) if self.video.is_none() => {
+                        self.connect(server, width, height)?
+                    }
+                    _ => self.server = Some(server),
+                },
                 Control::Switch(source) => switch = Some(source),
                 Control::Quality { width, height, fps } => {
                     self.fps = fps.clamp(1, crate::voice::MAX_FPS);
@@ -1249,7 +1270,8 @@ fn bounds(resolution: Resolution) -> (u32, u32) {
         Resolution::P720 => (1280, 720),
         Resolution::P1080 => (SHARE_WIDTH, SHARE_HEIGHT),
         Resolution::P1440 => (2560, 1440),
-        Resolution::Source => (3840, 2160),
+        // Discord Obsidian sends at most 1440p: a larger screen is scaled down.
+        Resolution::Source => (2560, 1440),
     }
 }
 
@@ -2488,6 +2510,7 @@ mod tests {
             previewed: None,
             requality: None,
             reopen: false,
+            last_size: None,
         };
         let (offers, encoder) = sink.offers(320, 180).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
@@ -2525,6 +2548,7 @@ mod tests {
             previewed: None,
             requality: None,
             reopen: false,
+            last_size: None,
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
@@ -2566,6 +2590,7 @@ mod tests {
             previewed: None,
             requality: None,
             reopen: false,
+            last_size: None,
         };
         let mut report = |_| {};
         assert_eq!(sink.check(&mut report).unwrap(), None);
@@ -2597,6 +2622,7 @@ mod tests {
             previewed: None,
             requality: None,
             reopen: false,
+            last_size: None,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();

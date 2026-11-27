@@ -32,6 +32,17 @@ pub(super) struct PendingFile {
     name: String,
     size: u64,
     spoiler: bool,
+    /// A voice message's recording, which goes once it's sent or dropped.
+    voice: Option<crate::chat::VoiceClip>,
+}
+
+impl Pending {
+    /// Removes the recordings Discord Obsidian made for it.
+    fn forget_recordings(&self) {
+        for file in self.files.iter().filter(|file| file.voice.is_some()) {
+            let _ = std::fs::remove_file(&file.path);
+        }
+    }
 }
 
 /// Messages loaded with no gap between them, and what's known of what's
@@ -693,21 +704,33 @@ impl OpenChannel {
         }
         let files = files
             .into_iter()
-            .map(|OutgoingFile { path, spoiler }| {
-                let metadata =
-                    std::fs::metadata(&path).map_err(|_| "Discord Obsidian could not read a file.")?;
-                let name = path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .filter(|_| metadata.is_file())
-                    .ok_or("Choose a file to send.")?;
-                Ok(PendingFile {
-                    path,
-                    name,
-                    size: metadata.len(),
-                    spoiler,
-                })
-            })
+            .map(
+                |OutgoingFile {
+                     path,
+                     spoiler,
+                     voice,
+                 }| {
+                    let metadata = std::fs::metadata(&path)
+                        .map_err(|_| "Discord Obsidian could not read a file.")?;
+                    let name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .filter(|_| metadata.is_file())
+                        .ok_or("Choose a file to send.")?;
+                    Ok(PendingFile {
+                        path,
+                        // As Discord's client names every recording.
+                        name: if voice.is_some() {
+                            "voice-message.ogg".into()
+                        } else {
+                            name
+                        },
+                        size: metadata.len(),
+                        spoiler,
+                        voice,
+                    })
+                },
+            )
             .collect::<Result<Vec<_>, &'static str>>()?;
         let reply = match reply {
             Some(item) => Some(
@@ -765,6 +788,14 @@ impl OpenChannel {
             .iter()
             .map(|file| (file.path.clone(), file.name.clone(), file.spoiler))
             .collect();
+        let voice = pending
+            .files
+            .first()
+            .and_then(|file| file.voice.as_ref())
+            .map(|voice| obsidian_discord::message::VoiceClip {
+                duration_ms: voice.duration_ms,
+                waveform: voice.waveform.clone(),
+            });
         tokio::spawn(async move {
             let result = async {
                 let mut read = Vec::with_capacity(files.len());
@@ -779,6 +810,8 @@ impl OpenChannel {
                     reply: reply.as_deref(),
                     ping_reply: !options.quiet_reply,
                     silent: options.silent,
+                    tts: options.tts,
+                    voice: voice.as_ref(),
                 };
                 discord
                     .send(&guild, &channel, &body, sending, read)
@@ -797,7 +830,13 @@ impl OpenChannel {
     pub fn sent(&mut self, nonce: &str, result: Result<Message, String>) -> Option<String> {
         match result {
             Ok(message) => {
-                self.pending.retain(|pending| pending.nonce != nonce);
+                self.pending.retain(|pending| {
+                    let sent = pending.nonce == nonce;
+                    if sent {
+                        pending.forget_recordings();
+                    }
+                    !sent
+                });
                 self.insert(message);
                 None
             }
@@ -827,7 +866,11 @@ impl OpenChannel {
     pub fn cancel(&mut self, item: &str) -> bool {
         let count = self.pending.len();
         self.pending.retain(|pending| {
-            !(Some(pending.nonce.as_str()) == item.strip_prefix("n:") && pending.failed)
+            let dropped = Some(pending.nonce.as_str()) == item.strip_prefix("n:") && pending.failed;
+            if dropped {
+                pending.forget_recordings();
+            }
+            !dropped
         });
         self.pending.len() != count
     }
@@ -991,6 +1034,61 @@ impl OpenChannel {
                 .press_button(guild.as_deref(), &channel, &id, &app, &custom_id)
                 .await;
             let _ = done.send(match pressed {
+                Ok(nonce) => Done::Pressed { room, nonce },
+                Err(error) => Done::Failed {
+                    room,
+                    message: format!("This interaction failed: {error}"),
+                },
+            });
+        });
+    }
+
+    /// Chooses `values` in the select menu of `item` named `custom_id`,
+    /// telling its app as a button's press does.
+    pub fn choose_select(
+        &self,
+        discord: &Discord,
+        done: &UnboundedSender<Done>,
+        item: &str,
+        custom_id: String,
+        values: Vec<String>,
+    ) {
+        let Some(message) =
+            sent_id(item).and_then(|id| self.message(id.parse().unwrap_or_default()))
+        else {
+            return;
+        };
+        let Some(app) = message.app.as_deref().cloned() else {
+            return;
+        };
+        let kind = message
+            .components
+            .iter()
+            .flat_map(|card| &card.rows)
+            .find_map(|row| match row {
+                obsidian_discord::components::Row::Select {
+                    menu: Some(menu), ..
+                } if menu.custom_id == custom_id => Some(menu.kind),
+                _ => None,
+            });
+        let Some(kind) = kind else {
+            return;
+        };
+        let (discord, done) = (discord.clone(), done.clone());
+        let (room, channel, id) = (self.room.clone(), self.channel.clone(), message.id.clone());
+        let guild = (self.guild != obsidian_discord::ready::PRIVATE).then(|| self.guild.clone());
+        tokio::spawn(async move {
+            let chosen = discord
+                .choose(
+                    guild.as_deref(),
+                    &channel,
+                    &id,
+                    &app,
+                    (kind, &custom_id),
+                    &values,
+                )
+                .await;
+            let _ = done.send(match chosen {
                 Ok(nonce) => Done::Pressed { room, nonce },
                 Err(error) => Done::Failed {
                     room,
@@ -1632,6 +1730,7 @@ impl OpenChannel {
                         gif: None,
                         url: None,
                         spoiler: file.spoiler,
+                        voice: file.voice.clone(),
                         video: false,
                     })
                     .collect(),
@@ -1715,6 +1814,13 @@ impl OpenChannel {
                         Shown::Component(slot) => Placement::Component(slot),
                     },
                     spoiler: attachment.spoiler,
+                    voice: attachment
+                        .voice
+                        .as_ref()
+                        .map(|voice| crate::chat::VoiceClip {
+                            duration_ms: voice.duration_ms,
+                            waveform: voice.waveform.clone(),
+                        }),
                     video: attachment.video_url.is_some(),
                     gif: super::gifs::favorite_gif(attachment),
                     url: Some(
@@ -1742,11 +1848,27 @@ impl OpenChannel {
                 author_id,
                 author,
                 content,
+                voice,
             } => Reply {
                 author: name(author_id, author),
                 avatar: Some(discord.avatar(Some(&self.guild), author_id)),
-                body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
+                body: if *voice && content.is_empty() {
+                    "Click to see voice message".into()
+                } else {
+                    plain_snippet(&crate::spoiler::hide(&discord.render(server, content)))
+                },
                 item: Some(format!("d:{id}")),
+                color: server.and_then(|server| discord.color(server, author_id)),
+            },
+            DiscordReply::Command {
+                author_id,
+                author,
+                name: command,
+            } => Reply {
+                author: name(author_id, author),
+                avatar: Some(discord.avatar(Some(&self.guild), author_id)),
+                body: format!("used {command}"),
+                item: None,
                 color: server.and_then(|server| discord.color(server, author_id)),
             },
             DiscordReply::Deleted => Reply {

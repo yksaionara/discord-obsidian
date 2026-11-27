@@ -552,6 +552,7 @@ impl Application {
         effects.extend(self.prefetch_emoji());
         effects.extend(self.prefetch_gifs());
         effects.extend(self.ask_activity());
+        effects.extend(self.ask_saved());
         effects
     }
 
@@ -598,6 +599,7 @@ impl Application {
         }
         self.state.discord_linked = false;
         self.state.discord_online = false;
+        self.state.saved = Saved::default();
         self.state.discord_user = None;
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();

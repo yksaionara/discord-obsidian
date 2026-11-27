@@ -41,6 +41,33 @@ pub use lasting::{LastingInput, LastingOutput};
 /// Whether this system has sound here.
 pub const AVAILABLE: bool = cfg!(any(target_os = "linux", target_os = "windows"));
 
+static RAW_INPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Opens microphones past the system's own processing, as Discord's "Bypass
+/// System Audio Input Processing" does: on Windows, WASAPI's raw mode, which
+/// leaves out the effects a driver or Windows adds (its noise suppression,
+/// echo cancellation and gain), where the device allows it. Microphones
+/// opened after take it.
+pub(crate) fn set_raw_input(on: bool) {
+    RAW_INPUT.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn raw_input() -> bool {
+    RAW_INPUT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Lowers other applications' sound by `fraction` (0 to 1) of their volume,
+/// as Discord's Global Attenuation does while someone speaks, and 0 gives it
+/// back. Only Windows can, through each application's session volume; Discord
+/// Obsidian's own sessions keep theirs.
+pub fn attenuate(fraction: f32) {
+    #[cfg(target_os = "windows")]
+    wasapi::attenuate(fraction);
+    #[cfg(not(target_os = "windows"))]
+    let _ = fraction;
+}
+
 /// The rate every stream runs at, unless it asks for another.
 pub const RATE: u32 = 48_000;
 

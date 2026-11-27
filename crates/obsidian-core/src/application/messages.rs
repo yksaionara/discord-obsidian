@@ -290,6 +290,243 @@ impl Application {
         })]
     }
 
+    /// Plays an item's voice message from where it last stopped, or pauses
+    /// or plays it on when it's the one playing.
+    pub(super) fn toggle_voice_message(&mut self, item: String, index: usize) -> Vec<Effect> {
+        if let Some(current) = self.voice_message_of(&item, index) {
+            current.clock.play(!current.clock.playing());
+            return vec![];
+        }
+        let from = self.state.voice_positions.get(&item).copied().unwrap_or(0);
+        self.start_voice_message(item, index, from, true)
+    }
+
+    /// Moves an item's voice message, playing or not; one that isn't
+    /// playing waits there, paused, as Discord's does.
+    pub(super) fn seek_voice_message(
+        &mut self,
+        item: String,
+        index: usize,
+        fraction: f32,
+    ) -> Vec<Effect> {
+        let duration = self
+            .voice_message_of(&item, index)
+            .and_then(|current| current.clock.duration_ms())
+            .or_else(|| {
+                if item == chat::VOICE_RECORDING_ITEM {
+                    let recorded = self.state.voice_recording.as_ref()?.recording.finished()?;
+                    return Some(u64::from(recorded.duration_ms));
+                }
+                let clip = self
+                    .state
+                    .message(&item)?
+                    .attachments
+                    .get(index)?
+                    .voice
+                    .as_ref()?;
+                Some(u64::from(clip.duration_ms))
+            })
+            .unwrap_or(0);
+        let to = (f64::from(fraction.clamp(0.0, 1.0)) * duration as f64) as u64;
+        if let Some(current) = self.voice_message_of(&item, index) {
+            current.clock.seek(to);
+            return vec![];
+        }
+        self.start_voice_message(item, index, to, false)
+    }
+
+    /// The voice message playing, when it's this item's.
+    fn voice_message_of(&self, item: &str, index: usize) -> Option<&chat::VoiceMessage> {
+        self.state
+            .voice_message
+            .as_ref()
+            .filter(|current| current.item == item && current.index == index)
+    }
+
+    fn start_voice_message(
+        &mut self,
+        item: String,
+        index: usize,
+        from: u64,
+        playing: bool,
+    ) -> Vec<Effect> {
+        if item == chat::VOICE_RECORDING_ITEM {
+            return self.play_voice_recording(from, playing);
+        }
+        let voice = self
+            .state
+            .message(&item)
+            .and_then(|message| message.attachments.get(index))
+            .is_some_and(|attachment| attachment.voice.is_some());
+        let Some(room) = self.state.room_of(&item).cloned().filter(|_| voice) else {
+            return vec![];
+        };
+        self.keep_voice_position();
+        let clock = Arc::new(crate::voice_message::VoiceClock::new(
+            self.voice_rate(),
+            self.voice_gain(),
+            from,
+            playing,
+        ));
+        self.state.voice_message = Some(chat::VoiceMessage {
+            room: room.clone(),
+            item: item.clone(),
+            index,
+            clock: clock.clone(),
+        });
+        vec![Effect::Backend(Command::PlayVoiceMessage {
+            room,
+            item,
+            index,
+            speakers: self.state.voice.speaker.clone(),
+            clock,
+        })]
+    }
+
+    /// Plays the stopped recording before it's sent, as the recording bar's
+    /// play button does.
+    fn play_voice_recording(&mut self, from: u64, playing: bool) -> Vec<Effect> {
+        let Some(shown) = &self.state.voice_recording else {
+            return vec![];
+        };
+        if shown.recording.finished().is_none() {
+            return vec![];
+        }
+        let room = shown.room.clone();
+        self.keep_voice_position();
+        let clock = Arc::new(crate::voice_message::VoiceClock::new(
+            self.voice_rate(),
+            self.voice_gain(),
+            from,
+            playing,
+        ));
+        self.state.voice_message = Some(chat::VoiceMessage {
+            room,
+            item: chat::VOICE_RECORDING_ITEM.into(),
+            index: 0,
+            clock: clock.clone(),
+        });
+        vec![Effect::Backend(Command::PlayVoiceRecording {
+            speakers: self.state.voice.speaker.clone(),
+            clock,
+        })]
+    }
+
+    /// Records a voice message in the selected Discord channel, in place of
+    /// any recording, as the composer's "Record Voice Message" does.
+    pub(super) fn record_voice_message(&mut self) -> Vec<Effect> {
+        let Some(room) = self
+            .state
+            .selected
+            .clone()
+            .filter(|room| Network::of(room) == Network::Discord)
+        else {
+            return vec![];
+        };
+        if self.state.preview {
+            return vec![];
+        }
+        let recording = Arc::new(crate::voice_message::Recording::default());
+        self.forget_recording_playback();
+        self.state.voice_recording = Some(chat::VoiceRecording {
+            room: room.clone(),
+            recording: recording.clone(),
+        });
+        vec![Effect::Backend(Command::RecordVoiceMessage {
+            room,
+            microphone: self.state.voice.microphone.clone(),
+            recording,
+        })]
+    }
+
+    pub(super) fn stop_voice_recording(&mut self) -> Vec<Effect> {
+        match &self.state.voice_recording {
+            Some(shown) => {
+                shown.recording.stop();
+                vec![Effect::Backend(Command::StopVoiceRecording)]
+            }
+            None => vec![],
+        }
+    }
+
+    pub(super) fn discard_voice_recording(&mut self) -> Vec<Effect> {
+        if self.state.voice_recording.take().is_none() {
+            return vec![];
+        }
+        self.forget_recording_playback();
+        vec![Effect::Backend(Command::DiscardVoiceRecording)]
+    }
+
+    /// Sends the recording, which shows in the channel as it sends.
+    pub(super) fn send_voice_recording(&mut self) -> Vec<Effect> {
+        let Some(shown) = self.state.voice_recording.take() else {
+            return vec![];
+        };
+        self.forget_recording_playback();
+        let mut effects = if self.state.selected.as_ref() == Some(&shown.room) {
+            self.jump_to_present()
+        } else {
+            vec![]
+        };
+        effects.push(Effect::Backend(Command::SendVoiceRecording));
+        effects
+    }
+
+    /// The recording's playback, and where it stopped, go with it.
+    fn forget_recording_playback(&mut self) {
+        if self
+            .state
+            .voice_message
+            .as_ref()
+            .is_some_and(|current| current.item == chat::VOICE_RECORDING_ITEM)
+        {
+            self.state.voice_message = None;
+        }
+        self.state
+            .voice_positions
+            .remove(chat::VOICE_RECORDING_ITEM);
+    }
+
+    /// Remembers where the voice message playing is, as it goes.
+    pub(super) fn keep_voice_position(&mut self) {
+        if let Some(current) = self.state.voice_message.take() {
+            let at = current.clock.position_ms();
+            if at > 0 {
+                self.state.voice_positions.insert(current.item, at);
+            } else {
+                self.state.voice_positions.remove(&current.item);
+            }
+        }
+    }
+
+    pub(super) fn voice_rate(&self) -> f32 {
+        match self.state.voice_rate {
+            0.0 => 1.0,
+            rate => rate,
+        }
+    }
+
+    fn voice_gain(&self) -> f32 {
+        if self.state.voice_muted { 0.0 } else { 1.0 }
+    }
+
+    pub(super) fn step_voice_rate(&mut self) -> Vec<Effect> {
+        let rate = crate::voice_message::next_rate(self.voice_rate());
+        self.state.voice_rate = rate;
+        if let Some(current) = &self.state.voice_message {
+            current.clock.set_rate(rate);
+        }
+        vec![]
+    }
+
+    pub(super) fn mute_voice_messages(&mut self) -> Vec<Effect> {
+        self.state.voice_muted = !self.state.voice_muted;
+        if let Some(current) = &self.state.voice_message {
+            current.clock.set_gain(self.voice_gain());
+        }
+        vec![]
+    }
+
     pub(super) fn view_image(&mut self, item: String, index: usize) -> Vec<Effect> {
         if !self
             .state
@@ -360,6 +597,24 @@ impl Application {
         else {
             return vec![];
         };
+        // A voice message goes only where voice messages may be sent, as
+        // Discord's client checks.
+        let voice = self
+            .state
+            .message(&forwarding.item)
+            .is_some_and(|message| message.attachments.iter().any(|file| file.voice.is_some()));
+        if voice
+            && !self.state.preview
+            && forwarding
+                .chosen
+                .iter()
+                .any(|target| !self.may_send_voice_messages(target))
+        {
+            forwarding.note = note;
+            forwarding.error = Some("Voice messages are disabled in this channel.".into());
+            self.state.forwarding = Some(forwarding);
+            return vec![];
+        }
         // Discord's `@silent` at the start notifies nobody of either.
         let silent_note = note
             .strip_prefix("@silent")
@@ -403,6 +658,17 @@ impl Application {
             });
         }
         effects
+    }
+
+    /// Whether voice messages may go to a Discord conversation: any DM, and
+    /// a server's channel where this account may send them.
+    fn may_send_voice_messages(&self, room: &str) -> bool {
+        let direct = self
+            .state
+            .rooms
+            .iter()
+            .any(|shown| shown.id == room && shown.direct);
+        direct || self.may(room, chat::Permission::SendVoiceMessages)
     }
 
     /// Adds the forward to the preview's samples of `target`, with `note`.

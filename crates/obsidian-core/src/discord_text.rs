@@ -9,6 +9,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+use obsidian_discord::{
+    member_list::ListedMember,
+    message::{Message, Page, Reply as DiscordReply, Shown},
+    service::{Discord, Live, Snapshot, Status},
+};
 use tokio::{
     sync::{
         broadcast::{self, error::RecvError},
@@ -16,11 +21,6 @@ use tokio::{
         watch,
     },
     task::JoinSet,
-};
-use obsidian_discord::{
-    member_list::ListedMember,
-    message::{Message, Page, Reply as DiscordReply, Shown},
-    service::{Discord, Live, Snapshot, Status},
 };
 
 use crate::{
@@ -50,7 +50,9 @@ mod ownership;
 mod people;
 mod render;
 mod roles;
+mod saved;
 mod server_settings;
+mod slash;
 
 pub use channels::Channels;
 pub use commands::{command, finished, live};
@@ -166,6 +168,11 @@ pub(crate) struct Chat {
     /// How loud the last video played, and whether muted: the next plays
     /// the same.
     video_sound: (f32, bool),
+    /// The voice message playing or paused, with its room.
+    voice_message: Option<(String, crate::voice_message::VoicePlayer)>,
+    /// The voice message being recorded, or waiting to be sent, with its
+    /// room.
+    recording: Option<(String, crate::voice_message::Recorder)>,
 }
 
 impl Drop for Chat {
@@ -212,6 +219,8 @@ impl Chat {
             },
             video: None,
             video_sound: (1.0, false),
+            voice_message: None,
+            recording: None,
         }))
     }
 
@@ -244,6 +253,46 @@ impl Chat {
                 self.stop_video(events);
                 return;
             }
+            Command::PlayVoiceMessage {
+                room,
+                item,
+                index,
+                speakers,
+                clock,
+            } => {
+                self.play_voice_message(room, item, index, speakers, clock, events);
+                return;
+            }
+            Command::StopVoiceMessage => {
+                self.stop_voice_message(events);
+                return;
+            }
+            Command::RecordVoiceMessage {
+                room,
+                microphone,
+                recording,
+            } => {
+                self.record_voice_message(room, microphone, recording, events);
+                return;
+            }
+            Command::StopVoiceRecording => {
+                if let Some((_, recorder)) = &self.recording {
+                    recorder.recording().stop();
+                }
+                return;
+            }
+            Command::DiscardVoiceRecording => {
+                self.discard_voice_recording(events);
+                return;
+            }
+            Command::SendVoiceRecording => {
+                self.send_voice_recording(events);
+                return;
+            }
+            Command::PlayVoiceRecording { speakers, clock } => {
+                self.play_voice_recording(speakers, clock, events);
+                return;
+            }
             Command::Video(command) => {
                 if let Some(playback) = &mut self.video {
                     playback.command(command);
@@ -252,16 +301,29 @@ impl Chat {
                 }
                 return;
             }
-            // A video plays only while its channel is open, or its thread
-            // beside it.
-            Command::Open(_) | Command::CloseRoom => self.stop_video(events),
+            // A video or voice message plays only while its channel is
+            // open, or its thread beside it.
+            Command::Open(_) | Command::CloseRoom => {
+                self.stop_video(events);
+                self.stop_voice_message(events);
+                self.recording = None;
+            }
             Command::Aside(ref beside) => {
                 let shown = self.channels.aside.as_ref().map(|aside| &aside.room);
-                if self.video.as_ref().is_some_and(|playback| {
-                    shown == Some(&playback.video.room)
-                        && beside.as_ref() != Some(&playback.video.room)
-                }) {
+                let closing = |room: &String| shown == Some(room) && beside.as_ref() != Some(room);
+                let video = self
+                    .video
+                    .as_ref()
+                    .is_some_and(|playback| closing(&playback.video.room));
+                let voice = self
+                    .voice_message
+                    .as_ref()
+                    .is_some_and(|(room, _)| closing(room));
+                if video {
                     self.stop_video(events);
+                }
+                if voice {
+                    self.stop_voice_message(events);
                 }
             }
             _ => {}
@@ -279,6 +341,159 @@ impl Chat {
         if self.video.take().is_some() {
             let _ = events.send(Event::Video(None));
         }
+    }
+
+    /// Records a voice message for `room`, in place of any other recording.
+    fn record_voice_message(
+        &mut self,
+        room: String,
+        microphone: Option<String>,
+        recording: Arc<crate::voice_message::Recording>,
+        events: &UnboundedSender<Event>,
+    ) {
+        self.discard_voice_recording(events);
+        let path = std::env::temp_dir().join(format!(
+            "obsidian-voice-message-{}.ogg",
+            obsidian_discord::message::nonce()
+        ));
+        let (failed, which) = (events.clone(), recording.clone());
+        let recorder =
+            crate::voice_message::Recorder::start(microphone, path, recording, move || {
+                let _ = failed.send(Event::VoiceRecordingFailed(which));
+            });
+        self.recording = Some((room, recorder));
+    }
+
+    /// Throws the recording away, and stops it playing.
+    fn discard_voice_recording(&mut self, events: &UnboundedSender<Event>) {
+        if self.recording.take().is_some()
+            && self
+                .voice_message
+                .as_ref()
+                .is_some_and(|(room, _)| room == crate::chat::VOICE_RECORDING_ITEM)
+        {
+            self.stop_voice_message(events);
+        }
+    }
+
+    /// Sends the recording as a voice message once its file is finished,
+    /// which a stopped one is already.
+    fn send_voice_recording(&mut self, events: &UnboundedSender<Event>) {
+        let playing = self
+            .voice_message
+            .as_ref()
+            .is_some_and(|(room, _)| room == crate::chat::VOICE_RECORDING_ITEM);
+        if playing {
+            self.stop_voice_message(events);
+        }
+        let Some((room, recorder)) = self.recording.take() else {
+            return;
+        };
+        // It stops within a frame of sound.
+        let recorded = match recorder.finish() {
+            Ok(recorded) => recorded,
+            Err(error) => {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not finish a voice message"
+                );
+                let _ = events.send(Event::RoomError {
+                    room,
+                    message: "Couldn't send your voice message. Please try again.".into(),
+                });
+                return;
+            }
+        };
+        let file = crate::chat::OutgoingFile {
+            path: recorded.path,
+            spoiler: false,
+            voice: Some(crate::chat::VoiceClip {
+                duration_ms: recorded.duration_ms,
+                waveform: recorded.waveform,
+            }),
+        };
+        self.command(
+            Command::Send {
+                room,
+                body: String::new(),
+                reply: None,
+                options: Default::default(),
+                files: vec![file],
+            },
+            events,
+        );
+    }
+
+    /// Plays the stopped recording, in place of any voice message.
+    fn play_voice_recording(
+        &mut self,
+        speakers: Option<String>,
+        clock: Arc<crate::voice_message::VoiceClock>,
+        events: &UnboundedSender<Event>,
+    ) {
+        self.voice_message = None;
+        let recorded = self
+            .recording
+            .as_ref()
+            .and_then(|(room, recorder)| Some((room.clone(), recorder.recording().finished()?)));
+        let Some((room, recorded)) = recorded else {
+            let _ = events.send(Event::VoiceMessage(None));
+            return;
+        };
+        let file = async move { anyhow::Ok(tokio::fs::read(&recorded.path).await?) };
+        let player = crate::voice_message::VoicePlayer::start(file, speakers, clock.clone());
+        let _ = events.send(Event::VoiceMessage(Some(crate::chat::VoiceMessage {
+            room,
+            item: crate::chat::VOICE_RECORDING_ITEM.into(),
+            index: 0,
+            clock,
+        })));
+        // Kept by the recording's item, so throwing it away stops it.
+        self.voice_message = Some((crate::chat::VOICE_RECORDING_ITEM.into(), player));
+    }
+
+    fn stop_voice_message(&mut self, events: &UnboundedSender<Event>) {
+        if self.voice_message.take().is_some() {
+            let _ = events.send(Event::VoiceMessage(None));
+        }
+    }
+
+    /// Downloads an item's voice message and plays it as `clock` says, in
+    /// place of any other.
+    fn play_voice_message(
+        &mut self,
+        room: String,
+        item: String,
+        index: usize,
+        speakers: Option<String>,
+        clock: Arc<crate::voice_message::VoiceClock>,
+        events: &UnboundedSender<Event>,
+    ) {
+        self.voice_message = None;
+        let url = self
+            .channels
+            .shown_mut(&room)
+            .and_then(|channel| channel.attachment(&item, index))
+            .filter(|attachment| attachment.voice.is_some())
+            .map(|attachment| attachment.url.clone());
+        let Some(url) = url else {
+            let _ = events.send(Event::VoiceMessage(None));
+            return;
+        };
+        let discord = self.discord.clone();
+        let file = async move {
+            discord
+                .download_now(&url, crate::voice_message::MAX_BYTES)
+                .await
+        };
+        let player = crate::voice_message::VoicePlayer::start(file, speakers, clock.clone());
+        let _ = events.send(Event::VoiceMessage(Some(crate::chat::VoiceMessage {
+            room: room.clone(),
+            item,
+            index,
+            clock,
+        })));
+        self.voice_message = Some((room, player));
     }
 
     /// Plays an attachment's video in place of its poster, as it downloads,

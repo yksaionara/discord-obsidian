@@ -3,10 +3,13 @@ import { Avatar } from "../controls.slint";
 import { ListView } from "../scrollview.slint";
 
 /// One line of the inbox: a channel or conversation with something waiting,
-/// and how many times it mentions this account.
+/// and how many times it mentions this account; or a message saved for
+/// later, by its `item` in the room `id`, with what it says and when it was
+/// saved or is due, `overdue` for a reminder past its time.
 export struct InboxRow {
     id: string, name: string, place: string, initial: string, tint: color, picture-url: string,
     mentions: int,
+    item: string, body: string, when: string, overdue: bool,
 }
 
 component InboxTab inherits Rectangle {
@@ -66,14 +69,73 @@ component InboxLine inherits Rectangle {
     pointer := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
 }
 
-/// The inbox popout under the title bar's Inbox button, with Discord's first
-/// two tabs: Unreads, the channels and conversations with unread messages, and
-/// Mentions, those that mention this account.
+
+/// A message saved for later: who wrote it, where, what it says, and when
+/// it was sent or is due, with a button that removes the bookmark or marks
+/// the reminder complete.
+component SavedLine inherits Rectangle {
+    in property <InboxRow> entry;
+    in property <bool> reminder;
+    callback clicked;
+    callback unsave;
+    height: layout.preferred-height;
+    border-radius: 4px;
+    background: pointer.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
+    accessible-role: button;
+    accessible-label: root.entry.name + ", " + root.entry.place + ": " + root.entry.body;
+    accessible-action-default => { root.clicked(); }
+    pointer := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+    layout := HorizontalLayout {
+        padding: 8px; spacing: 12px;
+        VerticalLayout {
+            alignment: start; width: 32px;
+            Avatar {
+                size: 32px;
+                initial: root.entry.initial; tint: root.entry.tint; picture-url: root.entry.picture-url;
+            }
+        }
+        VerticalLayout {
+            spacing: 2px; horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: root.entry.name; font-size: 14px; font-weight: 600; color: Theme.text; overflow: elide; }
+                if root.entry.place != "": Text { text: root.entry.place; font-size: 12px; color: Theme.muted; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+            }
+            if root.entry.body != "": Text { text: root.entry.body; font-size: 14px; color: Theme.secondary; wrap: word-wrap; max-height: 60px; overflow: elide; }
+            Text { text: root.entry.when; font-size: 12px; color: root.entry.overdue ? Theme.danger : Theme.muted; }
+        }
+        VerticalLayout {
+            alignment: start;
+            Rectangle {
+                width: 28px; height: 28px; border-radius: 4px;
+                background: unsave-touch.has-hover ? Theme.overlay.with-alpha(0.12) : transparent;
+                accessible-role: button;
+                accessible-label: root.reminder ? "Mark Complete" : "Remove Bookmark";
+                accessible-action-default => { root.unsave(); }
+                Image {
+                    source: root.reminder ? @image-url("../icons/check.svg") : @image-url("../icons/bookmark-filled.svg");
+                    width: 16px; height: 16px; colorize: unsave-touch.has-hover ? Theme.text : Theme.secondary;
+                }
+                unsave-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.unsave(); } }
+            }
+        }
+    }
+}
+
+/// The inbox popout under the title bar's Inbox button, with Discord's tabs:
+/// Unreads, the channels and conversations with unread messages; Mentions,
+/// those that mention this account; Bookmarks; and Reminders.
 export component InboxPopout inherits Rectangle {
     in property <[InboxRow]> rows;
     in-out property <int> tab: 0;
+    /// Earlier bookmarks follow, or are on their way.
+    in property <bool> more;
+    in property <bool> loading;
     callback changed-tab;
     callback open(string);
+    callback jump(string, string);
+    callback unsave(string);
+    callback load-more;
     callback close;
     // Discord's popout: 440px wide, rounded, with its own outline.
     width: 440px; height: 560px;
@@ -94,22 +156,55 @@ export component InboxPopout inherits Rectangle {
                     padding-left: 16px; padding-right: 16px; spacing: 8px;
                     Middle { Text { text: "Inbox"; font-size: 16px; font-weight: 700; color: Theme.text; } }
                     Rectangle { horizontal-stretch: 1; }
-                    Middle { InboxTab { width: 80px; text: "Unreads"; selected: root.tab == 0; clicked => { root.tab = 0; root.changed-tab(); } } }
-                    Middle { InboxTab { width: 92px; text: "Mentions"; selected: root.tab == 1; clicked => { root.tab = 1; root.changed-tab(); } } }
+                    Middle { InboxTab { width: 76px; text: "Unreads"; selected: root.tab == 0; clicked => { root.tab = 0; root.changed-tab(); } } }
+                    Middle { InboxTab { width: 82px; text: "Mentions"; selected: root.tab == 1; clicked => { root.tab = 1; root.changed-tab(); } } }
+                    Middle { InboxTab { width: 88px; text: "Bookmarks"; selected: root.tab == 2; clicked => { root.tab = 2; root.changed-tab(); } } }
+                    Middle { InboxTab { width: 86px; text: "Reminders"; selected: root.tab == 3; clicked => { root.tab = 3; root.changed-tab(); } } }
                 }
             }
             Rectangle { height: 1px; background: Theme.line; }
             Rectangle {
                 vertical-stretch: 1;
-                if root.rows.length == 0: Text {
-                    text: root.tab == 0 ? "Unread messages from your unmuted channels show up here." : "Nothing mentions you right now.";
+                if root.rows.length == 0 && !root.loading && root.tab != 2: Text {
+                    text: root.tab == 0 ? "Unread messages from your unmuted channels show up here."
+                        : root.tab == 1 ? "Nothing mentions you right now." : "Nothing here yet";
                     color: Theme.muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
                     x: 16px; width: parent.width - 32px; height: 120px; y: 16px;
                 }
-                ListView {
-                    for row in root.rows: InboxLine {
-                        entry: row;
-                        clicked => { root.open(row.id); }
+                // As Discord's, for none bookmarked.
+                if root.rows.length == 0 && !root.loading && root.tab == 2: VerticalLayout {
+                    x: 16px; width: parent.width - 32px; y: 32px; height: self.preferred-height;
+                    spacing: 4px;
+                    Text { text: "You have no Bookmarks!"; color: Theme.text; font-size: 16px; font-weight: 600; horizontal-alignment: center; }
+                    Text { text: "You can bookmark any message to have it appear here."; color: Theme.muted; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+                }
+                VerticalLayout {
+                    ListView {
+                        vertical-stretch: 1;
+                        for row in root.rows: VerticalLayout {
+                            if root.tab < 2: InboxLine {
+                                entry: row;
+                                clicked => { root.open(row.id); }
+                            }
+                            if root.tab >= 2: SavedLine {
+                                entry: row; reminder: root.tab == 3;
+                                clicked => { root.jump(row.id, row.item); }
+                                unsave => { root.unsave(row.item); }
+                            }
+                        }
+                    }
+                    if root.tab == 2 && (root.more || root.loading): Rectangle {
+                        height: 40px;
+                        Text {
+                            text: root.loading ? "Loading..." : "Show more";
+                            color: root.loading ? Theme.muted : Theme.link; font-size: 14px;
+                            horizontal-alignment: center; vertical-alignment: center;
+                        }
+                        TouchArea {
+                            enabled: !root.loading;
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.load-more(); }
+                        }
                     }
                 }
             }

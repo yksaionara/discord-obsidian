@@ -111,7 +111,9 @@ path = "testing/record_host.rs"
 required-features = ["desktop"]
 
 [dev-dependencies]
-i-slint-backend-testing = "=1.19.0"
+# Skia draws the testing backend's snapshots, as `review_settings_snapshots`
+# takes them, without a window.
+i-slint-backend-testing = { version = "=1.19.0", features = ["renderer-skia"] }
 obsidian-core = { path = "crates/obsidian-core", default-features = false, features = ["test-fixtures"] }
 # Builds a Discord server's snapshot for the menus' tests.
 obsidian-discord = { path = "crates/obsidian-discord" }

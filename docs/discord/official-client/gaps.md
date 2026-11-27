@@ -29,6 +29,14 @@ Matched now:
   as READY said, since counting would copy the server on every join.
 - Apps' buttons press (`POST /interactions`, type 3), and
   `INTERACTION_SUCCESS`/`FAILURE` answer them.
+- Slash commands run (`POST /interactions`, type 2) from the server's, the
+  DM's and the account's command indexes, and
+  `GUILD_APPLICATION_COMMAND_INDEX_UPDATE` drops a server's kept index.
+  Options apps suggest values for ask them (type 4), answered by
+  `APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE`.
+- Apps' modals (`INTERACTION_MODAL_CREATE`) open, and submit as type 5.
+- The Apps menu of a message and of a person runs the apps' message and
+  user commands on them (type 2 with `target_id`).
 
 Still different:
 
@@ -40,7 +48,7 @@ Still different:
 
 ## Gateway events Discord Obsidian doesn't handle
 
-`data/gateway-events-unhandled.txt` lists 131 dispatches that the official
+`data/gateway-events-unhandled.txt` lists 126 dispatches that the official
 client handles and `obsidian-discord` never names. Most concern billing,
 quests, Activities, notification center, OAuth, game servers and developer
 features. The ones a chat-and-voice client shows to users:
@@ -48,10 +56,7 @@ features. The ones a chat-and-voice client shows to users:
 - `CHANNEL_PINS_ACK`: the pins' unread state
 - `SESSIONS_REPLACE`: your own other sessions, used for your shown status
   and "active on mobile"
-- `INTERACTION_MODAL_CREATE`: app modals
-- `APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE`: slash command option autocomplete
 - `THREAD_MEMBER_LIST_UPDATE`: a thread's member sidebar
-- `SAVED_MESSAGE_CREATE/DELETE`: "Save for later" / bookmarks
 - `RECENT_MENTION_DELETE`: removing an item from the inbox's mentions
 - `LAST_MESSAGES`: the answer to op 34
 - `FORUM_UNREADS`: the answer to op 28
@@ -70,3 +75,32 @@ sends 1–6, 8, 13, 18–22, 31, 37, 40 and 43 (`gateway.rs`). Of the rest:
 - 39 `REQUEST_CHANNEL_MEMBER_COUNT`
 - 35 `SEARCH_RECENT_MEMBERS`: the paged member search in moderation views
 - 41 `UPDATE_TIME_SPENT_SESSION_ID`: analytics, and optional
+
+## What the official client shows that Discord Obsidian doesn't yet
+
+The rest of the way to the official client, by how often someone using
+Discord meets it. Each lands with its own doc section when it's done.
+
+1. Slash commands' attachment options, modals' file uploads and user, role
+   and channel menus, and the Apps menu's per-app submenus, search and
+   Frequently Used Commands.
+2. A voice message's volume slider: its button mutes, where Discord's also
+   opens a slider.
+3. A reminder's Custom... time, which opens Discord's date and time picker,
+   and the notice when a reminder comes due.
+4. Making, renaming and colouring server folders.
+5. Forum tags as filters and sorting, and the gallery layout of forums and
+   media channels.
+6. A server's onboarding questions and membership form when joining.
+7. Streamer Mode.
+8. Server privacy settings, and the server settings pages not done yet:
+   Integrations and webhooks, Soundboard, AutoMod, Server Template,
+   Community and Discovery.
+9. Stage channels' speaker requests and moderation.
+10. Animated custom emoji and avatars, which show their first frame.
+11. User settings pages Discord has that Discord Obsidian lacks: Keybinds,
+    Accessibility, Text & Images, Activity Privacy and Devices
+    (`SESSIONS_REPLACE`).
+12. Activities, which need Discord's embedded web runtime.
+
+Nitro, the Shop, Quests and billing are left out on purpose.

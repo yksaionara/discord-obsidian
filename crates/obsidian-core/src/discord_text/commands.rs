@@ -76,6 +76,9 @@ pub fn command(
     let Some(command) = gifs::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::saved::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::server_settings::command(command, discord, events) else {
         return;
     };
@@ -97,12 +100,16 @@ pub fn command(
     let Some(command) = super::ownership::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::slash::command(command, discord, channels, done, events) else {
+        return;
+    };
     let room = match &command {
         Command::Open(room)
         | Command::Send { room, .. }
         | Command::Edit { room, .. }
         | Command::React { room, .. }
         | Command::PressButton { room, .. }
+        | Command::ChooseSelect { room, .. }
         | Command::Reactors { room, .. }
         | Command::Vote { room, .. }
         | Command::EndPoll { room, .. }
@@ -271,6 +278,12 @@ pub fn command(
         Command::PressButton {
             item, custom_id, ..
         } => channel.press_button(discord, done, &item, custom_id),
+        Command::ChooseSelect {
+            item,
+            custom_id,
+            values,
+            ..
+        } => channel.choose_select(discord, done, &item, custom_id, values),
         Command::Reactors {
             item,
             key,
@@ -693,7 +706,61 @@ pub fn live(
         });
         return;
     }
+    if let Ok(Live::Suggested { nonce, choices }) = &event {
+        if let Some(at) = channels.suggesting.iter().position(|sent| sent == nonce) {
+            channels.suggesting.remove(at);
+            let _ = events.send(Event::Suggestions {
+                nonce: nonce.clone(),
+                answer: crate::chat::Suggested::Choices(choices.clone()),
+            });
+        }
+        return;
+    }
+    if let Ok(Live::Modal(modal)) = &event {
+        // The room of the press or command that opened it, else the open
+        // channel showing its channel.
+        let pressed = modal.nonce.as_ref().and_then(|nonce| {
+            let at = channels
+                .pressed
+                .iter()
+                .position(|(sent, _)| sent == nonce)?;
+            channels.pressed.remove(at).map(|(_, room)| room)
+        });
+        let room = pressed.or_else(|| {
+            channels
+                .open
+                .iter()
+                .chain(&channels.aside)
+                .find(|open| open.channel == modal.channel_id)
+                .map(|open| open.room.clone())
+        });
+        if let Some(room) = room {
+            let _ = events.send(Event::Modal {
+                room,
+                modal: modal.clone(),
+            });
+        }
+        return;
+    }
     if let Ok(Live::Interaction { nonce, failed }) = &event {
+        if let Some(at) = channels.submitting.iter().position(|sent| sent == nonce) {
+            channels.submitting.remove(at);
+            let _ = events.send(Event::ModalAnswered {
+                nonce: nonce.clone(),
+                taken: !failed,
+            });
+            return;
+        }
+        if let Some(at) = channels.suggesting.iter().position(|sent| sent == nonce) {
+            channels.suggesting.remove(at);
+            if *failed {
+                let _ = events.send(Event::Suggestions {
+                    nonce: nonce.clone(),
+                    answer: crate::chat::Suggested::Failed,
+                });
+            }
+            return;
+        }
         if let Some(at) = channels.pressed.iter().position(|(sent, _)| sent == nonce) {
             let (_, room) = channels.pressed.remove(at).unwrap_or_default();
             if *failed {
@@ -703,6 +770,20 @@ pub fn live(
                 });
             }
         }
+        return;
+    }
+    if let Ok(Live::CommandsChanged { guild }) = &event {
+        if let Ok(mut indexes) = channels.commands.lock() {
+            indexes.remove(guild);
+        }
+        let _ = events.send(Event::CommandsChanged {
+            server: discord::server_id(guild),
+        });
+        return;
+    }
+    if let Ok(event) = &event
+        && super::saved::live(event, discord, events)
+    {
         return;
     }
     if let Ok(Live::PinsChanged { guild, channel }) = &event {

@@ -248,7 +248,7 @@ impl Loss {
 pub fn max_bitrate(height: u32, fps: u32) -> u32 {
     let base: u64 = match height {
         ..=720 => 3_500_000,
-        ..=1080 => 9_000_000,
+        721..=1080 => 9_000_000,
         _ => 20_000_000,
     };
     // Past 60 fps the cap grows with the rate, to twice at 240 fps and

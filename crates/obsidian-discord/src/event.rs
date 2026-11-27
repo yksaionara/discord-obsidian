@@ -126,6 +126,10 @@ events! {
     /// A message was pinned or unpinned in a channel: `{guild_id?,
     /// channel_id, last_pin_timestamp}`.
     ChannelPinsUpdate = "CHANNEL_PINS_UPDATE",
+    /// This account saved a message: a saved message object.
+    SavedMessageCreate = "SAVED_MESSAGE_CREATE",
+    /// This account removed a saved message: `{channel_id, message_id}`.
+    SavedMessageDelete = "SAVED_MESSAGE_DELETE",
     /// A stage went live, changed its topic or ended: a stage instance.
     StageInstanceCreate = "STAGE_INSTANCE_CREATE",
     StageInstanceUpdate = "STAGE_INSTANCE_UPDATE",
@@ -137,6 +141,13 @@ events! {
     InteractionCreate = "INTERACTION_CREATE",
     InteractionSuccess = "INTERACTION_SUCCESS",
     InteractionFailure = "INTERACTION_FAILURE",
+    /// A server's apps or their commands changed: `{guild_id, version,
+    /// application_command_counts}`.
+    GuildApplicationCommandIndexUpdate = "GUILD_APPLICATION_COMMAND_INDEX_UPDATE",
+    /// An app opened a form in answer to an interaction this session sent.
+    InteractionModalCreate = "INTERACTION_MODAL_CREATE",
+    /// An app's suggestions for the option being typed: `{nonce, choices}`.
+    ApplicationCommandAutocompleteResponse = "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
     /// The answer to REQUEST_CHANNEL_INFO (op 43): a server's voice channels'
     /// statuses, `{guild_id, channels: [{id, status, voice_start_time}]}`.
     ChannelInfo = "CHANNEL_INFO",
@@ -262,6 +273,8 @@ mod tests {
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
             ("VOICE_CHANNEL_STATUS_UPDATE", Event::VoiceChannelStatusUpdate),
             ("CHANNEL_PINS_UPDATE", Event::ChannelPinsUpdate),
+            ("SAVED_MESSAGE_CREATE", Event::SavedMessageCreate),
+            ("SAVED_MESSAGE_DELETE", Event::SavedMessageDelete),
             ("STAGE_INSTANCE_CREATE", Event::StageInstanceCreate),
             ("STAGE_INSTANCE_UPDATE", Event::StageInstanceUpdate),
             ("STAGE_INSTANCE_DELETE", Event::StageInstanceDelete),
@@ -269,6 +282,15 @@ mod tests {
             ("INTERACTION_CREATE", Event::InteractionCreate),
             ("INTERACTION_SUCCESS", Event::InteractionSuccess),
             ("INTERACTION_FAILURE", Event::InteractionFailure),
+            (
+                "GUILD_APPLICATION_COMMAND_INDEX_UPDATE",
+                Event::GuildApplicationCommandIndexUpdate,
+            ),
+            ("INTERACTION_MODAL_CREATE", Event::InteractionModalCreate),
+            (
+                "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
+                Event::ApplicationCommandAutocompleteResponse,
+            ),
             ("CHANNEL_INFO", Event::ChannelInfo),
             ("SOUNDBOARD_SOUNDS", Event::SoundboardSounds),
             (

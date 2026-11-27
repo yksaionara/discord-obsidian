@@ -227,6 +227,8 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     super::games::bind(window, adapter);
     super::gifs::bind(window, adapter);
     super::polls::bind(window, adapter);
+    #[cfg(feature = "discord")]
+    super::modal::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);
     super::channel_settings::bind(window, adapter);
@@ -680,7 +682,38 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         window.on_prepare_menu(move |id, person| {
             if let Some(window) = weak.upgrade() {
                 let menu = menus::menu(&adapter.borrow(), &id, person);
+                let apps = menu.0.iter().position(|row| row.id == "apps");
                 menus::show(&window, menu);
+                #[cfg(feature = "discord")]
+                {
+                    let mut adapter = adapter.borrow_mut();
+                    match apps {
+                        Some(index) => adapter.open_person_apps(&window, &id, index),
+                        None => adapter.apps = None,
+                    }
+                }
+                #[cfg(not(feature = "discord"))]
+                let _ = apps;
+            }
+        });
+    }
+    #[cfg(feature = "discord")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_open_message_apps(move |item| {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().open_message_apps(&window, &item);
+            }
+        });
+    }
+    #[cfg(feature = "discord")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_run_app_command(move |id| {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().run_app_command(&window, &id);
             }
         });
     }
@@ -773,7 +806,37 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         let weak = window.as_weak();
         window.on_inbox_opened(move || {
             if let Some(window) = weak.upgrade() {
-                adapter.borrow_mut().refresh(&window);
+                let mut adapter = adapter.borrow_mut();
+                // The bookmarks' first page comes as their tab first opens.
+                if window.get_inbox_tab() == 2 && !adapter.app.state.saved.listed {
+                    adapter.action(&window, Action::LoadBookmarks);
+                } else {
+                    adapter.refresh(&window);
+                }
+            }
+        });
+    }
+    // Bookmarks and reminders, from a message's menu and the inbox.
+    bind_item!(on_bookmark, Action::Bookmark);
+    bind_item!(on_unsave, Action::Unsave);
+    bind!(on_load_bookmarks, Action::LoadBookmarks);
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_prepare_saved(move |item| {
+            if let Some(window) = weak.upgrade() {
+                adapter.borrow_mut().show_saved_menu(&window, &item);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_choose_reminder(move |item, id| {
+            if let Some(window) = weak.upgrade()
+                && let Some(action) = super::saved::reminder_action(&item, &id)
+            {
+                adapter.borrow_mut().action(&window, action);
             }
         });
     }
@@ -1533,6 +1596,31 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             state.borrow_mut().choose_theme(&window, &id);
         }
     });
+    // "Sync with computer" looks at the system's mode every two seconds; the
+    // timer lives as long as the window's callback holding it.
+    let follow = Rc::new(slint::Timer::default());
+    {
+        let (state, weak) = (Rc::downgrade(adapter), window.as_weak());
+        follow.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(2),
+            move || {
+                if let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade())
+                    && let Ok(mut adapter) = adapter.try_borrow_mut()
+                {
+                    adapter.follow_system_theme(&window);
+                }
+            },
+        );
+    }
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_sync_theme(move || {
+        let _ = &follow;
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().sync_theme(&window);
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_new_theme(move || {
@@ -1687,14 +1775,10 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             .set_reduce_motion(layout.reduce_motion || window.get_gaming());
         layout.unmute_on_join = Some(window.get_unmute_on_join());
         layout.deafen_on_join = window.get_deafen_on_join();
-        layout.level_voice = Some(window.get_level_voice());
-        obsidian_core::leveling::set_enabled(window.get_level_voice());
         layout.noise_suppression = chosen(&SUPPRESSORS, window.get_noise_suppression());
-        layout.noise_strength = chosen(&STRENGTHS, window.get_noise_strength());
         obsidian_core::noise::set(layout.noise_suppression);
-        obsidian_core::noise::set_strength(layout.noise_strength);
-        layout.reduce_room_echo = window.get_dereverb();
-        obsidian_core::noise::set_dereverb(layout.reduce_room_echo);
+        layout.voice = VoiceSettings::chosen(&window);
+        layout.voice.apply();
         layout.input_sensitivity = Some(window.get_sensitivity());
         obsidian_core::noise::set_sensitivity(layout.sensitivity() as f32);
         layout.input_mode = chosen(&INPUT_MODES, window.get_input_mode());
@@ -2213,6 +2297,68 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             (aside, at + inserted.len())
         };
         place_composer_caret(&window, caret);
+    });
+    // Slash commands are Discord's.
+    #[cfg(feature = "discord")]
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_command_moved(move |step| {
+            let Some(window) = weak.upgrade() else { return };
+            let mut adapter = state.borrow_mut();
+            use obsidian_core::application::SlashShown;
+            let count = match &adapter.app.state.slash.shown {
+                Some(SlashShown::Commands(rows)) => rows.len(),
+                Some(SlashShown::Options(bar)) => bar.choices.len(),
+                _ => 0,
+            };
+            if count == 0 {
+                return;
+            }
+            let index = adapter.command_index as i64 + i64::from(step);
+            adapter.command_index = index.rem_euclid(count as i64) as usize;
+            adapter.show_commands(&window);
+        });
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        // A command chosen writes its name, and a choice the option's value, as
+        // Discord's composer does; the composer holds what runs on Enter.
+        window.on_command_chosen(move |index| {
+            let Some(window) = weak.upgrade() else { return };
+            let caret = {
+                let mut adapter = state.borrow_mut();
+                use obsidian_core::application::SlashShown;
+                let chosen = adapter.command_window + usize::try_from(index).unwrap_or_default();
+                let (text, picked) = match &adapter.app.state.slash.shown {
+                    Some(SlashShown::Commands(rows)) => match rows.get(chosen) {
+                        Some(row) => (row.insert.clone(), Some(row.id.clone())),
+                        None => return,
+                    },
+                    Some(SlashShown::Options(bar)) => match bar.choices.get(chosen) {
+                        Some((_, insert)) => (insert.clone(), None),
+                        None => return,
+                    },
+                    _ => return,
+                };
+                adapter.command_index = 0;
+                adapter.command_window = 0;
+                if let Some(id) = picked {
+                    adapter.action(&window, Action::PickCommand(id));
+                }
+                let caret = text.len();
+                adapter.set_composer_text(&window, false, text);
+                caret
+            };
+            place_composer_caret(&window, (false, caret));
+        });
+    }
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_command_dismissed(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let mut adapter = state.borrow_mut();
+        adapter.command_index = 0;
+        adapter.action(&window, Action::DismissCommands);
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -2844,6 +2990,124 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                 player.set_progress((time as f64 / duration as f64).min(1.0) as f32);
             }
             player.set_time(refresh::video_time(time, video.duration_ms).into());
+        }
+    });
+    // The voice message playing: started, paused, moved and sped up from
+    // its bubble.
+    let voice = window.global::<VoicePlayer>();
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_toggle(move |item, index| {
+        if let Some(window) = weak.upgrade() {
+            let action = Action::ToggleVoiceMessage {
+                item: item.into(),
+                index: index.max(0) as usize,
+            };
+            state.borrow_mut().action(&window, action);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_seek(move |item, index, fraction| {
+        if let Some(window) = weak.upgrade() {
+            let action = Action::SeekVoiceMessage {
+                item: item.into(),
+                index: index.max(0) as usize,
+                fraction,
+            };
+            state.borrow_mut().action(&window, action);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_step_rate(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(&window, Action::VoiceMessageRate);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_mute(move || {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MuteVoiceMessages);
+        }
+    });
+    // An app's select menu under its message.
+    let menus = window.global::<SelectMenus>();
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    menus.on_open(move |item, custom_id| {
+        if let Some(window) = weak.upgrade() {
+            let action = Action::OpenSelect {
+                item: item.into(),
+                custom_id: custom_id.into(),
+            };
+            state.borrow_mut().action(&window, action);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    menus.on_pick(move |value| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::PickSelect(value.into()));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    menus.on_close(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(&window, Action::CloseSelect);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    menus.on_search(move |query| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::SearchSelect(query.into()));
+        }
+    });
+    // Recording a voice message, from the composer's + menu, and its bar.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_record_voice_message(move || {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::RecordVoiceMessage);
+        }
+    });
+    let recorder = window.global::<VoiceRecorder>();
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    recorder.on_stop(move || {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::StopVoiceRecording);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    recorder.on_discard(move || {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::DiscardVoiceRecording);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    recorder.on_send(move || {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::SendVoiceRecording);
         }
     });
     // The video playing: started from its cell, controlled from its bar.
@@ -3488,22 +3752,6 @@ fn report_delay(last: &Cell<Option<std::time::Instant>>) -> Duration {
     delay
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Instant;
-
-    #[test]
-    fn reports_at_once_after_a_quiet_spell_and_spaced_while_busy() {
-        let last = Cell::new(None);
-        assert_eq!(report_delay(&last), Duration::ZERO);
-        let busy = report_delay(&last);
-        assert!(busy > Duration::from_millis(40) && busy <= REPORT_SPACING);
-        last.set(Some(Instant::now() - REPORT_SPACING));
-        assert_eq!(report_delay(&last), Duration::ZERO);
-    }
-}
-
 /// A stream's quality as the share dialog and the live menu pick it:
 /// resolutions by their place in the list of modes.
 fn stream_quality(resolution: i32, fps: i32, high_quality: bool, audio: bool) -> voice::StreamQuality {
@@ -3518,5 +3766,21 @@ fn stream_quality(resolution: i32, fps: i32, high_quality: bool, audio: bool) ->
         fps: (fps.max(1) as u32).min(voice::MAX_FPS),
         high_quality,
         audio,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn reports_at_once_after_a_quiet_spell_and_spaced_while_busy() {
+        let last = Cell::new(None);
+        assert_eq!(report_delay(&last), Duration::ZERO);
+        let busy = report_delay(&last);
+        assert!(busy > Duration::from_millis(40) && busy <= REPORT_SPACING);
+        last.set(Some(Instant::now() - REPORT_SPACING));
+        assert_eq!(report_delay(&last), Duration::ZERO);
     }
 }

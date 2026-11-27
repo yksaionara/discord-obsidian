@@ -55,6 +55,37 @@ pub(super) fn live_events(
             })
             .into_iter()
             .collect(),
+        Event::InteractionModalCreate => crate::modal::Modal::parse(data)
+            .map(Live::Modal)
+            .into_iter()
+            .collect(),
+        Event::ApplicationCommandAutocompleteResponse => data["nonce"]
+            .as_str()
+            .map(|nonce| Live::Suggested {
+                nonce: nonce.to_owned(),
+                choices: crate::app_commands::suggested(&data["choices"]),
+            })
+            .into_iter()
+            .collect(),
+        Event::GuildApplicationCommandIndexUpdate => data["guild_id"]
+            .as_str()
+            .map(|guild| Live::CommandsChanged {
+                guild: guild.to_owned(),
+            })
+            .into_iter()
+            .collect(),
+        Event::SavedMessageCreate => crate::saved::Saved::parse(data)
+            .map(|saved| Live::Saved(Box::new(saved)))
+            .into_iter()
+            .collect(),
+        Event::SavedMessageDelete => data["message_id"]
+            .as_str()
+            .map(|message| Live::Unsaved {
+                channel: channel(),
+                message: message.to_owned(),
+            })
+            .into_iter()
+            .collect(),
         Event::ChannelPinsUpdate => vec![Live::PinsChanged {
             guild: data["guild_id"].as_str().unwrap_or(PRIVATE).to_owned(),
             channel: channel(),

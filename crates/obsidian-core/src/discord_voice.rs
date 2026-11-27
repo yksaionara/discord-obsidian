@@ -119,6 +119,18 @@ async fn next_report(share: &mut Option<Share>) -> Option<Report> {
 /// Asking Discord to start the stream, once frames flow.
 type Starting = Option<Pin<Box<dyn Future<Output = Result<StreamServer>>>>>;
 
+/// Fires once a stream that's starting has taken too long, or never.
+async fn overdue(deadline: &mut Option<Pin<Box<tokio::time::Sleep>>>) {
+    match deadline {
+        Some(deadline) => deadline.as_mut().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// How long a stream may take from its first frame to being live: Discord's
+/// 15 s to name a server, and the connection's 15 s handshake.
+const START_TIMEOUT: Duration = Duration::from_secs(35);
+
 /// Discord's answer to going live, or never while it isn't asked.
 async fn started(starting: &mut Starting) -> Result<StreamServer> {
     match starting {
@@ -410,6 +422,8 @@ pub(crate) async fn call(
     let mut cameras = Cameras::start(call.video_frames());
     let mut share: Option<Share> = None;
     let mut starting: Starting = None;
+    // When a stream that's starting gives up, until it's live.
+    let mut live_deadline: Option<Pin<Box<tokio::time::Sleep>>> = None;
     let mut watches: Vec<Watch> = Vec::new();
     // Ringing the others while they haven't come, with the ringback heard meanwhile.
     let mut ringing: Ringing = None;
@@ -482,6 +496,9 @@ pub(crate) async fn call(
         }
         let mut ticks = tokio::time::interval(Duration::from_millis(150));
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Other applications lowered while someone speaks, and until when.
+        let mut attenuation = 0.0f32;
+        let mut attenuated_until: Option<std::time::Instant> = None;
         let mut volumes = crate::volume::changes();
         // The voice connection dropped, and the call ends when `lost` comes
         // unless Discord says it moved the call meanwhile.
@@ -552,6 +569,33 @@ pub(crate) async fn call(
                 unrung = false;
                 state.warning = None;
                 snapshots.send_replace(state.clone());
+            }
+            // Discord's No Audio Detected Warning.
+            let silent = crate::noise::silence_warning()
+                && !state.muted
+                && capture.as_ref().is_some_and(Capture::silent);
+            let warned = state.warning.as_deref() == Some(NO_INPUT);
+            if silent && state.warning.is_none() {
+                state.warning = Some(NO_INPUT.into());
+                snapshots.send_replace(state.clone());
+            } else if !silent && warned {
+                state.warning = None;
+                snapshots.send_replace(state.clone());
+            }
+            // Discord's Global Attenuation, held a moment past the last word.
+            let others = !state.deafened && !hearing.speaking().is_empty();
+            let wanted = crate::noise::attenuation(talking, others);
+            if wanted > 0.0 {
+                attenuated_until = Some(std::time::Instant::now() + ATTENUATION_HOLD);
+            }
+            let level = if attenuated_until.is_some_and(|until| until > std::time::Instant::now()) {
+                wanted.max(attenuation)
+            } else {
+                0.0
+            };
+            if level != attenuation {
+                attenuation = level;
+                crate::audio_io::attenuate(level);
             }
             let calling = guild == PRIVATE
                 && !state.deafened
@@ -795,9 +839,11 @@ pub(crate) async fn call(
                                 }
                                 let (discord, guild, channel) = (discord.clone(), guild.to_owned(), channel.to_owned());
                                 starting = Some(Box::pin(async move { discord.go_live(&guild, &channel).await }));
+                                live_deadline = Some(Box::pin(tokio::time::sleep(START_TIMEOUT)));
                             }
                         }
                         Some(Report::Streaming) => {
+                            live_deadline = None;
                             if let Some(sharing) = state.sharing.as_mut() {
                                 sharing.phase = SharePhase::Live;
                             }
@@ -844,6 +890,17 @@ pub(crate) async fn call(
                         }
                     }
                     snapshots.send_replace(state.clone());
+                }
+                () = overdue(&mut live_deadline) => {
+                    live_deadline = None;
+                    let stuck = state.sharing.as_ref().is_some_and(|sharing| sharing.phase == SharePhase::Starting);
+                    if stuck && let Some(stopped) = share.take() {
+                        tracing::warn!("the stream didn't go live in time");
+                        stopped.stop(discord, state);
+                        starting = None;
+                        state.error = Some("Your stream didn't start: Discord didn't connect it in time. Try going live again.".into());
+                        snapshots.send_replace(state.clone());
+                    }
                 }
                 result = started(&mut starting) => {
                     starting = None;
@@ -1082,6 +1139,7 @@ pub(crate) async fn call(
         stopped.stop(discord, state);
     }
     Watch::stop_where(&mut watches, discord, state, |_| true);
+    crate::audio_io::attenuate(0.0);
     state.phase = Phase::Leaving;
     snapshots.send_replace(state.clone());
     drop(ringback);
@@ -1096,6 +1154,11 @@ pub(crate) async fn call(
     discord.leave(guild);
     result
 }
+
+/// Discord's words when the microphone gives nothing.
+const NO_INPUT: &str = "Well, it looks like Discord is not detecting any input from your mic. Let's fix that! Check the input device in Voice & Video settings.";
+/// Other applications stay lowered this long after the last word.
+const ATTENUATION_HOLD: Duration = Duration::from_millis(600);
 
 /// How long a dropped voice connection waits for Discord to say it moved
 /// the call, before the call ends.

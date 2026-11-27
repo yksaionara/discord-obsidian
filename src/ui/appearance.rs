@@ -14,8 +14,41 @@ impl Adapter {
         window.set_theme_id(id.as_str().into());
         self.set_theme(window, &chosen);
         self.layout.theme = Some(id);
+        // Choosing a theme stops following the system, as in Discord.
+        self.layout.theme_sync = false;
+        window.set_theme_sync(false);
         self.layout.write(&self.root);
         true
+    }
+
+    /// Discord's "Sync with computer": shows Dark or Light as the system
+    /// shows its apps, and keeps following it.
+    pub(super) fn sync_theme(&mut self, window: &ObsidianWindow) {
+        self.layout.theme_sync = true;
+        window.set_theme_sync(true);
+        self.show_synced(window, theme::synced(theme::system_dark(window)));
+        self.layout.write(&self.root);
+    }
+
+    /// Follows the system into dark or light mode while synced, unless the
+    /// theme editor is open.
+    pub(super) fn follow_system_theme(&mut self, window: &ObsidianWindow) {
+        if !self.layout.theme_sync || self.theme_editor.is_some() {
+            return;
+        }
+        let id = theme::synced(theme::system_dark(window));
+        if window.get_theme_id() != id {
+            self.show_synced(window, id);
+            self.layout.write(&self.root);
+        }
+    }
+
+    fn show_synced(&mut self, window: &ObsidianWindow, id: &'static str) {
+        if let Some((id, synced)) = theme::lookup(id, &[]) {
+            window.set_theme_id(id.into());
+            self.set_theme(window, &synced);
+            self.layout.theme = Some(id.to_owned());
+        }
     }
 
     /// Shows the window in another theme's colours, building again what
@@ -193,7 +226,7 @@ impl Adapter {
             }
         };
         close_theme_editor(window);
-        window.set_themes(theme::cards(&self.layout.custom_themes));
+        theme::show_cards(window, &self.layout.custom_themes);
         self.choose_theme(window, &id);
     }
 
@@ -220,7 +253,7 @@ impl Adapter {
         if let Some(id) = editor.editing {
             self.layout.custom_themes.retain(|custom| custom.id != id);
         }
-        window.set_themes(theme::cards(&self.layout.custom_themes));
+        theme::show_cards(window, &self.layout.custom_themes);
         let (id, _) = theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes);
         let id = id.to_owned();
         self.choose_theme(window, &id);

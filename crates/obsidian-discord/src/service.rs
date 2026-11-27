@@ -518,9 +518,32 @@ pub enum Live {
     /// A message was pinned or unpinned in a channel, of `guild` or
     /// [`ready::PRIVATE`], for its pins while they're open.
     PinsChanged { guild: String, channel: String },
+    /// This account saved a message, here or on another of its devices: a
+    /// bookmark, or a reminder.
+    Saved(Box<crate::saved::Saved>),
+    /// This account removed a bookmark or a reminder.
+    Unsaved {
+        channel: String,
+        message: String,
+    },
     /// An interaction this session sent, by its nonce, was answered by its
     /// app, or failed.
-    Interaction { nonce: String, failed: bool },
+    Interaction {
+        nonce: String,
+        failed: bool,
+    },
+    /// A server's apps or their slash commands changed, so the list kept
+    /// of them must be asked for again.
+    CommandsChanged {
+        guild: String,
+    },
+    /// An app opened a form in answer to an interaction this session sent.
+    Modal(Arc<crate::modal::Modal>),
+    /// An app's suggestions for an option, answering the ask with `nonce`.
+    Suggested {
+        nonce: String,
+        choices: Vec<crate::app_commands::Choice>,
+    },
     /// A server's stickers, as GUILD_STICKERS_UPDATE gives them all, for
     /// Stickers while it's open.
     ServerStickers {
@@ -1096,6 +1119,33 @@ impl Discord {
     pub async fn pins(&self, guild: &str, channel: &str) -> Result<Vec<Message>> {
         let values = self.api.pins(channel).await?;
         Ok(self.learn_authors(guild, &values).await)
+    }
+
+    /// The reminders saved, and which messages are bookmarked, by id.
+    pub async fn saved_messages(&self) -> Result<crate::saved::SavedList> {
+        self.api.saved_messages().await
+    }
+
+    /// A page of bookmarks, the latest saved first, saved before `before`.
+    pub async fn bookmarks(&self, before: Option<u64>) -> Result<crate::saved::Bookmarks> {
+        self.api.bookmarks(before).await
+    }
+
+    /// Saves a message as a bookmark, or as a reminder due at a time; the
+    /// gateway tells of it too, with SAVED_MESSAGE_CREATE.
+    pub async fn save_message(
+        &self,
+        channel: &str,
+        message: &str,
+        due_at_ms: Option<u64>,
+    ) -> Result<crate::saved::Saved> {
+        let value = self.api.save_message(channel, message, due_at_ms).await?;
+        crate::saved::Saved::parse(&value)
+            .ok_or_else(|| anyhow!("could not understand Discord's answer"))
+    }
+
+    pub async fn unsave_message(&self, channel: &str, message: &str) -> Result<()> {
+        self.api.unsave_message(channel, message).await
     }
 
     /// A page of the messages a search finds, the newest first, from the
@@ -2088,6 +2138,40 @@ impl Discord {
         app: &crate::message::MessageApp,
         custom_id: &str,
     ) -> Result<String> {
+        let data = json!({"component_type": 2, "custom_id": custom_id});
+        self.interact_with(guild, channel, message, app, data).await
+    }
+
+    /// Chooses `values` in a message's select menu, telling its app as
+    /// Discord's client does once the choice is made: the menu's component
+    /// type, its `custom_id`, and the values, option values or ids. Returns
+    /// the interaction's nonce, as [`Discord::press_button`] does.
+    pub async fn choose(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        message: &str,
+        app: &crate::message::MessageApp,
+        (kind, custom_id): (crate::components::SelectKind, &str),
+        values: &[String],
+    ) -> Result<String> {
+        let data = json!({
+            "component_type": kind.component_type(),
+            "custom_id": custom_id,
+            "values": values,
+        });
+        self.interact_with(guild, channel, message, app, data).await
+    }
+
+    /// A message component's interaction, of `data`.
+    async fn interact_with(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        message: &str,
+        app: &crate::message::MessageApp,
+        data: Value,
+    ) -> Result<String> {
         let (reply, answer) = oneshot::channel();
         self.requests
             .send(Request::Session(reply))
@@ -2108,10 +2192,148 @@ impl Discord {
                 "message_id": message,
                 "application_id": app.id,
                 "session_id": session,
-                "data": {"component_type": 2, "custom_id": custom_id},
+                "data": data,
             }))
             .await?;
         Ok(nonce)
+    }
+
+    /// The slash commands a channel offers: its server's apps', or a DM's,
+    /// and those installed on the account, asked for together as Discord's
+    /// client asks. One that fails leaves the other's commands.
+    pub async fn command_index(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+    ) -> Result<crate::app_commands::CommandIndex> {
+        use crate::app_commands::CommandIndex;
+        let place = match guild {
+            Some(guild) => format!("/guilds/{guild}"),
+            None => format!("/channels/{channel}"),
+        };
+        let (here, mine) = tokio::join!(
+            self.api.command_index(&place),
+            self.api.command_index("/users/@me")
+        );
+        if let (Err(error), Err(_)) = (&here, &mine) {
+            bail!("Discord didn't list the commands here: {error}");
+        }
+        let mut index = here
+            .map(|body| CommandIndex::parse(&body))
+            .unwrap_or_default();
+        if let Ok(body) = mine {
+            index.merge(CommandIndex::parse(&body));
+        }
+        Ok(index)
+    }
+
+    /// Runs an app's slash command (`POST /interactions`, type 2) with the
+    /// `data` [`crate::app_commands::Invocation::data`] made, as Discord's
+    /// client does. Returns the nonce that [`Live::Interaction`] names when
+    /// the app answers or it fails.
+    pub async fn run_command(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        application: &str,
+        data: Value,
+    ) -> Result<String> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected right now."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        let nonce = crate::message::nonce();
+        let mut body = json!({
+            "type": 2,
+            "application_id": application,
+            "channel_id": channel,
+            "session_id": session,
+            "data": data,
+            "nonce": nonce,
+            "analytics_location": "slash_ui",
+        });
+        if let Some(guild) = guild {
+            body["guild_id"] = json!(guild);
+        }
+        self.api.interact(&body).await?;
+        Ok(nonce)
+    }
+
+    /// Asks an app for suggestions for the option being typed
+    /// (`POST /interactions`, type 4), with the `data`
+    /// [`crate::app_commands::Invocation::suggestion_request`] made and a
+    /// `nonce` from [`crate::message::nonce`], as Discord's client asks.
+    /// [`Live::Suggested`] answers by the nonce, or [`Live::Interaction`]
+    /// says it failed.
+    pub async fn suggest(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        application: &str,
+        data: Value,
+        nonce: &str,
+    ) -> Result<()> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected right now."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        let mut body = json!({
+            "type": 4,
+            "application_id": application,
+            "channel_id": channel,
+            "session_id": session,
+            "data": data,
+            "nonce": nonce,
+        });
+        if let Some(guild) = guild {
+            body["guild_id"] = json!(guild);
+        }
+        self.api.interact(&body).await
+    }
+
+    /// Submits an app's modal (`POST /interactions`, type 5) with the `data`
+    /// [`crate::modal::Modal::data`] made and a `nonce` from
+    /// [`crate::message::nonce`], as Discord's client does.
+    /// [`Live::Interaction`] says whether the app took it.
+    pub async fn submit_modal(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        application: &str,
+        data: Value,
+        nonce: &str,
+    ) -> Result<()> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected right now."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        let mut body = json!({
+            "type": 5,
+            "application_id": application,
+            "channel_id": channel,
+            "data": data,
+            "session_id": session,
+            "nonce": nonce,
+        });
+        if let Some(guild) = guild {
+            body["guild_id"] = json!(guild);
+        }
+        self.api.interact(&body).await
     }
 
     /// Tells the session whether Discord Obsidian's window is in front, which

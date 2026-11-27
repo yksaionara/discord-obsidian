@@ -439,6 +439,7 @@ impl Connection {
             let udp = UdpSocket::bind(if ip.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).await?;
             widen(&udp);
             udp.connect((ip, port)).await?;
+            prioritize(&udp);
             let (address, port) = discover(&udp, ssrc).await?;
             send_json(
                 &mut ws,
@@ -621,6 +622,74 @@ fn announced(op: u64, data: &Value) -> Option<u64> {
 /// packets viewers ask for again come in bursts, and Windows' default send
 /// buffer is small enough that one overflowed at 360 fps.
 const UDP_BUFFER: usize = 4 << 20;
+
+static QUALITY_OF_SERVICE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Discord's "Quality of Service" setting: media connections made after this
+/// mark their packets as high priority, as Discord's client does, through
+/// qWAVE's voice traffic type on Windows and DSCP Expedited Forwarding
+/// elsewhere. Off by default, as in Discord: some routers misbehave.
+pub fn set_quality_of_service(on: bool) {
+    QUALITY_OF_SERVICE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Marks a connected media socket's packets as high priority, if asked.
+fn prioritize(udp: &UdpSocket) {
+    if !QUALITY_OF_SERVICE.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows::Win32::{
+            Foundation::HANDLE,
+            NetworkManagement::QoS::{
+                QOS_NON_ADAPTIVE_FLOW, QOS_VERSION, QOSAddSocketToFlow, QOSCreateHandle,
+                QOSTrafficTypeVoice,
+            },
+            Networking::WinSock::SOCKET,
+        };
+        // One handle for the process, kept while it runs: a socket's flow
+        // ends with the socket.
+        static HANDLE_QOS: std::sync::OnceLock<Option<isize>> = std::sync::OnceLock::new();
+        let handle = HANDLE_QOS.get_or_init(|| {
+            let version = QOS_VERSION {
+                MajorVersion: 1,
+                MinorVersion: 0,
+            };
+            let mut handle = HANDLE::default();
+            // SAFETY: both pointers outlive the call.
+            unsafe { QOSCreateHandle(&raw const version, &raw mut handle) }
+                .as_bool()
+                .then_some(handle.0 as isize)
+        });
+        let Some(handle) = *handle else {
+            tracing::debug!("qWAVE isn't available; packets keep their priority");
+            return;
+        };
+        let mut flow = 0u32;
+        // SAFETY: the socket is connected, so qWAVE takes its peer; the
+        // flow id outlives the call.
+        let added = unsafe {
+            QOSAddSocketToFlow(
+                HANDLE(handle as *mut _),
+                SOCKET(udp.as_raw_socket() as usize),
+                None,
+                QOSTrafficTypeVoice,
+                Some(QOS_NON_ADAPTIVE_FLOW),
+                &raw mut flow,
+            )
+        };
+        if !added.as_bool() {
+            tracing::debug!(error = %std::io::Error::last_os_error(), "packets keep their priority");
+        }
+    }
+    #[cfg(not(windows))]
+    if let Err(error) = socket2::SockRef::from(udp).set_tos_v4(0xb8) {
+        tracing::debug!(%error, "packets keep their priority");
+    }
+}
 
 /// Asks for [`UDP_BUFFER`] each way; the system may give less.
 fn widen(udp: &UdpSocket) {

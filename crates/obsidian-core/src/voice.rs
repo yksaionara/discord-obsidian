@@ -97,7 +97,7 @@ pub enum Resolution {
     #[default]
     P1080,
     P1440,
-    /// The screen's own size, up to 4K.
+    /// The screen's own size, up to 1440p.
     Source,
 }
 
@@ -425,7 +425,7 @@ pub struct Controller {
 }
 
 impl Controller {
-    #[cfg(all(test, feature = "matrix"))]
+    #[cfg(all(test, feature = "matrix", target_os = "linux"))]
     pub(crate) fn start(session: SessionLease) -> Result<Self> {
         let calls = Calls {
             session,

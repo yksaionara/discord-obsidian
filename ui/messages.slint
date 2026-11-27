@@ -393,6 +393,302 @@ component VideoCell inherits Rectangle {
 
 /// A file, or an image without a preview, as a card.
 export struct FileCell { index: int, name: string, detail: string }
+/// A voice message: its attachment's index, its waveform's bars from 0 to
+/// 1, as many as Discord's client draws for its length, and how long it
+/// plays, in milliseconds, as Discord says.
+export struct VoiceCell { index: int, bars: [float], duration: int }
+
+/// The voice message playing, or paused partway, which its bubble shows.
+export global VoicePlayer {
+    /// Its item and attachment; empty for none.
+    in property <string> item;
+    in property <int> index: -1;
+    in property <bool> playing;
+    in property <bool> loading;
+    in property <bool> failed;
+    /// How far in it is, and how long it plays, in milliseconds; the
+    /// length is 0 until its file says.
+    in property <int> position;
+    in property <int> duration;
+    /// The speed as Discord's button names it, such as "1X" or ".75X".
+    in property <string> rate: "1X";
+    in property <bool> muted;
+    /// Plays an item's voice message, or pauses it.
+    callback toggle(string, int);
+    /// Moves an item's voice message this far through, from 0 to 1.
+    callback seek(string, int, float);
+    callback step-rate();
+    callback mute();
+}
+
+/// The voice message being recorded, which takes the composer's place.
+export global VoiceRecorder {
+    in property <bool> active;
+    /// Still listening; once stopped, it plays before it's sent.
+    in property <bool> recording;
+    /// How long it's recorded, in milliseconds.
+    in property <int> elapsed;
+    /// Near Discord's longest: the timer blinks.
+    in property <bool> warn;
+    /// The latest levels while recording, oldest first, from 0 to 1.
+    in property <[float]> levels;
+    /// Once stopped: its waveform's bars, as a sent one draws them, and how
+    /// long it plays, in milliseconds.
+    in property <[float]> bars;
+    in property <int> duration;
+    callback stop();
+    callback discard();
+    callback send();
+}
+
+/// Discord's recording bar, in the composer's place: while recording, a
+/// stop button, the waveform as it comes and a red dot with the time; once
+/// stopped, the play button, the waveform and the time, as a sent voice
+/// message's. Delete and Send close it, and Enter sends.
+export component VoiceRecorderBar inherits FocusScope {
+    property <string> item: "obsidian:voice-recording";
+    property <bool> stopped: !VoiceRecorder.recording;
+    property <bool> current: VoicePlayer.item == root.item;
+    property <bool> playing: root.current && VoicePlayer.playing;
+    property <int> duration: root.current && VoicePlayer.duration > 0 ? VoicePlayer.duration : VoiceRecorder.duration;
+    property <bool> played: root.current && (VoicePlayer.playing || VoicePlayer.position > 0);
+    property <int> heard-bars: root.played && root.duration > 0 ? Math.round(VoicePlayer.position / root.duration * VoiceRecorder.bars.length) : 0;
+    property <int> seconds: !root.stopped ? Math.floor(VoiceRecorder.elapsed / 1000)
+        : root.played ? Math.max(0, Math.ceil((root.duration - VoicePlayer.position) / 1000))
+        : Math.ceil(root.duration / 1000);
+    accessible-role: groupbox;
+    accessible-label: "Voice Message";
+    init => { self.focus(); }
+    key-pressed(event) => {
+        if event.text == Key.Return {
+            VoiceRecorder.send();
+            return accept;
+        }
+        reject
+    }
+    function press() {
+        if root.stopped {
+            VoicePlayer.toggle(root.item, 0);
+        } else {
+            VoiceRecorder.stop();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 8px; spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 32px; height: 32px;
+                border-radius: 16px;
+                background: touch.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+                accessible-role: button;
+                accessible-label: !root.stopped ? "Stop Voice Message Recording" : root.playing ? "Pause voice message" : "Play voice message";
+                accessible-action-default => { root.press(); }
+                Image {
+                    source: !root.stopped ? @image-url("icons/square.svg") : root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                    width: 16px; height: 16px;
+                    colorize: #ffffff;
+                }
+                touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Tip.text = "";
+                        root.press();
+                    }
+                    changed has-hover => {
+                        if self.has-hover {
+                            Tip.text = !root.stopped ? "Stop" : root.playing ? "Pause" : "Play";
+                            Tip.side = 0;
+                            Tip.x = self.absolute-position.x + self.width / 2;
+                            Tip.y = self.absolute-position.y;
+                        } else if Tip.text == "Stop" || Tip.text == "Pause" || Tip.text == "Play" {
+                            Tip.text = "";
+                        }
+                    }
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                property <[float]> shown: root.stopped ? VoiceRecorder.bars : VoiceRecorder.levels;
+                width: Math.max(1, self.shown.length) * 6px - 4px; height: 32px;
+                for level[index] in self.shown: Rectangle {
+                    x: index * 6px; width: 2px; border-radius: 1px;
+                    height: 22px * level + 2px; y: (parent.height - self.height) / 2;
+                    background: !root.stopped ? Theme.secondary : index < root.heard-bars ? Theme.text : Theme.muted;
+                }
+                if root.stopped: TouchArea {
+                    mouse-cursor: pointer;
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                            VoicePlayer.seek(root.item, 0, Math.clamp(self.mouse-x / self.width, 0, 1));
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            VoicePlayer.seek(root.item, 0, Math.clamp(self.mouse-x / self.width, 0, 1));
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            if !root.stopped: VerticalLayout {
+                alignment: center;
+                Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.danger; }
+            }
+            Text {
+                vertical-alignment: center; font-size: 14px;
+                color: Theme.secondary;
+                // Near the end, it blinks.
+                opacity: VoiceRecorder.recording && VoiceRecorder.warn && Math.mod(animation-tick() / 1ms, 1000) >= 500 ? 0.3 : 1;
+                text: Math.floor(root.seconds / 60) + ":" + (Math.mod(root.seconds, 60) < 10 ? "0" : "") + Math.mod(root.seconds, 60);
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: @image-url("icons/trash-2.svg"); label: "Delete Voice Message";
+                glyph: 20px;
+                clicked => { VoiceRecorder.discard(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: @image-url("icons/send-horizontal.svg"); label: "Send Voice Message";
+                glyph: 20px; emphasis: true;
+                clicked => { VoiceRecorder.send(); }
+            }
+        }
+    }
+}
+
+/// A voice message as Discord's client draws it: a pill with a round play
+/// button, the waveform's bars, the time left, the speed and the volume.
+/// Playing, it turns the accent colour, and the bars heard so far light up.
+export component VoiceMessageView inherits HorizontalLayout {
+    in property <VoiceCell> voice;
+    in property <string> item;
+    in property <bool> preview;
+    property <bool> current: VoicePlayer.item == root.item && VoicePlayer.index == root.voice.index;
+    property <bool> playing: root.current && VoicePlayer.playing;
+    property <int> duration: root.current && VoicePlayer.duration > 0 ? VoicePlayer.duration : root.voice.duration;
+    property <int> position: root.current ? VoicePlayer.position : 0;
+    /// Started, and not back at the start: the time counts down.
+    property <bool> played: root.current && (VoicePlayer.playing || VoicePlayer.position > 0);
+    property <int> heard-bars: !root.played ? root.voice.bars.length
+        : root.duration > 0 ? Math.round(root.position / root.duration * root.voice.bars.length) : 0;
+    property <int> seconds: root.played ? Math.max(0, Math.ceil((root.duration - root.position) / 1000)) : Math.ceil(root.duration / 1000);
+    property <color> heard: root.playing ? #ffffff : root.played ? Theme.text : Theme.muted;
+    property <color> unheard: root.playing ? #ffffff66 : Theme.edge;
+    padding-top: 4px;
+    accessible-role: groupbox;
+    accessible-label: "Voice Message";
+    Rectangle {
+        height: 48px; width: bubble.preferred-width;
+        border-radius: 24px;
+        background: root.playing ? Theme.accent : Theme.sidebar;
+        animate background { duration: 150ms; }
+        bubble := HorizontalLayout {
+            padding: 8px; padding-right: 10px; spacing: 10px; alignment: start;
+            Rectangle {
+                width: 32px; height: 32px;
+                border-radius: 16px;
+                background: root.playing ? #ffffff : touch.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+                accessible-role: button;
+                accessible-label: root.playing ? "Pause voice message" : "Play voice message";
+                accessible-action-default => { VoicePlayer.toggle(root.item, root.voice.index); }
+                Image {
+                    source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                    width: 16px; height: 16px;
+                    colorize: root.playing ? Theme.accent : #ffffff;
+                }
+                touch := TouchArea {
+                    enabled: !root.preview;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Tip.text = "";
+                        VoicePlayer.toggle(root.item, root.voice.index);
+                    }
+                    changed has-hover => {
+                        if self.has-hover {
+                            Tip.text = root.playing ? "Pause" : "Play";
+                            Tip.side = 0;
+                            Tip.x = self.absolute-position.x + self.width / 2;
+                            Tip.y = self.absolute-position.y;
+                        } else if Tip.text == "Pause" || Tip.text == "Play" {
+                            Tip.text = "";
+                        }
+                    }
+                }
+            }
+            waveform := Rectangle {
+                width: Math.max(1, root.voice.bars.length) * 6px - 4px; height: 32px;
+                for level[index] in root.voice.bars: Rectangle {
+                    x: index * 6px; width: 2px; border-radius: 1px;
+                    height: 22px * level + 2px; y: (parent.height - self.height) / 2;
+                    background: index < root.heard-bars ? root.heard : root.unheard;
+                }
+                drag := TouchArea {
+                    enabled: !root.preview;
+                    mouse-cursor: pointer;
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                            VoicePlayer.seek(root.item, root.voice.index, Math.clamp(self.mouse-x / self.width, 0, 1));
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            VoicePlayer.seek(root.item, root.voice.index, Math.clamp(self.mouse-x / self.width, 0, 1));
+                        }
+                    }
+                }
+            }
+            Text {
+                vertical-alignment: center; font-size: 14px;
+                color: root.playing ? #ffffff : Theme.secondary;
+                text: root.current && VoicePlayer.failed ? "--:--"
+                    : Math.floor(root.seconds / 60) + ":" + (Math.mod(root.seconds, 60) < 10 ? "0" : "") + Math.mod(root.seconds, 60);
+            }
+            VerticalLayout {
+              alignment: center;
+              Rectangle {
+                width: speed.preferred-width + 8px; height: 20px;
+                border-radius: 4px;
+                background: speed-touch.has-hover ? (root.playing ? #ffffff33 : Theme.hover) : transparent;
+                accessible-role: button;
+                accessible-label: "Playback speed " + VoicePlayer.rate;
+                accessible-action-default => { VoicePlayer.step-rate(); }
+                speed := Text {
+                    text: VoicePlayer.rate; font-size: 12px; font-weight: 600;
+                    color: root.playing ? #ffffff : Theme.secondary;
+                }
+                speed-touch := TouchArea {
+                    enabled: !root.preview;
+                    mouse-cursor: pointer;
+                    clicked => { VoicePlayer.step-rate(); }
+                }
+              }
+            }
+            VerticalLayout {
+              alignment: center;
+              IconButton {
+                size: 24px; glyph: 18px;
+                icon: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                label: VoicePlayer.muted ? "Unmute" : "Mute";
+                tint: root.playing ? #ffffff : Theme.secondary;
+                enabled: !root.preview;
+                clicked => { VoicePlayer.mute(); }
+              }
+            }
+        }
+    }
+    Rectangle { horizontal-stretch: 1; }
+}
 /// A block of a message's or card's text, as Discord's client lays them
 /// out: Markdown (0), a heading (1 to 3), subtext (4) or fenced code (5).
 /// Slint's Markdown draws none but the first. A `quoted` block is behind a
@@ -430,8 +726,8 @@ export enum CardRowKind { text, media, separator, buttons, select, unknown }
 /// A row of a Discord app's card, of one `kind`, with the fields it uses:
 /// text and what a section shows beside it; pictures in a gallery and file
 /// cards; a gap, `large`, with or without a `divider`; buttons; or a menu
-/// by what it shows, which doesn't open; or a note that Discord Obsidian can't show
-/// some components.
+/// by what it shows, which opens when `select-enabled`, by its `select-id`;
+/// or a note that Discord Obsidian can't show some components.
 export struct CardRow {
     kind: CardRowKind,
     blocks: [TextBlock],
@@ -440,7 +736,137 @@ export struct CardRow {
     images: [ImageCell], gallery-width: int, gallery-height: int, files: [FileCell],
     divider: bool, large: bool,
     buttons: [CardButton],
-    select: string,
+    select: string, select-id: string, select-enabled: bool,
+}
+
+/// A line of an open select menu: an option, or a person, role or channel.
+export struct SelectLine {
+    value: string, label: string, description: string, emoji: string,
+    /// A person's picture, by its address, and their initial without one.
+    picture-url: string, initial: string, person: bool,
+    picked: bool,
+}
+
+/// The app's select menu open under its message, as Discord's client opens
+/// one: a list below it, or above it near the window's bottom.
+export global SelectMenus {
+    in property <bool> is-open;
+    in property <string> item;
+    in property <string> custom-id;
+    /// It picks several, with a box by each line, and tells its app as it
+    /// closes; a menu of one tells it as a line is picked.
+    in property <bool> several;
+    /// A menu of people, roles or channels, which a search narrows.
+    in property <bool> searchable;
+    in property <[SelectLine]> lines;
+    /// Where the menu it opened from is, in the window.
+    in-out property <length> x;
+    in-out property <length> y;
+    in-out property <length> width;
+    in-out property <length> height;
+    callback open(string, string);
+    callback pick(string);
+    callback close();
+    callback search(string);
+}
+
+/// The open select menu's list, over the window: a click outside it or
+/// Escape closes it.
+export component SelectMenuPopup inherits FocusScope {
+    property <length> list-height: Math.min(320px, lines.preferred-height + (SelectMenus.searchable ? 52px : 0px) + 8px);
+    property <bool> below: SelectMenus.y + SelectMenus.height + 4px + root.list-height <= root.height - 8px;
+    init => {
+        if !SelectMenus.searchable { self.focus(); }
+    }
+    key-pressed(event) => {
+        if event.text == Key.Escape {
+            SelectMenus.close();
+            return accept;
+        }
+        reject
+    }
+    TouchArea {
+        clicked => { SelectMenus.close(); }
+    }
+    Rectangle {
+        x: Math.max(8px, Math.min(root.width - self.width - 8px, SelectMenus.x));
+        y: root.below ? SelectMenus.y + SelectMenus.height + 4px : Math.max(8px, SelectMenus.y - 4px - self.height);
+        width: SelectMenus.width; height: root.list-height;
+        background: Theme.raised; border-radius: 8px;
+        border-width: 1px; border-color: Theme.edge; clip: true;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
+        accessible-role: list;
+        // Clicks inside stay inside.
+        TouchArea { }
+        VerticalLayout {
+            padding: 4px; spacing: 4px;
+            if SelectMenus.searchable: search := TextField {
+                height: 40px; text-size: 14px; placeholder: "Search"; label: "Search";
+                init => { self.focus-input(); }
+                edited(text) => { SelectMenus.search(text); }
+            }
+            Flickable {
+                content-height: lines.preferred-height;
+                lines := VerticalLayout {
+                    spacing: 0px; alignment: start;
+                    for line in SelectMenus.lines: Rectangle {
+                        height: line.description != "" ? 52px : 40px;
+                        border-radius: 4px;
+                        background: touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: list-item;
+                        accessible-label: line.label;
+                        accessible-checked: line.picked;
+                        accessible-action-default => { SelectMenus.pick(line.value); }
+                        HorizontalLayout {
+                            padding-left: 8px; padding-right: 8px; spacing: 8px;
+                            if line.person: VerticalLayout {
+                                alignment: center;
+                                Avatar { size: 24px; picture-url: line.picture-url; initial: line.initial; }
+                            }
+                            if line.emoji != "": Text {
+                                text: line.emoji; font-size: 18px; vertical-alignment: center;
+                            }
+                            VerticalLayout {
+                                alignment: center; horizontal-stretch: 1;
+                                Text {
+                                    text: line.label; color: Theme.text; font-size: 15px; font-weight: 500;
+                                    overflow: elide;
+                                }
+                                if line.description != "": Text {
+                                    text: line.description; color: Theme.muted; font-size: 13px; overflow: elide;
+                                }
+                            }
+                            if SelectMenus.several: VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 20px; height: 20px; border-radius: 4px;
+                                    background: line.picked ? Theme.accent : transparent;
+                                    border-width: line.picked ? 0px : 2px; border-color: Theme.secondary;
+                                    if line.picked: Image {
+                                        source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent;
+                                    }
+                                }
+                            }
+                            if !SelectMenus.several && line.picked: VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    source: @image-url("icons/check.svg"); width: 18px; height: 18px; colorize: Theme.accent;
+                                }
+                            }
+                        }
+                        touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { SelectMenus.pick(line.value); }
+                        }
+                    }
+                    if SelectMenus.lines.length == 0: Text {
+                        height: 40px; text: "No results found"; color: Theme.muted; font-size: 14px;
+                        vertical-alignment: center; horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+    }
 }
 /// A container of a Discord message's components, framed with a bar of its
 /// colour, or the components outside one.
@@ -725,6 +1151,8 @@ export struct MessageRow {
     /// Discord stickers, drawn on their own at their size.
     stickers: [ImageCell],
     files: [FileCell],
+    /// A voice message's recording: none, or one.
+    voices: [VoiceCell],
     embeds: [EmbedCard],
     /// A Discord app's buttons and menus, or a message made of components.
     cards: [ComponentCard],
@@ -1075,6 +1503,8 @@ export component MessageMenu inherits Rectangle {
     in property <bool> media-video;
     /// Its address on the web, or the link's, or empty when it has none.
     in property <string> link;
+    /// A voice message, whose recording it saves.
+    property <bool> voice-file: root.menu-message.voices.length > 0 && root.media-index < 0 && !root.preview;
     in property <bool> menu-can-react;
     /// The reactions this device uses most.
     in property <[EmojiCell]> menu-reactions;
@@ -1084,6 +1514,19 @@ export component MessageMenu inherits Rectangle {
     /// from a verified device.
     in property <bool> forward-allowed;
     in property <bool> preview;
+    /// The Apps row shows, as in a Discord channel, and its submenu is open,
+    /// beside the row this far down the menu.
+    in property <bool> apps-shown;
+    in-out property <bool> apps-open;
+    out property <length> apps-y;
+    /// A Discord message's bookmark and reminder: 0 for none to offer, 1
+    /// for one that can be saved, 2 bookmarked, 3 with a reminder.
+    in property <int> saved;
+    /// Which submenu shows beside the menu: 0 its Apps, 1 its reminder's
+    /// times.
+    in-out property <int> side;
+    callback bookmark(string);
+    callback unsave(string);
     out property <length> content-height: menu-content.preferred-height;
     callback react(string, string);
     callback open-picker(string);
@@ -1118,72 +1561,115 @@ export component MessageMenu inherits Rectangle {
             }
         }
         if root.menu-can-react: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Add reaction"; icon: @image-url("icons/smile-plus.svg");
             clicked => { root.open-picker(root.menu-message.item); }
         }
         if root.menu-message.reactions.length > 0: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "View Reactions"; icon: @image-url("icons/smile.svg");
             clicked => { root.view-reactions(root.menu-message.item); }
         }
         if root.menu-message.can-edit && root.composer-enabled: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Edit message"; icon: @image-url("icons/pencil.svg");
             clicked => { root.edit(root.menu-message.item); }
         }
         if root.menu-message.can-reply && root.composer-enabled: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Reply"; icon: @image-url("icons/reply.svg");
             clicked => { root.reply(root.menu-message.item); }
         }
         if root.menu-message.can-forward && root.forward-allowed: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Forward"; icon: @image-url("icons/forward.svg");
             clicked => { root.start-forward(root.menu-message.item); }
         }
         // A message someone wrote starts a thread, or leads to its own.
         if root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == ""
             && root.menu-message.thread-room == "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Create Thread"; icon: @image-url("icons/thread.svg");
             clicked => { root.start-thread(root.menu-message.item); }
         }
         if root.menu-message.can-reply && root.menu-message.thread-room != "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: "View Thread"; icon: @image-url("icons/thread.svg");
             clicked => { root.view-thread(root.menu-message.thread-room); }
         }
         if root.menu-message.body != "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Copy text"; icon: @image-url("icons/copy.svg");
             clicked => { root.copy-text(root.menu-message.body); }
         }
         if root.selection != "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Copy selection"; icon: @image-url("icons/text-select.svg");
             clicked => { root.copy-text(root.selection); }
         }
         if root.menu-message.has-poll && root.menu-message.poll.can-end: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "End Poll Now"; icon: @image-url("icons/circle-stop.svg");
             clicked => { root.end-poll(root.menu-message.item); }
         }
         if root.menu-message.can-pin && root.menu-message.delivery == "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: root.menu-message.pinned ? "Unpin message" : "Pin message";
             icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
             clicked => { root.pin-message(root.menu-message.item); }
         }
-        if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
+        // As Discord's: a bookmark, unless it has a reminder, and the
+        // reminder's times in a submenu.
+        if root.saved == 1 || root.saved == 2: MenuItem {
+            hovered => { root.apps-open = false; }
+            text: root.saved == 2 ? "Remove Bookmark" : "Bookmark Message";
+            icon: root.saved == 2 ? @image-url("icons/bookmark-filled.svg") : @image-url("icons/bookmark.svg");
+            clicked => {
+                if root.saved == 2 { root.unsave(root.menu-message.item); } else { root.bookmark(root.menu-message.item); }
+            }
+        }
+        if root.saved > 0: MenuItem {
+            text: root.saved == 3 ? "Edit Reminder" : "Create Reminder"; icon: @image-url("icons/clock.svg"); submenu: true;
+            hovered => { root.side = 1; root.apps-y = self.absolute-position.y - root.absolute-position.y; root.apps-open = true; }
+            clicked => { root.side = 1; root.apps-y = self.absolute-position.y - root.absolute-position.y; root.apps-open = true; }
+        }
+        // A Discord channel's Apps: its apps' message commands, in a submenu.
+        if root.apps-shown: MenuItem {
+            text: "Apps"; icon: @image-url("icons/apps.svg"); submenu: true;
+            hovered => { root.side = 0; root.apps-y = self.absolute-position.y - root.absolute-position.y; root.apps-open = true; }
+            clicked => { root.side = 0; root.apps-y = self.absolute-position.y - root.absolute-position.y; root.apps-open = true; }
+        }
+        if root.link != "" || (root.media-index >= 0 && !root.preview) || root.voice-file: Rectangle { height: 1px; background: Theme.line; }
         if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Copy Image"; icon: @image-url("icons/image.svg");
             clicked => { root.copy-image(root.menu-message.item, root.media-index); }
         }
         if root.media-index >= 0 && !root.preview: MenuItem {
+            hovered => { root.apps-open = false; }
             text: root.media-video ? "Save Video" : "Save Image"; icon: @image-url("icons/download.svg");
             clicked => { root.save-attachment(root.menu-message.item, root.media-index); }
         }
+        // A voice message's recording, as Discord's client saves it.
+        if root.voice-file: MenuItem {
+            hovered => { root.apps-open = false; }
+            text: "Save File"; icon: @image-url("icons/download.svg");
+            clicked => { root.save-attachment(root.menu-message.item, root.menu-message.voices[0].index); }
+        }
         if root.link != "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Copy Link"; icon: @image-url("icons/link.svg");
             clicked => { root.copy-text(root.link); }
         }
         // A link in the text opens with a click.
         if root.media-index >= 0 && root.link != "": MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Open Link"; icon: @image-url("icons/external-link.svg");
             clicked => { root.open-link(root.link); }
         }
         if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
         if root.menu-message.can-delete && root.composer-enabled: MenuItem {
+            hovered => { root.apps-open = false; }
             text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
             clicked => { root.request-delete(root.menu-message.item); }
         }
@@ -1642,15 +2128,39 @@ export component CardView inherits HorizontalLayout {
                     for button in row.buttons: CardButtonView { button: button; open-link(link) => { root.open-link(link); } }
                 }
                 if row.kind == CardRowKind.select: HorizontalLayout {
-                    // It doesn't open, so it shows as disabled.
-                    Rectangle {
-                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: 0.5;
-                        background: Theme.field; border-width: 1px; border-color: Theme.edge;
-                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: false;
+                    // A disabled one, or one in the preview, shows faded.
+                    select := Rectangle {
+                        property <bool> enabled: row.select-enabled && !root.preview;
+                        property <bool> opened: SelectMenus.is-open && SelectMenus.item == root.item && SelectMenus.custom-id == row.select-id;
+                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px;
+                        opacity: self.enabled ? 1 : 0.5;
+                        background: Theme.field; border-width: 1px;
+                        border-color: self.opened ? Theme.accent : select-touch.has-hover && self.enabled ? Theme.secondary : Theme.edge;
+                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: self.enabled;
+                        accessible-action-default => { self.open-menu(); }
+                        function open-menu() {
+                            if !self.enabled { return; }
+                            if self.opened {
+                                SelectMenus.close();
+                                return;
+                            }
+                            SelectMenus.x = self.absolute-position.x;
+                            SelectMenus.y = self.absolute-position.y;
+                            SelectMenus.width = self.width;
+                            SelectMenus.height = self.height;
+                            SelectMenus.open(root.item, row.select-id);
+                        }
                         HorizontalLayout {
                             padding-left: 12px; padding-right: 12px; spacing: 8px;
                             Text { text: row.select; color: Theme.secondary; font-weight: 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                            Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+                            Image {
+                                source: select.opened ? @image-url("icons/chevron-up.svg") : @image-url("icons/chevron-down.svg");
+                                width: 18px; image-fit: contain; colorize: Theme.secondary;
+                            }
+                        }
+                        select-touch := TouchArea {
+                            mouse-cursor: select.enabled ? MouseCursor.pointer : MouseCursor.default;
+                            clicked => { select.open-menu(); }
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -2325,6 +2835,9 @@ export component MessageContent inherits VerticalLayout {
             for file in message.files: FileCard {
                 file: file; preview: root.preview; delivery: message.delivery;
                 save => { root.save-attachment(message.item, file.index); }
+            }
+            for voice in message.voices: VoiceMessageView {
+                voice: voice; item: message.item; preview: root.preview || message.delivery != "";
             }
             if message.hidden-card != "": Text {
                 text: message.hidden-card; color: Theme.muted; font-size: root.message-font-size * 0.875; font-italic: true; wrap: word-wrap;

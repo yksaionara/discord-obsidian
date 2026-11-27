@@ -37,6 +37,8 @@ use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
 mod appearance;
+#[cfg(feature = "discord")]
+mod apps_menu;
 mod away;
 mod browser;
 mod call_link;
@@ -50,6 +52,8 @@ mod gifs;
 mod gta;
 mod menus;
 mod messages;
+#[cfg(feature = "discord")]
+mod modal;
 #[cfg(windows)]
 mod move_loop;
 mod name_style;
@@ -59,6 +63,7 @@ mod placement;
 mod polls;
 mod profile;
 mod refresh;
+mod saved;
 mod server_settings;
 mod shell;
 mod theme;
@@ -130,9 +135,7 @@ pub fn run(
             }
         }
         #[cfg(windows)]
-        if !preview
-            && let Some(pending) = obsidian_core::update::pending(&root)
-        {
+        if !preview && let Some(pending) = obsidian_core::update::pending(&root) {
             match obsidian_core::update::apply(&pending, background) {
                 Ok(()) => return Ok(Exit::Closed),
                 Err(error) => {
@@ -171,7 +174,8 @@ pub fn run(
         })
         .select()
         .context("could not select the Slint desktop backend")?;
-    slint::set_xdg_app_id(crate::icon::APP_ID).context("could not set Discord Obsidian's app ID")?;
+    slint::set_xdg_app_id(crate::icon::APP_ID)
+        .context("could not set Discord Obsidian's app ID")?;
     let gpu = plan.renderer == graphics::Renderer::Gpu;
     let failed = |error: slint::PlatformError, context: &'static str| -> Result<Exit> {
         let reason = error.to_string();
@@ -669,7 +673,11 @@ fn watch_window(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapter>>) {
                                 if let (Some(adapter), Some(window)) =
                                     (adapter.upgrade(), weak.upgrade())
                                 {
-                                    adapter.borrow_mut().set_shortcut(&window, which, Some(recorded));
+                                    adapter.borrow_mut().set_shortcut(
+                                        &window,
+                                        which,
+                                        Some(recorded),
+                                    );
                                 }
                             });
                         }
@@ -709,7 +717,11 @@ fn watch_window(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapter>>) {
                     if let Some(window) = weak.upgrade()
                         && window.get_workspace()
                         && !window.get_settings_open()
-                        && if back { window.get_can_go_back() } else { window.get_can_go_forward() }
+                        && if back {
+                            window.get_can_go_back()
+                        } else {
+                            window.get_can_go_forward()
+                        }
                     {
                         let weak = weak.clone();
                         slint::Timer::single_shot(Duration::ZERO, move || {
@@ -1316,14 +1328,11 @@ struct Layout {
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
     deafen_on_join: bool,
-    /// Your voice is evened out in calls; on unless turned off.
-    level_voice: Option<bool>,
-    /// What takes out noise in Discord calls, and how far; DeepFilterNet,
-    /// at Medium, unless changed.
+    /// What takes out noise in Discord calls in Custom: DeepFilterNet, where
+    /// Discord runs Krisp, unless changed.
     noise_suppression: obsidian_core::noise::Suppressor,
-    noise_strength: obsidian_core::noise::Strength,
-    /// Discord calls take the room's reverb out of the microphone.
-    reduce_room_echo: bool,
+    /// The rest of Discord's voice settings.
+    voice: VoiceSettings,
     /// The quietest speech Discord calls send, in dBFS; -60 unless changed.
     input_sensitivity: Option<i32>,
     /// Whether calls send the voice the gate hears or only while a key is
@@ -1378,8 +1387,11 @@ struct Layout {
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
-    /// The theme chosen, by its id; Yap unless chosen.
+    /// The theme chosen, by its id; Discord's Dark unless chosen.
     theme: Option<String>,
+    /// Discord's "Sync with computer": the theme follows the system's dark
+    /// or light mode, as Discord's Dark or Light.
+    theme_sync: bool,
     /// The person's own themes, in the order Appearance shows them.
     custom_themes: Vec<theme::Custom>,
     /// Closing the window leaves Discord Obsidian in the system tray; on unless turned off.
@@ -1400,17 +1412,124 @@ struct Layout {
 /// Discord Obsidian's sounds start as they're made: 12 dB under full scale at the loudest.
 const DEFAULT_SOUND_VOLUME: u8 = 100;
 
-/// The noise suppression settings' choices, in the order they show.
+/// The noise suppression dropdown's choices, in the order Discord's shows
+/// them: its Krisp, Standard and None.
 const SUPPRESSORS: [obsidian_core::noise::Suppressor; 3] = [
     obsidian_core::noise::Suppressor::DeepFilterNet,
-    obsidian_core::noise::Suppressor::RNNoise,
+    obsidian_core::noise::Suppressor::Standard,
     obsidian_core::noise::Suppressor::Off,
 ];
-const STRENGTHS: [obsidian_core::noise::Strength; 3] = [
-    obsidian_core::noise::Strength::Full,
-    obsidian_core::noise::Strength::Medium,
-    obsidian_core::noise::Strength::Light,
+const PROFILES: [obsidian_core::noise::Profile; 3] = [
+    obsidian_core::noise::Profile::VoiceIsolation,
+    obsidian_core::noise::Profile::Studio,
+    obsidian_core::noise::Profile::Custom,
 ];
+
+/// Discord's voice settings beside the suppressor, with its defaults: the
+/// input profile, Custom's switches, and the advanced voice settings.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct VoiceSettings {
+    profile: obsidian_core::noise::Profile,
+    echo_cancellation: bool,
+    gain_control: bool,
+    auto_sensitivity: bool,
+    voice_activity: bool,
+    bypass_processing: bool,
+    device_suggestions: bool,
+    silence_warning: bool,
+    switch_warning: bool,
+    /// Global Attenuation, in percent; 0 turns it off.
+    attenuation: u8,
+    attenuate_self: bool,
+    attenuate_others: bool,
+    quality_of_service: bool,
+}
+
+impl Default for VoiceSettings {
+    fn default() -> Self {
+        Self {
+            profile: obsidian_core::noise::Profile::Custom,
+            echo_cancellation: true,
+            gain_control: true,
+            auto_sensitivity: true,
+            voice_activity: true,
+            bypass_processing: true,
+            device_suggestions: true,
+            silence_warning: true,
+            switch_warning: true,
+            attenuation: 0,
+            attenuate_self: false,
+            attenuate_others: true,
+            quality_of_service: false,
+        }
+    }
+}
+
+impl VoiceSettings {
+    /// Hands these to calls.
+    fn apply(&self) {
+        use obsidian_core::noise;
+        noise::set_profile(self.profile);
+        noise::set_echo_cancellation(self.echo_cancellation);
+        noise::set_gain_control(self.gain_control);
+        noise::set_auto_sensitivity(self.auto_sensitivity);
+        noise::set_voice_activity(self.voice_activity);
+        noise::set_bypass_system_processing(self.bypass_processing);
+        noise::set_silence_warning(self.silence_warning);
+        noise::set_switch_warning(self.switch_warning);
+        noise::set_attenuation(self.attenuation, self.attenuate_self, self.attenuate_others);
+        noise::set_quality_of_service(self.quality_of_service);
+        // Matrix calls even the voice out with Discord Obsidian's leveling,
+        // as Discord's gain control does.
+        obsidian_core::leveling::set_enabled(noise::processing().gain_control);
+    }
+
+    fn show(&self, window: &ObsidianWindow) {
+        window.set_input_profile(choice(&PROFILES, self.profile));
+        window.set_echo_cancellation(self.echo_cancellation);
+        window.set_gain_control(self.gain_control);
+        window.set_auto_sensitivity(self.auto_sensitivity);
+        window.set_voice_activity(self.voice_activity);
+        window.set_bypass_processing(self.bypass_processing);
+        window.set_device_suggestions(self.device_suggestions);
+        window.set_silence_warning(self.silence_warning);
+        window.set_switch_warning(self.switch_warning);
+        window.set_attenuation(i32::from(self.attenuation));
+        window.set_attenuate_self(self.attenuate_self);
+        window.set_attenuate_others(self.attenuate_others);
+        window.set_quality_of_service(self.quality_of_service);
+    }
+
+    fn chosen(window: &ObsidianWindow) -> Self {
+        Self {
+            profile: chosen(&PROFILES, window.get_input_profile()),
+            echo_cancellation: window.get_echo_cancellation(),
+            gain_control: window.get_gain_control(),
+            auto_sensitivity: window.get_auto_sensitivity(),
+            voice_activity: window.get_voice_activity(),
+            bypass_processing: window.get_bypass_processing(),
+            device_suggestions: window.get_device_suggestions(),
+            silence_warning: window.get_silence_warning(),
+            switch_warning: window.get_switch_warning(),
+            attenuation: window.get_attenuation().clamp(0, 100) as u8,
+            attenuate_self: window.get_attenuate_self(),
+            attenuate_others: window.get_attenuate_others(),
+            quality_of_service: window.get_quality_of_service(),
+        }
+    }
+}
+
+/// Custom's suppressor as the dropdown shows it: RNNoise, which it no
+/// longer offers, shows as Standard.
+fn shown_suppressor(
+    suppressor: obsidian_core::noise::Suppressor,
+) -> obsidian_core::noise::Suppressor {
+    match suppressor {
+        obsidian_core::noise::Suppressor::RNNoise => obsidian_core::noise::Suppressor::Standard,
+        other => other,
+    }
+}
 
 /// How calls decide when to send the microphone, as Discord's Input Mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1495,11 +1614,11 @@ impl Layout {
         }));
     }
 
-    /// The voice gate's sensitivity, in whole dBFS from -80 to 0.
+    /// The voice gate's sensitivity, in whole dBFS from -100 to 0.
     fn sensitivity(&self) -> i32 {
         self.input_sensitivity
             .unwrap_or(obsidian_core::noise::DEFAULT_SENSITIVITY as i32)
-            .clamp(-80, 0)
+            .clamp(-100, 0)
     }
 
     /// How long the microphone sends after the push-to-talk key comes up, in ms.
@@ -1565,12 +1684,17 @@ impl Layout {
         let default_theme = window
             .global::<ClientStyle>()
             .get_enabled()
-            .then_some("bonfire");
-        let (id, chosen) =
-            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
+            .then_some("dark");
+        let wanted = if self.theme_sync {
+            Some(theme::synced(theme::system_dark(window)))
+        } else {
+            self.theme.as_deref().or(default_theme)
+        };
+        let (id, chosen) = theme::chosen(wanted, &self.custom_themes);
         chosen.apply(window);
         window.set_theme_id(id.into());
-        window.set_themes(theme::cards(&self.custom_themes));
+        window.set_theme_sync(self.theme_sync);
+        theme::show_cards(window, &self.custom_themes);
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
@@ -1614,14 +1738,11 @@ impl Layout {
             .set_reduce_motion(self.reduce_motion || GAMING.get());
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
-        window.set_level_voice(self.level_voice.unwrap_or(true));
-        obsidian_core::leveling::set_enabled(self.level_voice.unwrap_or(true));
-        window.set_noise_suppression(choice(&SUPPRESSORS, self.noise_suppression));
-        window.set_noise_strength(choice(&STRENGTHS, self.noise_strength));
-        obsidian_core::noise::set(self.noise_suppression);
-        obsidian_core::noise::set_strength(self.noise_strength);
-        window.set_dereverb(self.reduce_room_echo);
-        obsidian_core::noise::set_dereverb(self.reduce_room_echo);
+        let suppressor = shown_suppressor(self.noise_suppression);
+        window.set_noise_suppression(choice(&SUPPRESSORS, suppressor));
+        obsidian_core::noise::set(suppressor);
+        self.voice.show(window);
+        self.voice.apply();
         let sensitivity = self.sensitivity();
         window.set_sensitivity(sensitivity);
         obsidian_core::noise::set_sensitivity(sensitivity as f32);
@@ -1636,7 +1757,10 @@ impl Layout {
         );
         window.set_talk_delay(self.release_delay() as i32);
         let name = |shortcut: &Option<crate::hotkeys::Shortcut>| {
-            shortcut.as_ref().map(crate::hotkeys::Shortcut::name).unwrap_or_default()
+            shortcut
+                .as_ref()
+                .map(crate::hotkeys::Shortcut::name)
+                .unwrap_or_default()
         };
         window.set_mute_key(name(&self.mute_shortcut).into());
         window.set_deafen_key(name(&self.deafen_shortcut).into());
@@ -1685,10 +1809,12 @@ impl Layout {
         if message.timestamp != 0 {
             let (twelve_hour, with_seconds) = (self.twelve_hour_clock, self.clock_seconds);
             let now = obsidian_core::clock::now_ms() / 1000;
-            let sent = obsidian_core::clock::sent(message.timestamp, now, twelve_hour, with_seconds);
+            let sent =
+                obsidian_core::clock::sent(message.timestamp, now, twelve_hour, with_seconds);
             // The gutter beside a grouped message is narrow, so it shows only the clock time,
             // without AM and PM.
-            let time = obsidian_core::clock::time_with(message.timestamp, twelve_hour, with_seconds);
+            let time =
+                obsidian_core::clock::time_with(message.timestamp, twelve_hour, with_seconds);
             row.short_time = time.split_whitespace().next().unwrap_or_default().into();
             if let Some(notice) = &message.notice
                 && !message.blocked
@@ -1741,6 +1867,8 @@ impl Layout {
 #[derive(Default)]
 struct Models {
     servers: Rc<VecModel<ServerRow>>,
+    /// The open select menu's lines.
+    select_lines: Rc<VecModel<SelectLine>>,
     rooms: Rc<VecModel<RoomRow>>,
     /// Discord friend requests and message requests, on the requests screen.
     requests_incoming: Rc<VecModel<RequestRow>>,
@@ -1771,6 +1899,8 @@ struct Models {
     reactor_rows: Rc<VecModel<ReactorRow>>,
     /// The answers of the poll being made.
     poll_answers: Rc<VecModel<PollAnswerDraft>>,
+    /// The fields of the form an app opened.
+    modal_rows: Rc<VecModel<ModalRow>>,
     search_results: Rc<VecModel<FoundRow>>,
     add_people: Rc<VecModel<PickRow>>,
     role_members: Rc<VecModel<MemberRow>>,
@@ -1780,6 +1910,10 @@ struct Models {
     /// The picker's sidebar, built with the grid it jumps through.
     emoji_sections: Rc<VecModel<EmojiSection>>,
     emoji_suggestions: Rc<VecModel<EmojiCell>>,
+    /// The slash commands or choices the composer shows, eight at a time,
+    /// and the options of the command written.
+    command_rows: Rc<VecModel<CommandRow>>,
+    command_chips: Rc<VecModel<CommandChip>>,
     forward_targets: Rc<VecModel<PlaceRow>>,
     switcher_places: Rc<VecModel<PlaceRow>>,
     participants: Rc<VecModel<PersonRow>>,
@@ -1844,6 +1978,7 @@ impl Models {
         window.set_reaction_pills(ModelRc::from(self.reaction_pills.clone()));
         window.set_reactor_rows(ModelRc::from(self.reactor_rows.clone()));
         window.set_poll_answers(ModelRc::from(self.poll_answers.clone()));
+        window.set_modal_rows(ModelRc::from(self.modal_rows.clone()));
         window.set_search_results(ModelRc::from(self.search_results.clone()));
         window.set_add_people(ModelRc::from(self.add_people.clone()));
         window.set_role_members(ModelRc::from(self.role_members.clone()));
@@ -1852,6 +1987,8 @@ impl Models {
         window.set_emoji_rows(ModelRc::from(self.emoji_rows.clone()));
         window.set_emoji_sections(ModelRc::from(self.emoji_sections.clone()));
         window.set_emoji_suggestions(ModelRc::from(self.emoji_suggestions.clone()));
+        window.set_command_rows(ModelRc::from(self.command_rows.clone()));
+        window.set_command_chips(ModelRc::from(self.command_chips.clone()));
         window.set_forward_targets(ModelRc::from(self.forward_targets.clone()));
         window.set_switcher_places(ModelRc::from(self.switcher_places.clone()));
         window.set_participants(ModelRc::from(self.participants.clone()));
@@ -1879,6 +2016,12 @@ impl Models {
 }
 
 struct Icons {
+    /// The send arrow at the end of an app's command in an Apps menu.
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    send: slint::Image,
+    /// Mark Complete, in a reminder's submenu.
+    check: slint::Image,
+    apps: slint::Image,
     dm: slint::Image,
     chat: slint::Image,
     text: slint::Image,
@@ -2013,6 +2156,11 @@ struct Adapter {
     /// Stream ticks without a new picture of a video that isn't playing,
     /// after which they stop until the video changes.
     video_quiet: Cell<u32>,
+    /// Follows the voice message playing, while it plays.
+    voice_timer: Rc<slint::Timer>,
+    /// Follows the voice message being recorded, while it records.
+    recording_timer: Rc<slint::Timer>,
+    recording_shown: Option<Arc<obsidian_core::voice_message::Recording>>,
     /// The size, in pixels, of the cell the video playing shows in when it
     /// isn't full screen.
     video_cell: Cell<(u32, u32)>,
@@ -2056,6 +2204,14 @@ struct Adapter {
     emoji_word: Option<(usize, String)>,
     /// Like `mention_dismissed`, for the `:` here.
     emoji_dismissed: Option<usize>,
+    /// The slash command or choice highlighted, among all the composer
+    /// lists, and the first of the eight shown.
+    command_index: usize,
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    command_window: usize,
+    /// The Apps submenu of the message's or person's menu showing.
+    #[cfg(feature = "discord")]
+    apps: Option<apps_menu::OpenApps>,
     /// The suggestions are for the composer of the thread beside the channel,
     /// typed in last, rather than the channel's.
     suggesting_aside: bool,
@@ -2186,12 +2342,19 @@ impl Adapter {
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
             profile: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user.svg"))?,
             copy: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/copy.svg"))?,
+            send: slint::Image::load_from_svg_data(include_bytes!(
+                "../ui/icons/send-horizontal.svg"
+            ))?,
+            apps: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/apps.svg"))?,
+            check: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             befriend: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/user-plus.svg"
             ))?,
             cancel: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/x.svg"))?,
             pin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin.svg"))?,
-            move_up: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/chevron-up.svg"))?,
+            move_up: slint::Image::load_from_svg_data(include_bytes!(
+                "../ui/icons/chevron-up.svg"
+            ))?,
             move_down: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/chevron-down.svg"
             ))?,
@@ -2302,6 +2465,9 @@ impl Adapter {
                 pictures_due: slint::Timer::default(),
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
+                voice_timer: Rc::new(slint::Timer::default()),
+                recording_timer: Rc::new(slint::Timer::default()),
+                recording_shown: None,
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
                 emoji_card: None,
@@ -2323,6 +2489,10 @@ impl Adapter {
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,
+                command_index: 0,
+                command_window: 0,
+                #[cfg(feature = "discord")]
+                apps: None,
                 suggesting_aside: false,
                 caret: None,
                 notifier: crate::notify::Notifier::start(open_from_notification),
@@ -2402,8 +2572,14 @@ impl Adapter {
     /// Starts, changes or stops watching the mute and deafen shortcuts as
     /// settings say; nothing runs while neither is set.
     fn watch_shortcuts(&mut self, window: &ObsidianWindow) {
-        let wanted = [self.layout.mute_shortcut.clone(), self.layout.deafen_shortcut.clone()];
-        if self.shortcuts.as_ref().map(crate::hotkeys::Watcher::shortcuts)
+        let wanted = [
+            self.layout.mute_shortcut.clone(),
+            self.layout.deafen_shortcut.clone(),
+        ];
+        if self
+            .shortcuts
+            .as_ref()
+            .map(crate::hotkeys::Watcher::shortcuts)
             == Some(&wanted)
             || (self.shortcuts.is_none() && wanted.iter().all(Option::is_none))
         {
@@ -2434,7 +2610,10 @@ impl Adapter {
         which: i32,
         shortcut: Option<crate::hotkeys::Shortcut>,
     ) {
-        let name = shortcut.as_ref().map(crate::hotkeys::Shortcut::name).unwrap_or_default();
+        let name = shortcut
+            .as_ref()
+            .map(crate::hotkeys::Shortcut::name)
+            .unwrap_or_default();
         tracing::info!(which, shortcut = name, "mute or deafen shortcut set");
         if which == 1 {
             window.set_mute_key(name.into());
@@ -2628,7 +2807,8 @@ impl Adapter {
             Ok(handle) => self.dialog = Some(handle),
             Err(error) => {
                 tracing::error!(%error, "could not open the file dialog");
-                self.app.state.notice = Some("Discord Obsidian could not open a file dialog.".into());
+                self.app.state.notice =
+                    Some("Discord Obsidian could not open a file dialog.".into());
             }
         }
     }
@@ -2916,6 +3096,14 @@ impl Adapter {
         // stays as it is.
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
         let profiling = matches!(action, Action::WriteProfile { .. });
+        // A voice message's controls change only its bubble.
+        let voice_message = matches!(
+            action,
+            Action::ToggleVoiceMessage { .. }
+                | Action::SeekVoiceMessage { .. }
+                | Action::VoiceMessageRate
+                | Action::MuteVoiceMessages
+        );
         // Typing on Roles changes only the settings, too.
         let setting = matches!(
             action,
@@ -2936,10 +3124,20 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        // As do an app's select menu's, until they tell its app.
+        let selecting = matches!(
+            action,
+            Action::OpenSelect { .. } | Action::PickSelect(_) | Action::SearchSelect(_)
+        );
         let effects = self.app.dispatch(action);
+        let selecting = selecting && effects.is_empty();
         self.execute(effects);
-        if channel_setting {
+        if selecting {
+            self.show_select(window);
+        } else if channel_setting {
             self.show_channel_settings(window);
+        } else if voice_message {
+            self.show_voice_message(window);
         } else if composing {
             self.show_composer(window);
         } else if profiling {
@@ -3112,7 +3310,9 @@ fn dm_detail(room: &obsidian_core::chat::ChatRoom) -> (SharedString, SharedStrin
     if room.voice && !room.direct {
         let (words, emoji) = activity_line(room.activity.as_deref());
         return (
-            obsidian_core::discord::emoji_names(&words).into_owned().into(),
+            obsidian_core::discord::emoji_names(&words)
+                .into_owned()
+                .into(),
             emoji,
         );
     }
@@ -3168,6 +3368,9 @@ const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
 
 /// How many emoji the composer suggests for a `:name` word.
 const EMOJI_SUGGESTIONS: usize = 10;
+/// How many slash commands or choices the composer shows at a time.
+#[cfg(feature = "discord")]
+const COMMAND_ROWS: usize = 8;
 
 /// The link that shows a blocked message, followed by its item.
 const BLOCKED_LINK: &str = "obsidian:blocked/";

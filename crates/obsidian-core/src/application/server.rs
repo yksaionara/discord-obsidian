@@ -52,6 +52,7 @@ fn bits(permission: Permission) -> u64 {
         Permission::CreatePrivateThreads => permission::CREATE_PRIVATE_THREADS,
         Permission::ManageMessages => permission::MANAGE_MESSAGES,
         Permission::SendPolls => permission::SEND_POLLS,
+        Permission::SendVoiceMessages => permission::SEND_VOICE_MESSAGES,
         Permission::ManageThreads => permission::MANAGE_THREADS,
         Permission::Connect => permission::CONNECT,
         Permission::Settings => permission::SETTINGS,

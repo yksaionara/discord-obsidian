@@ -61,7 +61,7 @@ impl Reach {
                 pictures: true,
                 ..Self::default()
             },
-            Event::Video(_) => Self {
+            Event::Video(_) | Event::VoiceMessage(_) => Self {
                 video: true,
                 ..Self::default()
             },
@@ -275,6 +275,7 @@ impl Adapter {
         }
         if reach.video {
             self.show_video(window);
+            self.show_voice_message(window);
         }
     }
 
@@ -287,7 +288,11 @@ impl Adapter {
         self.show_viewer(window);
         self.show_profile(window);
         let card = self.app.state.stream_card.as_ref();
-        window.set_stream_card_url(card.and_then(|card| card.url.as_deref()).unwrap_or_default().into());
+        window.set_stream_card_url(
+            card.and_then(|card| card.url.as_deref())
+                .unwrap_or_default()
+                .into(),
+        );
         window.set_stream_card_asked(card.is_some_and(|card| card.asked));
         window.set_can_go_back(self.app.state.can_go_back());
         window.set_can_go_forward(self.app.state.can_go_forward());
@@ -341,6 +346,8 @@ impl Adapter {
         self.show_aside(window);
         self.show_voice(window);
         self.show_video(window);
+        self.show_voice_message(window);
+        self.show_select(window);
         let state = &self.app.state;
         if changes.selection {
             self.focus_when_ready = state.shows_text() && !state.room_ready;
@@ -1123,8 +1130,16 @@ impl Adapter {
     /// knows: the channels and conversations with unread messages, muted ones
     /// only for a mention, or those that mention this account.
     fn show_inbox(&mut self, window: &ObsidianWindow) {
+        let tab = window.get_inbox_tab();
+        window.set_bookmarks_more(self.app.state.saved.more);
+        window.set_bookmarks_loading(self.app.state.saved.loading);
+        if tab >= 2 {
+            let rows = self.saved_rows(tab == 3);
+            update_model(&self.models.inbox, rows);
+            return;
+        }
         let state = &self.app.state;
-        let mentions_only = window.get_inbox_tab() == 1;
+        let mentions_only = tab == 1;
         let servers: HashMap<&str, &str> = state
             .servers
             .iter()
@@ -1158,6 +1173,7 @@ impl Adapter {
                     SharedString::default()
                 },
                 mentions: i32::try_from(room.mentions).unwrap_or(i32::MAX),
+                ..Default::default()
             })
             .collect();
         update_model(&self.models.inbox, rows);
@@ -1170,6 +1186,7 @@ impl Adapter {
         let state = &app.state;
         window.set_can_start_threads(app.can_start_threads());
         window.set_can_create_polls(app.can_create_polls());
+        window.set_can_record_voice(app.can_record_voice_messages());
         window.set_threads_can_create(state.thread_list().is_some_and(|list| {
             let (public, private) = app.thread_starts(&list.room);
             public || private
@@ -1510,7 +1527,11 @@ impl Adapter {
         window.set_room_selected(room.is_some());
         window.set_room_name(
             room.map_or_else(String::new, |room| {
-                if room.direct { room.name.clone() } else { crate::emoji_text::text(&room.name) }
+                if room.direct {
+                    room.name.clone()
+                } else {
+                    crate::emoji_text::text(&room.name)
+                }
             })
             .into(),
         );
@@ -2835,6 +2856,8 @@ impl Adapter {
         });
         self.show_person_dialog(window);
         self.show_poll_draft(window);
+        #[cfg(feature = "discord")]
+        self.show_modal(window);
         let editor = state.status_editor.as_ref();
         // Opening the dialog starts from the status there is.
         if editor.is_some() && !window.get_status_open() {
@@ -3178,6 +3201,8 @@ impl Adapter {
 
     pub(super) fn show_composer(&mut self, window: &ObsidianWindow) {
         self.mark_mentions();
+        window.set_can_record_voice(self.app.can_record_voice_messages());
+        self.show_voice_recording(window);
         let state = &self.app.state;
         let room = state.selected_room();
         window.set_voice_room(room.is_some_and(|room| room.voice));
@@ -3330,6 +3355,11 @@ impl Adapter {
             }
             .into(),
         );
+        #[cfg(feature = "discord")]
+        {
+            self.show_commands(window);
+            self.refresh_apps();
+        }
         // A sent message, or another room's draft, ends the `:name` word.
         if let Some((at, name)) = &self.emoji_word
             && self.app.state.draft().get(*at..at + 1 + name.len())
@@ -3338,6 +3368,113 @@ impl Adapter {
             self.emoji_word = None;
             self.show_emoji_suggestions(window);
         }
+    }
+
+    /// The slash commands or choices for what the composer holds, eight
+    /// around the highlighted one, and the command written with its options.
+    #[cfg(feature = "discord")]
+    pub(super) fn show_commands(&mut self, window: &ObsidianWindow) {
+        use obsidian_core::application::SlashShown;
+        let shown = &self.app.state.slash.shown;
+        let rows: Vec<CommandRow> = match shown {
+            Some(SlashShown::Commands(rows)) => rows
+                .iter()
+                .map(|row| CommandRow {
+                    name: format!("/{}", row.name).into(),
+                    options: row.options.join(" ").into(),
+                    description: row.description.as_str().into(),
+                    app: row.app.as_str().into(),
+                    picture_url: row.icon.clone().unwrap_or_default().into(),
+                    initial: initial(&row.app),
+                    tint: tint(&row.app),
+                    builtin: row.icon.is_none() && row.app == "Built-In",
+                    heading: if row.heading {
+                        row.app.to_uppercase().into()
+                    } else {
+                        SharedString::default()
+                    },
+                })
+                .collect(),
+            Some(SlashShown::Options(bar)) => bar
+                .choices
+                .iter()
+                .enumerate()
+                .map(|(index, (name, _))| CommandRow {
+                    name: name.as_str().into(),
+                    heading: if index == 0 {
+                        bar.choices_heading.as_str().into()
+                    } else {
+                        SharedString::default()
+                    },
+                    ..Default::default()
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        if self.command_index >= rows.len() {
+            self.command_index = 0;
+        }
+        // Eight show at a time, the highlighted one among them.
+        let shown_rows = COMMAND_ROWS.min(rows.len());
+        if self.command_index < self.command_window {
+            self.command_window = self.command_index;
+        } else if self.command_index >= self.command_window + shown_rows {
+            self.command_window = self.command_index + 1 - shown_rows;
+        }
+        self.command_window = self.command_window.min(rows.len() - shown_rows);
+        window.set_command_row_index((self.command_index - self.command_window) as i32);
+        update_model(
+            &self.models.command_rows,
+            rows.into_iter()
+                .skip(self.command_window)
+                .take(COMMAND_ROWS)
+                .collect(),
+        );
+        window.set_command_note(
+            match shown {
+                Some(SlashShown::Loading) => "Loading commands...",
+                Some(SlashShown::Options(bar)) => bar.note.as_deref().unwrap_or_default(),
+                _ => "",
+            }
+            .into(),
+        );
+        let (bar, chips) = match shown {
+            Some(SlashShown::Options(bar)) => (
+                CommandBar {
+                    shown: true,
+                    name: bar.command.as_str().into(),
+                    app: bar.app.as_str().into(),
+                    picture_url: bar.icon.clone().unwrap_or_default().into(),
+                    initial: initial(&bar.app),
+                    tint: tint(&bar.app),
+                    builtin: bar.icon.is_none() && bar.app == "Built-In",
+                    current_name: bar
+                        .current
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or_default()
+                        .into(),
+                    current_description: bar
+                        .current
+                        .as_ref()
+                        .map(|(_, description)| description.as_str())
+                        .unwrap_or_default()
+                        .into(),
+                },
+                bar.options
+                    .iter()
+                    .map(|chip| CommandChip {
+                        name: chip.name.as_str().into(),
+                        required: chip.required,
+                        given: chip.given,
+                        current: chip.current,
+                    })
+                    .collect(),
+            ),
+            _ => (CommandBar::default(), Vec::new()),
+        };
+        window.set_command_bar(bar);
+        update_model(&self.models.command_chips, chips);
     }
 
     /// Emoji for the `:name` being typed, or none.
@@ -3681,12 +3818,15 @@ impl Adapter {
                 .as_ref()
                 .is_some_and(|sharing| sharing.phase == voice::SharePhase::Live),
         );
+        // As Discord's panel: the stream says where it goes from the start,
+        // and the call's status says when its connection is up.
         window.set_share_status(
             match voice.sharing.as_ref().map(|sharing| sharing.phase) {
-                Some(voice::SharePhase::Choosing) => "Choose what to share",
-                Some(voice::SharePhase::Starting) => "Starting your stream...",
-                Some(voice::SharePhase::Live) => "Live",
-                None => "",
+                Some(voice::SharePhase::Choosing | voice::SharePhase::Starting) => {
+                    format!("Streaming to {}", voice.name)
+                }
+                Some(voice::SharePhase::Live) => "Live".to_owned(),
+                None => String::new(),
             }
             .into(),
         );
@@ -3728,14 +3868,20 @@ impl Adapter {
         window.set_can_join(room.is_some_and(|room| state.can_join_voice(&room.id)));
         window.set_muted(voice.muted);
         window.set_deafened(voice.deafened);
+        // Discord's words for its RTC connection's states: "Video Connected"
+        // while the camera or a stream of this account's is on.
+        let video = voice.camera_phase == voice::CameraPhase::On
+            || voice
+                .sharing
+                .as_ref()
+                .is_some_and(|sharing| sharing.phase == voice::SharePhase::Live);
         window.set_voice_status(
             match voice.phase {
-                Phase::Disconnected => "Voice disconnected",
-                Phase::Joining => "Joining voice...",
+                Phase::Disconnected | Phase::Leaving => "Disconnected",
+                Phase::Joining | Phase::Reconnecting => "RTC Connecting",
                 Phase::Connected if state.preview => "Preview voice",
-                Phase::Connected => "Voice connected",
-                Phase::Reconnecting => "Reconnecting voice...",
-                Phase::Leaving => "Leaving voice...",
+                Phase::Connected if video => "Video Connected",
+                Phase::Connected => "Voice Connected",
             }
             .into(),
         );
@@ -3992,6 +4138,22 @@ impl Adapter {
         });
         window.set_switch_prompt(prompt.unwrap_or_default().into());
         let names = &mut self.models.device_names;
+        // Discord's Audio Device Suggestions: a device not listed before in
+        // this run, once the first lists are in.
+        if window.get_device_suggestions()
+            && !names.is_empty()
+            && let Some(new) = voice
+                .microphones
+                .iter()
+                .chain(&voice.speakers)
+                .find(|device| {
+                    !names.contains_key(&device.id) && !device.id.starts_with(DEFAULT_DEVICE)
+                })
+        {
+            window.set_device_notice(
+                format!("Discord detected a new audio device: {}. Choose it in Voice settings to use it.", new.name).into(),
+            );
+        }
         let (rows, index) =
             device_rows(&voice.microphones, voice.microphone.as_deref(), names, true);
         update_model(&self.models.microphones, rows);
@@ -4164,6 +4326,146 @@ impl Adapter {
             window.set_profile(data);
         }
         self.tick_activities(window);
+    }
+
+    /// The app's select menu open, through [`SelectMenus`].
+    pub(super) fn show_select(&mut self, window: &ObsidianWindow) {
+        let menus = window.global::<SelectMenus>();
+        let Some(open) = &self.app.state.select else {
+            if menus.get_is_open() {
+                menus.set_is_open(false);
+                menus.set_lines(ModelRc::default());
+            }
+            return;
+        };
+        menus.set_item(open.item.as_str().into());
+        menus.set_custom_id(open.menu.custom_id.as_str().into());
+        menus.set_several(open.several());
+        menus.set_searchable(open.searchable());
+        let lines: Vec<SelectLine> = self
+            .app
+            .select_choices()
+            .into_iter()
+            .map(|choice| SelectLine {
+                value: choice.value.into(),
+                initial: initials(&choice.label),
+                label: choice.label.into(),
+                description: choice.description.unwrap_or_default().into(),
+                emoji: choice.emoji.unwrap_or_default().into(),
+                person: choice.avatar.is_some(),
+                picture_url: choice.avatar.unwrap_or_default().into(),
+                picked: choice.picked,
+            })
+            .collect();
+        update_model(&self.models.select_lines, lines);
+        menus.set_lines(ModelRc::from(self.models.select_lines.clone()));
+        menus.set_is_open(true);
+    }
+
+    /// The voice message being recorded, in the composer's place, through
+    /// [`VoiceRecorder`]. While it records, a timer follows it, until it
+    /// stops and shows its waveform.
+    pub(super) fn show_voice_recording(&mut self, window: &ObsidianWindow) {
+        let recorder = window.global::<VoiceRecorder>();
+        let Some(shown) = &self.app.state.voice_recording else {
+            self.recording_timer.stop();
+            self.recording_shown = None;
+            if recorder.get_active() {
+                recorder.set_active(false);
+                recorder.set_levels(ModelRc::default());
+                recorder.set_bars(ModelRc::default());
+            }
+            return;
+        };
+        let recording = shown.recording.clone();
+        // The composer refreshes often; the timer already follows this one.
+        if self
+            .recording_shown
+            .as_ref()
+            .is_some_and(|followed| Arc::ptr_eq(followed, &recording))
+        {
+            return;
+        }
+        self.recording_shown = Some(recording.clone());
+        if !recorder.get_active() {
+            recorder.set_active(true);
+            recorder.set_bars(ModelRc::default());
+            recorder.set_duration(0);
+        }
+        // One model the timer refills in place, rather than one a tick.
+        let levels = Rc::new(VecModel::from(recording.recent(RECORDING_BARS)));
+        recorder.set_levels(ModelRc::from(levels.clone()));
+        if follow_recording(&recorder, &recording, &levels) {
+            self.recording_timer.stop();
+            return;
+        }
+        let weak = window.as_weak();
+        let timer = Rc::downgrade(&self.recording_timer);
+        // A level comes every 100 ms.
+        self.recording_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(100),
+            move || {
+                let Some(window) = weak.upgrade() else {
+                    return;
+                };
+                let recorder = window.global::<VoiceRecorder>();
+                if follow_recording(&recorder, &recording, &levels)
+                    && let Some(timer) = timer.upgrade()
+                {
+                    timer.stop();
+                }
+            },
+        );
+    }
+
+    /// The voice message playing or paused, which its bubble shows through
+    /// [`VoicePlayer`]. While it plays or loads, a timer follows its clock.
+    pub(super) fn show_voice_message(&mut self, window: &ObsidianWindow) {
+        let player = window.global::<VoicePlayer>();
+        let state = &self.app.state;
+        let rate = match state.voice_rate {
+            0.0 => 1.0,
+            rate => rate,
+        };
+        player.set_rate(obsidian_core::voice_message::rate_label(rate).into());
+        player.set_muted(state.voice_muted);
+        let Some(current) = &state.voice_message else {
+            self.voice_timer.stop();
+            player.set_item(SharedString::default());
+            player.set_index(-1);
+            player.set_playing(false);
+            player.set_position(0);
+            return;
+        };
+        player.set_item(current.item.as_str().into());
+        player.set_index(current.index as i32);
+        follow_voice(&player, &current.clock);
+        if !current.clock.playing() && !current.clock.loading() {
+            self.voice_timer.stop();
+            return;
+        }
+        let clock = current.clock.clone();
+        let weak = window.as_weak();
+        let timer = Rc::downgrade(&self.voice_timer);
+        // About as often as a screen draws, and only while it moves.
+        self.voice_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(33),
+            move || {
+                let Some(window) = weak.upgrade() else {
+                    return;
+                };
+                let player = window.global::<VoicePlayer>();
+                follow_voice(&player, &clock);
+                if !clock.playing()
+                    && !clock.loading()
+                    && let Some(timer) = timer.upgrade()
+                {
+                    timer.stop();
+                }
+            },
+        );
     }
 
     /// The image viewer: the full image once it arrives, the preview until then.
@@ -5194,7 +5496,10 @@ impl super::Adapter {
             .flatten();
         let active = state.voice.active();
         let known = self.reconnect.as_ref().is_some_and(|room| {
-            state.rooms.iter().any(|known| &known.id == room && known.voice)
+            state
+                .rooms
+                .iter()
+                .any(|known| &known.id == room && known.voice)
         });
         if connected.is_some() && connected != self.layout.last_voice {
             self.layout.last_voice = connected;
@@ -5223,4 +5528,49 @@ fn watch_status(shown: &voice::Watching) -> String {
     } else {
         format!("Waiting for {}'s picture...", shown.name)
     }
+}
+
+/// Shows how a voice message goes, as its clock says.
+fn follow_voice(player: &VoicePlayer<'_>, clock: &obsidian_core::voice_message::VoiceClock) {
+    player.set_playing(clock.playing());
+    player.set_loading(clock.loading());
+    player.set_failed(clock.failed());
+    player.set_position(i32::try_from(clock.position_ms()).unwrap_or(i32::MAX));
+    player.set_duration(
+        clock
+            .duration_ms()
+            .and_then(|duration| i32::try_from(duration).ok())
+            .unwrap_or(0),
+    );
+}
+
+/// How many of the latest levels the recording bar draws while recording.
+const RECORDING_BARS: usize = 49;
+
+/// Shows how a recording goes; true once it's stopped, with its waveform.
+fn follow_recording(
+    recorder: &VoiceRecorder<'_>,
+    recording: &obsidian_core::voice_message::Recording,
+    levels: &VecModel<f32>,
+) -> bool {
+    let elapsed = recording.elapsed_ms();
+    recorder.set_elapsed(i32::try_from(elapsed).unwrap_or(i32::MAX));
+    recorder.set_warn(elapsed >= obsidian_core::voice_message::WARN_MS);
+    if recording.recording() {
+        recorder.set_recording(true);
+        for (index, level) in recording.recent(RECORDING_BARS).into_iter().enumerate() {
+            if levels.row_data(index) != Some(level) {
+                levels.set_row_data(index, level);
+            }
+        }
+        return false;
+    }
+    recorder.set_recording(false);
+    if let Some(recorded) = recording.finished() {
+        let count = obsidian_core::voice_message::bar_count(u64::from(recorded.duration_ms));
+        let bars = obsidian_core::voice_message::bars(&recorded.waveform, count);
+        recorder.set_bars(ModelRc::new(VecModel::from(bars)));
+        recorder.set_duration(i32::try_from(recorded.duration_ms).unwrap_or(i32::MAX));
+    }
+    true
 }

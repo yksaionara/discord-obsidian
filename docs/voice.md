@@ -233,19 +233,19 @@ scale, so a boosted microphone doesn't clip on a shout; leveling hears the
 voice before the volume, so changing it doesn't move your usual level.
 Discord Obsidian's own sounds keep their volume in Settings › Sounds.
 
-Settings' "Even out your voice", on unless turned off, levels the microphone
-after WebRTC's processing. Discord Obsidian follows your usual speaking level over the last
+Matrix calls level the microphone after WebRTC's processing while Settings'
+Automatic Gain Control is on, as it is unless turned off; Discord calls
+leave that to WebRTC's gain control, as Discord's client does (see
+[Discord's microphone](discord/voice.md#microphone)). Discord Obsidian follows your usual speaking level over the last
 half minute or so, and undoes up to 8 dB of drift from it as you lean towards
 the microphone or away from it. Drifts of more than 12 dB, such as whispers and
 shouts, pass through as they are, and a shout lets go of any correction at once.
 Pauses hold the gain, and raising never pushes a peak past 90% of full scale.
 Discord Obsidian calls level inside LiveKit's WebRTC, through a capture hook in Discord Obsidian's patch
-to `webrtc-sys`. Discord voice levels in its own microphone thread; its voice
-activation gate still opens on the level before leveling, so held gain can't
-lift noise past it.
+to `webrtc-sys`.
 
 Discord Obsidian calls suppress noise with WebRTC's own suppressor, inside LiveKit's
-WebRTC. Discord calls use DeepFilterNet, which also takes out typing; see the
+WebRTC. Discord calls use the suppressor chosen, DeepFilterNet unless changed, which also takes out typing; see the
 Microphone section of [Discord](discord/voice.md#microphone). Discord Obsidian calls could share
 it through the capture hook, which now only returns a gain for each block.
 

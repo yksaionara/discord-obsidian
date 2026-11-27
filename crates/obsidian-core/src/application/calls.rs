@@ -126,6 +126,11 @@ impl Application {
         if self.state.voice.active() {
             if self.state.voice.room.as_ref() != Some(&id) {
                 self.state.switch_voice = Some(id);
+                // Discord's Switch Voice Channel Warning, turned off,
+                // switches without asking.
+                if !crate::noise::switch_warning() {
+                    return self.confirm_voice_switch();
+                }
             }
             vec![]
         } else {

@@ -1,7 +1,11 @@
-//! Noise suppression for Discord voice's microphone, and the voice gate's
-//! sensitivity. DeepFilterNet 3 takes out noise by default, keyboard clicks
-//! included; RNNoise stays available to compare. Both work on 10 ms blocks at
-//! 48 kHz, as the microphone does.
+//! Noise suppression for Discord voice's microphone, the voice gate's
+//! sensitivity, and the rest of the microphone's settings as Discord's Voice
+//! settings have them: an input profile (Voice Isolation, Studio or Custom),
+//! and in Custom, the noise suppression, echo cancellation, automatic gain
+//! control and input sensitivity. DeepFilterNet 3 takes out noise where
+//! Discord's client runs Krisp, keyboard clicks included; "Standard" is
+//! WebRTC's suppressor, as Discord's Standard is; RNNoise stays available to
+//! compare. They work on 10 ms blocks at 48 kHz, as the microphone does.
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +20,54 @@ pub enum Suppressor {
     /// Leaves the noise in; RNNoise still tells the gate which blocks are
     /// speech.
     Off,
+    /// WebRTC's own noise suppressor, as Discord's "Standard" choice is;
+    /// RNNoise tells the gate which blocks are speech, as with [`Self::Off`].
+    Standard,
 }
+
+impl Suppressor {
+    /// Whether WebRTC's suppressor runs, after echo cancellation.
+    pub fn webrtc(self) -> bool {
+        self == Self::Standard
+    }
+}
+
+/// A preset of the microphone's processing, as Discord's Input Profile,
+/// with the values Discord's client gives each.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Profile {
+    /// Noise suppression, echo cancellation, gain control and the input
+    /// sensitivity worked out from the voice.
+    VoiceIsolation,
+    /// The microphone as it is: an open gate at -84 dBFS, nothing else.
+    Studio,
+    /// Each setting as chosen; Discord's default.
+    #[default]
+    Custom,
+}
+
+/// The microphone's processing in effect: the profile's, or in Custom the
+/// settings chosen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Processing {
+    pub suppressor: Suppressor,
+    pub echo_cancellation: bool,
+    pub gain_control: bool,
+    /// WebRTC's high-pass filter, which takes out rumble; off in Studio.
+    pub high_pass: bool,
+    /// The gate works its threshold out from the noise it hears.
+    pub auto_sensitivity: bool,
+    /// The suppressor's speech estimate also decides what the automatic
+    /// gate sends, as Discord's Advanced Voice Activity has Krisp's.
+    pub voice_activity: bool,
+    /// The threshold the gate opens at without [`Self::auto_sensitivity`],
+    /// in RMS dBFS.
+    pub sensitivity: f32,
+}
+
+/// The threshold Discord's Studio profile sets.
+const STUDIO_SENSITIVITY: f32 = -84.0;
 
 /// How far the suppressor turns noise down. Less leaves some of the room in,
 /// which can sound more natural. Below 20 dB, DeepFilterNet's leftover typing
@@ -59,6 +110,140 @@ static LIMIT: AtomicU32 = AtomicU32::new(Strength::Medium.limit().to_bits());
 static SENSITIVITY: AtomicU32 = AtomicU32::new(DEFAULT_SENSITIVITY.to_bits());
 static DEREVERB: AtomicBool = AtomicBool::new(false);
 static DECLICK: AtomicBool = AtomicBool::new(true);
+static PROFILE: AtomicU8 = AtomicU8::new(Profile::Custom as u8);
+static ECHO_CANCELLATION: AtomicBool = AtomicBool::new(true);
+static GAIN_CONTROL: AtomicBool = AtomicBool::new(true);
+static AUTO_SENSITIVITY: AtomicBool = AtomicBool::new(true);
+static VOICE_ACTIVITY: AtomicBool = AtomicBool::new(true);
+
+/// Discord's "Bypass System Audio Input Processing": microphones opened
+/// after this skip the effects the system and the driver add, where the
+/// device allows it (WASAPI's raw mode on Windows).
+pub fn set_bypass_system_processing(on: bool) {
+    crate::audio_io::set_raw_input(on);
+}
+
+/// Discord's "Quality of Service": voice and stream packets sent on
+/// connections made after this are marked high priority.
+pub fn set_quality_of_service(on: bool) {
+    #[cfg(feature = "discord")]
+    obsidian_discord::set_quality_of_service(on);
+    #[cfg(not(feature = "discord"))]
+    let _ = on;
+}
+
+static SILENCE_WARNING: AtomicBool = AtomicBool::new(true);
+static SWITCH_WARNING: AtomicBool = AtomicBool::new(true);
+static ATTENUATION: AtomicU8 = AtomicU8::new(0);
+static ATTENUATE_SELF: AtomicBool = AtomicBool::new(false);
+static ATTENUATE_OTHERS: AtomicBool = AtomicBool::new(true);
+
+/// Discord's advanced voice settings beside the processing: warning when
+/// the microphone gives nothing, asking before switching voice channels,
+/// and Global Attenuation, which lowers other applications by a percentage
+/// while you or others speak (0 turns it off, Discord's default).
+pub fn set_silence_warning(on: bool) {
+    SILENCE_WARNING.store(on, Ordering::Relaxed);
+}
+
+pub fn silence_warning() -> bool {
+    SILENCE_WARNING.load(Ordering::Relaxed)
+}
+
+pub fn set_switch_warning(on: bool) {
+    SWITCH_WARNING.store(on, Ordering::Relaxed);
+}
+
+pub fn switch_warning() -> bool {
+    SWITCH_WARNING.load(Ordering::Relaxed)
+}
+
+pub fn set_attenuation(percent: u8, when_i_speak: bool, when_others_speak: bool) {
+    ATTENUATION.store(percent.min(100), Ordering::Relaxed);
+    ATTENUATE_SELF.store(when_i_speak, Ordering::Relaxed);
+    ATTENUATE_OTHERS.store(when_others_speak, Ordering::Relaxed);
+}
+
+/// How far other applications go down while someone speaks, from 0 to 1:
+/// the attenuation if `i_speak` or `others_speak` is one it's on for.
+pub fn attenuation(i_speak: bool, others_speak: bool) -> f32 {
+    let on = (i_speak && ATTENUATE_SELF.load(Ordering::Relaxed))
+        || (others_speak && ATTENUATE_OTHERS.load(Ordering::Relaxed));
+    if on {
+        f32::from(ATTENUATION.load(Ordering::Relaxed)) / 100.0
+    } else {
+        0.0
+    }
+}
+
+/// Chooses the input profile for every call; a call going on takes it at
+/// its next block.
+pub fn set_profile(profile: Profile) {
+    PROFILE.store(profile as u8, Ordering::Relaxed);
+}
+
+pub fn profile() -> Profile {
+    match PROFILE.load(Ordering::Relaxed) {
+        0 => Profile::VoiceIsolation,
+        1 => Profile::Studio,
+        _ => Profile::Custom,
+    }
+}
+
+/// Custom's echo cancellation, automatic gain control, automatic input
+/// sensitivity and advanced voice activity, as Discord's switches; every
+/// call takes them at its next block.
+pub fn set_echo_cancellation(on: bool) {
+    ECHO_CANCELLATION.store(on, Ordering::Relaxed);
+}
+
+pub fn set_gain_control(on: bool) {
+    GAIN_CONTROL.store(on, Ordering::Relaxed);
+}
+
+pub fn set_auto_sensitivity(on: bool) {
+    AUTO_SENSITIVITY.store(on, Ordering::Relaxed);
+}
+
+pub fn set_voice_activity(on: bool) {
+    VOICE_ACTIVITY.store(on, Ordering::Relaxed);
+}
+
+/// The processing in effect: the profile's, as Discord's client sets each
+/// (Voice Isolation: Krisp, echo cancellation, gain control, the automatic
+/// threshold with Krisp's voice activity; Studio: none of it, at -84 dBFS),
+/// or Custom's settings.
+pub fn processing() -> Processing {
+    match profile() {
+        Profile::VoiceIsolation => Processing {
+            suppressor: Suppressor::DeepFilterNet,
+            echo_cancellation: true,
+            gain_control: true,
+            high_pass: true,
+            auto_sensitivity: true,
+            voice_activity: true,
+            sensitivity: sensitivity_chosen(),
+        },
+        Profile::Studio => Processing {
+            suppressor: Suppressor::Off,
+            echo_cancellation: false,
+            gain_control: false,
+            high_pass: false,
+            auto_sensitivity: false,
+            voice_activity: false,
+            sensitivity: STUDIO_SENSITIVITY,
+        },
+        Profile::Custom => Processing {
+            suppressor: chosen(),
+            echo_cancellation: ECHO_CANCELLATION.load(Ordering::Relaxed),
+            gain_control: GAIN_CONTROL.load(Ordering::Relaxed),
+            high_pass: true,
+            auto_sensitivity: AUTO_SENSITIVITY.load(Ordering::Relaxed),
+            voice_activity: VOICE_ACTIVITY.load(Ordering::Relaxed),
+            sensitivity: sensitivity_chosen(),
+        },
+    }
+}
 
 /// Chooses the suppressor for every call; a call going on switches at its
 /// next block.
@@ -66,10 +251,12 @@ pub fn set(suppressor: Suppressor) {
     SUPPRESSOR.store(suppressor as u8, Ordering::Relaxed);
 }
 
+/// Custom's suppressor; [`processing`] says which runs.
 pub fn chosen() -> Suppressor {
     match SUPPRESSOR.load(Ordering::Relaxed) {
         1 => Suppressor::RNNoise,
         2 => Suppressor::Off,
+        3 => Suppressor::Standard,
         _ => Suppressor::DeepFilterNet,
     }
 }
@@ -97,8 +284,7 @@ pub fn set_sensitivity(decibels: f32) {
     SENSITIVITY.store(decibels.to_bits(), Ordering::Relaxed);
 }
 
-#[cfg(feature = "discord")]
-pub(crate) fn sensitivity() -> f32 {
+fn sensitivity_chosen() -> f32 {
     f32::from_bits(SENSITIVITY.load(Ordering::Relaxed))
 }
 
@@ -217,7 +403,9 @@ mod denoise {
                     }
                 },
                 Suppressor::RNNoise => Network::RNNoise(nnnoiseless::DenoiseState::new()),
-                Suppressor::Off => Network::Off(nnnoiseless::DenoiseState::new()),
+                Suppressor::Off | Suppressor::Standard => {
+                    Network::Off(nnnoiseless::DenoiseState::new())
+                }
             };
             let mut denoiser = Self {
                 suppressor,

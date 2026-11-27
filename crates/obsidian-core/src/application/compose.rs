@@ -202,9 +202,35 @@ impl Application {
         }
         let draft = self.state.drafts.get(&id).cloned().unwrap_or_default();
         let compose = self.state.compose.get(&id).cloned();
+        let editing = matches!(compose, Some(Compose::Edit { .. }));
+        // Discord's own commands change the message: `/shrug` adds a shrug.
+        let in_server =
+            discord::parse_room(&id).is_some_and(|(guild, _)| guild != discord::DM_GUILD);
+        #[cfg(feature = "discord")]
+        let (typed, tts) = {
+            let builtin = (Network::of(&id) == Network::Discord && !editing && !self.state.preview)
+                .then(|| super::slash::builtin(&draft, in_server))
+                .flatten();
+            match builtin {
+                Some((builtin, text)) if builtin.needs_text() && text.is_empty() => {
+                    self.state.notice = Some("Fill in the required option message.".into());
+                    return vec![];
+                }
+                Some((builtin, text)) => (
+                    builtin.content(text),
+                    builtin == obsidian_discord::app_commands::BuiltIn::Tts,
+                ),
+                None => (draft.clone(), false),
+            }
+        };
+        #[cfg(not(feature = "discord"))]
+        let (typed, tts) = {
+            let _ = (in_server, editing);
+            (draft.clone(), false)
+        };
         // Discord's `@silent` at the start sends a message that notifies
         // nobody; Matrix has no such thing. An edit can't change it.
-        let silent_text = draft
+        let silent_text = typed
             .strip_prefix("@silent")
             .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
             .filter(|_| {
@@ -212,7 +238,7 @@ impl Application {
                     && !matches!(compose, Some(Compose::Edit { .. }))
             });
         let silent = silent_text.is_some();
-        let text = silent_text.map_or(draft.as_str(), str::trim_start);
+        let text = silent_text.map_or(typed.as_str(), str::trim_start);
         let text = if self.state.strip_tracking {
             crate::links::without_tracking(text)
         } else {
@@ -233,6 +259,13 @@ impl Application {
                 wired
             }
         };
+        #[cfg(feature = "discord")]
+        if !editing
+            && !self.state.preview
+            && let Some(effects) = self.send_command(&id, &body)
+        {
+            return effects;
+        }
         if body.len() > chat::MAX_MESSAGE_BYTES {
             self.state.notice = Some("Keep messages under 16 KB.".into());
             return vec![];
@@ -306,6 +339,7 @@ impl Application {
                     .map(|file| chat::OutgoingFile {
                         path: file.path.clone(),
                         spoiler: file.spoiler,
+                        voice: None,
                     })
                     .collect();
                 self.sent_files = files.iter().map(|file| file.path.clone()).collect();
@@ -321,6 +355,7 @@ impl Application {
                     options: chat::SendOptions {
                         quiet_reply: matches!(compose, Some(Compose::Reply { ping: false, .. })),
                         silent,
+                        tts,
                     },
                     reply: match compose {
                         Some(Compose::Reply { item, .. }) => Some(item),

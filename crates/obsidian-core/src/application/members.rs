@@ -68,6 +68,26 @@ impl Application {
         #[cfg(not(feature = "discord"))]
         let mut choices = self.state.person_choices(user);
         self.offer_invite(user, &mut choices);
+        // Apps goes after Change nickname, before Roles, moderation and
+        // Copy ID, as in Discord's menu.
+        #[cfg(feature = "discord")]
+        if self.person_apps_room(user).is_some() {
+            let at = choices
+                .iter()
+                .position(|choice| {
+                    matches!(
+                        choice,
+                        MenuChoice::Roles
+                            | MenuChoice::Timeout
+                            | MenuChoice::RemoveTimeout
+                            | MenuChoice::Kick
+                            | MenuChoice::Ban
+                            | MenuChoice::CopyId
+                    )
+                })
+                .unwrap_or(choices.len());
+            choices.insert(at, MenuChoice::Apps);
+        }
         choices
     }
 

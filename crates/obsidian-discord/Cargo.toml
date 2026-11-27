@@ -51,6 +51,10 @@ url.workspace = true
 # Links Discord Obsidian's libwebrtc archive, whose libopus calls use.
 webrtc-sys = "=0.3.35"
 
+# Quality of Service: qWAVE marks voice packets as high priority.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_NetworkManagement_QoS", "Win32_Networking_WinSock"] }
+
 # The Rich Presence socket's lock opens with O_NOFOLLOW, whose value differs
 # from one processor to another.
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -111,12 +111,14 @@ end;
 procedure RemoveOldShortcut(Path: String);
 var
   Shell, Shortcut: Variant;
+  Target: String;
 begin
   if not FileExists(Path) then exit;
   try
     Shell := CreateOleObject('WScript.Shell');
     Shortcut := Shell.CreateShortcut(Path);
-    if Pos('\programs\yapfast\', Lowercase(Shortcut.TargetPath)) > 0 then
+    Target := Shortcut.TargetPath;
+    if Pos('\programs\yapfast\', Lowercase(Target)) > 0 then
       DeleteFile(Path);
   except
   end;

@@ -1569,10 +1569,10 @@ component ShareSettings inherits Rectangle {
         HorizontalLayout {
             spacing: 4px;
             for preset in [
-                { name: "Games", detail: "1080p 240", resolution: 2, fps: 240, high: false },
+                { name: "Smoother Video", detail: "720p 60", resolution: 1, fps: 60, high: false },
+                { name: "Better Readability", detail: "Source 15", resolution: 4, fps: 15, high: true },
+                { name: "Games", detail: "1080p 144", resolution: 2, fps: 144, high: false },
                 { name: "Max", detail: "1440p 360", resolution: 3, fps: 360, high: false },
-                { name: "Text", detail: "1440p 60 HQ", resolution: 3, fps: 60, high: true },
-                { name: "Light", detail: "720p 30", resolution: 1, fps: 30, high: false },
             ]: ChoiceChip {
                 text: preset.name; detail: preset.detail;
                 checked: preset.resolution == root.pick-resolution && preset.fps == root.pick-fps
@@ -1586,9 +1586,9 @@ component ShareSettings inherits Rectangle {
         ShareHeading { text: "RESOLUTION"; }
         HorizontalLayout {
             spacing: 4px;
-            for choice[index] in ["480p", "720p", "1080p", "1440p", "Source"]: ChoiceChip {
-                text: choice; checked: index == root.pick-resolution;
-                clicked => { root.pick-resolution = index; }
+            for choice in [{ text: "720p", index: 1 }, { text: "1080p", index: 2 }, { text: "1440p", index: 3 }, { text: "Source", index: 4 }]: ChoiceChip {
+                text: choice.text; checked: choice.index == root.pick-resolution;
+                clicked => { root.pick-resolution = choice.index; }
             }
         }
         ShareHeading { text: "FRAME RATE"; }
@@ -1614,7 +1614,7 @@ component ShareSettings inherits Rectangle {
             }
             HorizontalLayout {
                 spacing: 4px;
-                for rate in [30, 60, 144, 240, 360]: ChoiceChip {
+                for rate in [15, 30, 60, 120, 144, 240, 360]: ChoiceChip {
                     text: rate; checked: rate == root.pick-fps;
                     clicked => { root.pick-fps = rate; }
                 }
@@ -1878,7 +1878,10 @@ export component LiveMenu inherits Rectangle {
     property <bool> quality-open;
     property <length> menu-width: 220px;
     out property <length> content-width: root.menu-width + 8px + 200px;
-    out property <length> content-height: max(menu.height, root.quality-open ? quality.height : 0px);
+    // Tall enough for the quality submenu from the start: the popup's place
+    // is set as it opens, so growing it later pushed the submenu past the
+    // window's edge.
+    out property <length> content-height: max(menu.height, quality.height);
     menu := Rectangle {
         x: 0px; y: root.content-height - self.height; width: root.menu-width; height: menu-rows.preferred-height;
         background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
@@ -1925,20 +1928,20 @@ export component LiveMenu inherits Rectangle {
         quality-rows := VerticalLayout {
             padding: 6px; spacing: 2px;
             HorizontalLayout { padding: 8px; padding-bottom: 4px; ShareHeading { text: "RESOLUTION"; } }
-            for choice[index] in ["480p", "720p", "1080p", "1440p", "Source"]: LiveRadio {
-                text: choice; checked: index == root.resolution;
-                clicked => { root.requality(index, root.fps, root.high-quality, root.audio); }
+            for choice in [{ text: "720p", index: 1 }, { text: "1080p", index: 2 }, { text: "1440p", index: 3 }, { text: "Source", index: 4 }]: LiveRadio {
+                text: choice.text; checked: choice.index == root.resolution;
+                clicked => { root.requality(choice.index, root.fps, root.high-quality, root.audio); }
             }
             Rectangle {
                 height: 9px;
                 Rectangle { height: 1px; x: 4px; width: parent.width - 8px; background: Theme.menu-line; }
             }
             HorizontalLayout { padding: 8px; padding-bottom: 4px; ShareHeading { text: "FRAME RATE"; } }
-            for rate in [30, 60, 144, 240, 360]: LiveRadio {
+            for rate in [15, 30, 60, 120, 144, 240, 360]: LiveRadio {
                 text: rate + " fps"; checked: rate == root.fps;
                 clicked => { root.requality(root.resolution, rate, root.high-quality, root.audio); }
             }
-            if root.fps != 30 && root.fps != 60 && root.fps != 144 && root.fps != 240 && root.fps != 360: LiveRadio {
+            if root.fps != 15 && root.fps != 30 && root.fps != 60 && root.fps != 120 && root.fps != 144 && root.fps != 240 && root.fps != 360: LiveRadio {
                 text: root.fps + " fps"; checked: true;
             }
         }

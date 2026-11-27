@@ -16,8 +16,9 @@ use windows::{
             Audio::{
                 AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
                 AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, DEVICE_STATE_ACTIVE, EDataFlow,
-                IAudioCaptureClient, IAudioClient, IAudioRenderClient, IMMDevice,
+                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDCLNT_STREAMOPTIONS_RAW,
+                AudioCategory_Other, AudioClientProperties, DEVICE_STATE_ACTIVE, EDataFlow,
+                IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient, IMMDevice,
                 IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
                 WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
             },
@@ -179,6 +180,27 @@ impl Stream {
         // SAFETY: a plain COM call.
         let client =
             unsafe { device.Activate(CLSCTX_ALL, None) }.context("the device refused a stream")?;
+        Self::initialize(client, format, buffer, 0)
+    }
+
+    /// As [`Self::open`], in raw mode where the device allows it, past the
+    /// effects its driver and Windows add.
+    fn open_raw(device: &IMMDevice, format: Format, buffer: Duration) -> Result<Self> {
+        // SAFETY: plain COM calls; the properties outlive the call.
+        let client: IAudioClient =
+            unsafe { device.Activate(CLSCTX_ALL, None) }.context("the device refused a stream")?;
+        let raw = windows::core::Interface::cast::<IAudioClient2>(&client).and_then(|client| {
+            let properties = AudioClientProperties {
+                cbSize: size_of::<AudioClientProperties>() as u32,
+                bIsOffload: false.into(),
+                eCategory: AudioCategory_Other,
+                Options: AUDCLNT_STREAMOPTIONS_RAW,
+            };
+            unsafe { client.SetClientProperties(&raw const properties) }
+        });
+        if let Err(error) = raw {
+            tracing::debug!(%error, "the microphone keeps the system's processing");
+        }
         Self::initialize(client, format, buffer, 0)
     }
 
@@ -373,7 +395,13 @@ impl Input {
     ) -> Result<Self> {
         let device =
             device(microphone, eCapture).context("this microphone is no longer connected")?;
-        let mut stream = Stream::open(&device, format, (fragment * 4).max(RECORDING))?;
+        let buffer = (fragment * 4).max(RECORDING);
+        let mut stream = if super::raw_input() {
+            Stream::open_raw(&device, format, buffer)
+                .or_else(|_| Stream::open(&device, format, buffer))?
+        } else {
+            Stream::open(&device, format, buffer)?
+        };
         // SAFETY: an initialized client.
         let capture = unsafe { stream.client.GetService::<IAudioCaptureClient>() }?;
         let left = Vec::with_capacity(stream.buffer as usize * format.frame_bytes());
@@ -435,6 +463,148 @@ impl Input {
             }
         }
         Ok(())
+    }
+}
+
+/// Lowers other applications' session volumes by `fraction`, from a thread
+/// of its own, which keeps each session's own volume to give back.
+pub fn attenuate(fraction: f32) {
+    use std::sync::{OnceLock, mpsc};
+    static ATTENUATOR: OnceLock<Option<mpsc::Sender<f32>>> = OnceLock::new();
+    let sender = ATTENUATOR.get_or_init(|| {
+        let (sender, levels) = mpsc::channel::<f32>();
+        std::thread::Builder::new()
+            .name("obsidian-attenuation".into())
+            .spawn(move || attenuation::run(&levels))
+            .ok()
+            .map(|_| sender)
+    });
+    if let Some(sender) = sender {
+        let _ = sender.send(fraction.clamp(0.0, 1.0));
+    }
+}
+
+mod attenuation {
+    use std::{collections::HashMap, sync::mpsc, time::Duration};
+
+    use windows::{
+        Win32::Media::Audio::{
+            IAudioSessionControl2, IAudioSessionManager2, ISimpleAudioVolume, eRender,
+        },
+        core::Interface,
+    };
+
+    use super::{CLSCTX_ALL, com, device};
+
+    /// Applies each level as it comes, and gives the sessions their volume
+    /// back at 0 and when the sender goes.
+    pub(super) fn run(levels: &mpsc::Receiver<f32>) {
+        com();
+        let mut lowered: HashMap<String, (ISimpleAudioVolume, f32)> = HashMap::new();
+        let mut level = 0.0f32;
+        loop {
+            match levels.recv_timeout(Duration::from_secs(1)) {
+                Ok(next) => level = next,
+                Err(mpsc::RecvTimeoutError::Timeout) if level == 0.0 => continue,
+                // Sessions that start while lowered are lowered too.
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+            if level == 0.0 {
+                restore(&mut lowered);
+            } else if let Err(error) = lower(&mut lowered, level) {
+                tracing::debug!(%error, "could not lower other applications");
+            }
+        }
+        restore(&mut lowered);
+    }
+
+    fn restore(lowered: &mut HashMap<String, (ISimpleAudioVolume, f32)>) {
+        for (_, (volume, was)) in lowered.drain() {
+            // SAFETY: a plain COM call on a session still held.
+            let _ = unsafe { volume.SetMasterVolume(was, std::ptr::null()) };
+        }
+    }
+
+    fn lower(
+        lowered: &mut HashMap<String, (ISimpleAudioVolume, f32)>,
+        level: f32,
+    ) -> windows::core::Result<()> {
+        let own = std::process::id();
+        let own_name = std::env::current_exe().ok().and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_lowercase())
+        });
+        let Ok(device) = device(None, eRender) else {
+            return Ok(());
+        };
+        // SAFETY: plain COM calls on this thread's apartment.
+        unsafe {
+            let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
+            let sessions = manager.GetSessionEnumerator()?;
+            for index in 0..sessions.GetCount()? {
+                let Ok(control) = sessions.GetSession(index) else {
+                    continue;
+                };
+                let Ok(control) = control.cast::<IAudioSessionControl2>() else {
+                    continue;
+                };
+                let process = control.GetProcessId().unwrap_or(0);
+                if process == 0 || process == own || is_own(process, own_name.as_deref()) {
+                    continue;
+                }
+                let Ok(id) = control.GetSessionInstanceIdentifier() else {
+                    continue;
+                };
+                let key = id.to_string().unwrap_or_default();
+                windows::Win32::System::Com::CoTaskMemFree(Some(id.0.cast()));
+                let Ok(volume) = control.cast::<ISimpleAudioVolume>() else {
+                    continue;
+                };
+                let was = match lowered.get(&key) {
+                    Some((_, was)) => *was,
+                    None => volume.GetMasterVolume().unwrap_or(1.0),
+                };
+                let _ = volume.SetMasterVolume(was * (1.0 - level), std::ptr::null());
+                lowered.insert(key, (volume, was));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether a process runs Discord Obsidian's executable, as its stream
+    /// workers do.
+    fn is_own(process: u32, own_name: Option<&str>) -> bool {
+        use windows::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{
+                OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+                QueryFullProcessImageNameW,
+            },
+        };
+        let Some(own_name) = own_name else {
+            return false;
+        };
+        // SAFETY: the handle is closed below; the buffer outlives the call.
+        unsafe {
+            let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process) else {
+                return false;
+            };
+            let mut path = [0u16; 1024];
+            let mut length = path.len() as u32;
+            let named = QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(path.as_mut_ptr()),
+                &mut length,
+            )
+            .is_ok();
+            let _ = CloseHandle(handle);
+            named
+                && String::from_utf16_lossy(&path[..length as usize])
+                    .to_lowercase()
+                    .ends_with(own_name)
+        }
     }
 }
 

@@ -3,8 +3,8 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
 use obsidian_ui::ObsidianWindow;
+use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
 
 /// Opaque `#rrggbb`.
 const fn rgb(hex: u32) -> Color {
@@ -145,8 +145,9 @@ pub const YAP: Theme = Theme {
     avatar: rgb(0x6b7280),
 };
 
-/// Discord's own dark theme (Dark, `.theme-dark` with `.theme-darker` in its
-/// web client's CSS) on Discord Obsidian's surfaces, with blurple for the accent.
+/// Discord's Dark theme (`.theme-dark` with `.theme-darker` in its web
+/// client's CSS) on Discord Obsidian's surfaces, with blurple for the accent;
+/// once called Bonfire.
 const BONFIRE: Theme = Theme {
     dark: true,
     rail: rgb(0x121214),
@@ -568,75 +569,506 @@ const SAKURA: Theme = Theme {
     avatar: rgb(0xc08aa2),
 };
 
-/// A theme Discord Obsidian comes with: the id a layout stores and the name Appearance
-/// shows.
+/// `a` mixed towards `b` by `amount` thousandths, as `0xrrggbb`.
+const fn mix_hex(a: u32, b: u32, amount: u32) -> u32 {
+    let amount = if amount > 1000 { 1000 } else { amount };
+    mix_channel(a, b, amount, 16) | mix_channel(a, b, amount, 8) | mix_channel(a, b, amount, 0)
+}
+
+const fn mix_channel(a: u32, b: u32, amount: u32, shift: u32) -> u32 {
+    let (from, to) = ((a >> shift) & 0xff, (b >> shift) & 0xff);
+    ((from * (1000 - amount) + to * amount + 500) / 1000) << shift
+}
+
+/// Discord's grey washes (`#97979f` at some opacity) laid over a ground.
+const fn wash(ground: u32, amount: u32) -> u32 {
+    mix_hex(ground, 0x97979f, amount)
+}
+
+/// A Discord theme's grounds, from its CSS variables: `--background-base-lowest`,
+/// `-lower`, `-low` and `--background-surface-high`.
+struct Grounds {
+    lowest: u32,
+    lower: u32,
+    low: u32,
+    high: u32,
+}
+
+/// A Discord theme's text and status colours, whether it's light, and how
+/// much stronger than Dark's its borders are, in thousandths.
+struct Ink {
+    text: u32,
+    subtle: u32,
+    muted: u32,
+    link: u32,
+    positive: u32,
+    warning: u32,
+    light: bool,
+    borders: u32,
+}
+
+/// One of Discord's themes on Discord Obsidian's surfaces, mapped as Bonfire
+/// maps Dark (see docs/themes.md): grounds from its background variables,
+/// hovers, selections and lines as the same washes over them, at the
+/// opacities read off Dark, borders as much stronger as the theme's are.
+const fn discord(grounds: Grounds, ink: Ink) -> Theme {
+    let Grounds {
+        lowest,
+        lower,
+        low,
+        high,
+    } = grounds;
+    let borders = ink.borders;
+    Theme {
+        dark: !ink.light,
+        rail: rgb(lowest),
+        sidebar: rgb(lowest),
+        panel: rgb(low),
+        chat: rgb(lower),
+        stage: rgb(lower),
+        raised: rgb(high),
+        field: rgb(low),
+        sunken: rgb(lowest),
+        hover: rgb(wash(lowest, 122)),
+        active: rgb(wash(lowest, 200)),
+        row_hover: rgb(wash(lower, 80)),
+        line: rgb(wash(lower, 240 * borders / 1000)),
+        outline: rgb(wash(lowest, 122 * borders / 1000)),
+        outline_chat: rgb(wash(lower, 120 * borders / 1000)),
+        outline_field: rgb(wash(low, 60 * borders / 1000)),
+        edge: rgb(wash(lower, 176 * borders / 1000)),
+        text: rgb(ink.text),
+        secondary: rgb(ink.subtle),
+        muted: rgb(ink.muted),
+        faint: rgb(mix_hex(lower, ink.muted, 661)),
+        accent: rgb(0x5865f2),
+        accent_hover: rgb(0x4452bb),
+        on_accent: rgb(0xffffff),
+        accent_soft: rgba(0x5865f226),
+        danger: rgb(0xd22d39),
+        danger_hover: rgb(0xa9232e),
+        on_danger: rgb(0xffffff),
+        live: rgb(ink.positive),
+        loud: rgb(ink.warning),
+        link: rgb(ink.link),
+        button_default: rgb(wash(low, 151)),
+        button_default_hover: rgb(wash(low, 185)),
+        overlay: if ink.light {
+            rgb(ink.text)
+        } else {
+            rgb(0xffffff)
+        },
+        shimmer: if ink.light {
+            rgba(0xffffff99)
+        } else {
+            rgba(0xffffff10)
+        },
+        reply_spine: rgb(wash(lower, 360 * borders / 1000)),
+        tooltip: rgb(high),
+        avatar: rgb(wash(lower, 528)),
+    }
+}
+
+/// Discord's Light theme's text, `.theme-light`.
+const LIGHT_INK: Ink = Ink {
+    text: 0x2e2e34,
+    subtle: 0x595a63,
+    muted: 0x6c6d76,
+    link: 0x006dd4,
+    positive: 0x24934e,
+    warning: 0xaf7615,
+    light: true,
+    borders: 2300,
+};
+
+/// Discord's Dark theme's text, `.theme-dark.theme-darker`.
+const DARK_INK: Ink = Ink {
+    text: 0xefeff1,
+    subtle: 0xabacb2,
+    muted: 0x96979e,
+    link: 0x4d96ee,
+    positive: 0x23a55a,
+    warning: 0xf0b232,
+    light: false,
+    borders: 1000,
+};
+
+/// Discord's Light theme.
+const LIGHT: Theme = discord(
+    Grounds {
+        lowest: 0xf3f3f4,
+        lower: 0xfbfbfb,
+        low: 0xfbfbfb,
+        high: 0xffffff,
+    },
+    LIGHT_INK,
+);
+
+/// Discord's Ash theme, `.theme-dark` alone: a lighter grey.
+const ASH: Theme = discord(
+    Grounds {
+        lowest: 0x2c2d32,
+        lower: 0x323339,
+        low: 0x36373e,
+        high: 0x393a41,
+    },
+    Ink {
+        text: 0xf3f3f4,
+        subtle: 0xc5c6ca,
+        muted: 0xabacb2,
+        link: 0x76aff6,
+        ..DARK_INK
+    },
+);
+
+/// Discord's Onyx theme, `.theme-midnight`: black grounds, its own text,
+/// and borders two thirds stronger than Dark's to set them apart.
+const ONYX: Theme = discord(
+    Grounds {
+        lowest: 0x000000,
+        lower: 0x000000,
+        low: 0x000000,
+        high: 0x0a0a0c,
+    },
+    Ink {
+        text: 0xd4d5d8,
+        subtle: 0x96979e,
+        muted: 0x81828a,
+        link: 0x2781e7,
+        borders: 1650,
+        ..DARK_INK
+    },
+);
+
+/// The average of a gradient's colours.
+const fn mean(stops: &[u32]) -> u32 {
+    let (mut red, mut green, mut blue, mut index) = (0, 0, 0, 0);
+    while index < stops.len() {
+        red += (stops[index] >> 16) & 0xff;
+        green += (stops[index] >> 8) & 0xff;
+        blue += stops[index] & 0xff;
+        index += 1;
+    }
+    let count = if stops.is_empty() {
+        1
+    } else {
+        stops.len() as u32
+    };
+    ((red / count) << 16) | ((green / count) << 8) | (blue / count)
+}
+
+/// One of Discord's colour themes, flat: Discord lays its grounds over the
+/// gradient, black at 70% on a dark one and white at 80% on a light one, and
+/// Discord Obsidian lays them over the gradient's first colour for the
+/// server list and sidebar and its average for the chat. Raised surfaces
+/// keep Dark's or Light's, as Discord's do.
+const fn gradient(stops: &[u32], light: bool) -> Theme {
+    let (over, amount, high, ink) = if light {
+        (0xffffff, 800, 0xffffff, LIGHT_INK)
+    } else {
+        (0x000000, 700, 0x242429, DARK_INK)
+    };
+    let side = mix_hex(stops[0], over, amount);
+    let middle = mix_hex(mean(stops), over, amount);
+    discord(
+        Grounds {
+            lowest: side,
+            lower: middle,
+            low: middle,
+            high,
+        },
+        ink,
+    )
+}
+
+/// Which row of Appearance a built-in theme shows in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Group {
+    /// Discord's Default Themes: Light, Ash, Dark and Onyx.
+    Default,
+    /// Discord's Color Themes, its gradients.
+    Colour,
+    /// Discord Obsidian's own and the community palettes.
+    More,
+}
+
+/// A built-in theme's place: its group, and the two colours its swatch runs
+/// between, top to bottom.
+const fn plain(theme: &Theme) -> [Color; 2] {
+    [theme.chat, theme.chat]
+}
+
+/// A theme Discord Obsidian comes with: the id a layout stores, the name
+/// Appearance shows, the row it shows in and its swatch's colours.
 pub struct BuiltIn {
     pub id: &'static str,
     pub name: &'static str,
     pub theme: Theme,
+    pub group: Group,
+    pub swatch: [Color; 2],
 }
 
-/// The themes Discord Obsidian comes with, as Appearance lists them: the dark ones, then
-/// the light ones. The palettes credited in docs/themes.md are MIT licensed.
-pub const BUILT_IN: [BuiltIn; 11] = [
+/// The themes Discord Obsidian comes with, as Appearance lists them:
+/// Discord's default themes and colour themes, then Discord Obsidian's own
+/// and the community palettes, the dark ones before the light ones. The
+/// palettes credited in docs/themes.md are MIT licensed.
+pub const BUILT_IN: [BuiltIn; 35] = [
+    BuiltIn {
+        id: "light",
+        name: "Light",
+        theme: LIGHT,
+        group: Group::Default,
+        swatch: plain(&LIGHT),
+    },
+    BuiltIn {
+        id: "ash",
+        name: "Ash",
+        theme: ASH,
+        group: Group::Default,
+        swatch: plain(&ASH),
+    },
+    BuiltIn {
+        id: "dark",
+        name: "Dark",
+        theme: BONFIRE,
+        group: Group::Default,
+        swatch: plain(&BONFIRE),
+    },
+    BuiltIn {
+        id: "onyx",
+        name: "Onyx",
+        theme: ONYX,
+        group: Group::Default,
+        swatch: plain(&ONYX),
+    },
+    BuiltIn {
+        id: "mint-apple",
+        name: "Mint Apple",
+        theme: gradient(&[0x56b69f, 0x63bc61, 0x9eca67], true),
+        group: Group::Colour,
+        swatch: [rgb(0x56b69f), rgb(0x9eca67)],
+    },
+    BuiltIn {
+        id: "citrus-sherbert",
+        name: "Citrus Sherbert",
+        theme: gradient(&[0xf3b336, 0xee8558], true),
+        group: Group::Colour,
+        swatch: [rgb(0xf3b336), rgb(0xee8558)],
+    },
+    BuiltIn {
+        id: "retro-raincloud",
+        name: "Retro Raincloud",
+        theme: gradient(&[0x3a7ca1, 0x7f7eb9, 0x7f7eb9, 0x3a7ca1], true),
+        group: Group::Colour,
+        swatch: [rgb(0x3a7ca1), rgb(0x7f7eb9)],
+    },
+    BuiltIn {
+        id: "hanami",
+        name: "Hanami",
+        theme: gradient(&[0xefaab3, 0xefd696, 0xa6daa2], true),
+        group: Group::Colour,
+        swatch: [rgb(0xefaab3), rgb(0xa6daa2)],
+    },
+    BuiltIn {
+        id: "sunrise",
+        name: "Sunrise",
+        theme: gradient(&[0x9f4175, 0xc49064, 0xa6953d], true),
+        group: Group::Colour,
+        swatch: [rgb(0x9f4175), rgb(0xa6953d)],
+    },
+    BuiltIn {
+        id: "cotton-candy",
+        name: "Cotton Candy",
+        theme: gradient(&[0xf4abb8, 0xb1c2fc], true),
+        group: Group::Colour,
+        swatch: [rgb(0xf4abb8), rgb(0xb1c2fc)],
+    },
+    BuiltIn {
+        id: "lofi-vibes",
+        name: "Lofi Vibes",
+        theme: gradient(&[0xa4c0f7, 0xa9e4e8, 0xb0e2b8, 0xcfdfa2], true),
+        group: Group::Colour,
+        swatch: [rgb(0xa4c0f7), rgb(0xcfdfa2)],
+    },
+    BuiltIn {
+        id: "desert-khaki",
+        name: "Desert Khaki",
+        theme: gradient(&[0xe7dbd0, 0xdfd0b2, 0xe0d6a3], true),
+        group: Group::Colour,
+        swatch: [rgb(0xe7dbd0), rgb(0xe0d6a3)],
+    },
+    BuiltIn {
+        id: "sunset",
+        name: "Sunset",
+        theme: gradient(&[0x48288c, 0xdb7f4b], false),
+        group: Group::Colour,
+        swatch: [rgb(0x48288c), rgb(0xdb7f4b)],
+    },
+    BuiltIn {
+        id: "chroma-glow",
+        name: "Chroma Glow",
+        theme: gradient(&[0x0eb5bf, 0x4c0ce0, 0xa308a7, 0x9a53ff, 0x218be0], false),
+        group: Group::Colour,
+        swatch: [rgb(0x0eb5bf), rgb(0x218be0)],
+    },
+    BuiltIn {
+        id: "forest",
+        name: "Forest",
+        theme: gradient(&[0x142215, 0x2d4d39, 0x454c32, 0x5a7c58, 0xa98e4b], false),
+        group: Group::Colour,
+        swatch: [rgb(0x142215), rgb(0xa98e4b)],
+    },
+    BuiltIn {
+        id: "crimson-moon",
+        name: "Crimson Moon",
+        theme: gradient(&[0x950909, 0x000000], false),
+        group: Group::Colour,
+        swatch: [rgb(0x950909), rgb(0x000000)],
+    },
+    BuiltIn {
+        id: "midnight-blurple",
+        name: "Midnight Blurple",
+        theme: gradient(&[0x5348ca, 0x140730], false),
+        group: Group::Colour,
+        swatch: [rgb(0x5348ca), rgb(0x140730)],
+    },
+    BuiltIn {
+        id: "mars",
+        name: "Mars",
+        theme: gradient(&[0x895240, 0x8f4343], false),
+        group: Group::Colour,
+        swatch: [rgb(0x895240), rgb(0x8f4343)],
+    },
+    BuiltIn {
+        id: "dusk",
+        name: "Dusk",
+        theme: gradient(&[0x665069, 0x91a3d1], false),
+        group: Group::Colour,
+        swatch: [rgb(0x665069), rgb(0x91a3d1)],
+    },
+    BuiltIn {
+        id: "under-the-sea",
+        name: "Under the Sea",
+        theme: gradient(&[0x647962, 0x588575, 0x6a8482], false),
+        group: Group::Colour,
+        swatch: [rgb(0x647962), rgb(0x6a8482)],
+    },
+    BuiltIn {
+        id: "retro-storm",
+        name: "Retro Storm",
+        theme: gradient(&[0x3a7ca1, 0x58579a, 0x58579a, 0x3a7ca1], false),
+        group: Group::Colour,
+        swatch: [rgb(0x3a7ca1), rgb(0x58579a)],
+    },
+    BuiltIn {
+        id: "neon-nights",
+        name: "Neon Nights",
+        theme: gradient(&[0x01a89e, 0x7d60ba, 0xb43898], false),
+        group: Group::Colour,
+        swatch: [rgb(0x01a89e), rgb(0xb43898)],
+    },
+    BuiltIn {
+        id: "strawberry-lemonade",
+        name: "Strawberry Lemonade",
+        theme: gradient(&[0xaf1a6c, 0xc26b20, 0xe7a525], false),
+        group: Group::Colour,
+        swatch: [rgb(0xaf1a6c), rgb(0xe7a525)],
+    },
+    BuiltIn {
+        id: "aurora",
+        name: "Aurora",
+        theme: gradient(&[0x062053, 0x191fbb, 0x13929a, 0x218573, 0x051a81], false),
+        group: Group::Colour,
+        swatch: [rgb(0x062053), rgb(0x051a81)],
+    },
+    BuiltIn {
+        id: "sepia",
+        name: "Sepia",
+        theme: gradient(&[0x857664, 0x5b4421], false),
+        group: Group::Colour,
+        swatch: [rgb(0x857664), rgb(0x5b4421)],
+    },
     BuiltIn {
         id: "yap",
         name: "Obsidian",
         theme: YAP,
+        group: Group::More,
+        swatch: plain(&YAP),
     },
     BuiltIn {
         id: "midnight",
         name: "Midnight",
         theme: MIDNIGHT,
-    },
-    BuiltIn {
-        id: "bonfire",
-        name: "Bonfire",
-        theme: BONFIRE,
+        group: Group::More,
+        swatch: plain(&MIDNIGHT),
     },
     BuiltIn {
         id: "catppuccin-mocha",
         name: "Catppuccin Mocha",
         theme: CATPPUCCIN_MOCHA,
+        group: Group::More,
+        swatch: plain(&CATPPUCCIN_MOCHA),
     },
     BuiltIn {
         id: "dracula",
         name: "Dracula",
         theme: DRACULA,
+        group: Group::More,
+        swatch: plain(&DRACULA),
     },
     BuiltIn {
         id: "nord",
         name: "Nord",
         theme: NORD,
+        group: Group::More,
+        swatch: plain(&NORD),
     },
     BuiltIn {
         id: "gruvbox-dark",
         name: "Gruvbox Dark",
         theme: GRUVBOX_DARK,
+        group: Group::More,
+        swatch: plain(&GRUVBOX_DARK),
     },
     BuiltIn {
         id: "tokyo-night",
         name: "Tokyo Night",
         theme: TOKYO_NIGHT,
+        group: Group::More,
+        swatch: plain(&TOKYO_NIGHT),
     },
     BuiltIn {
         id: "catppuccin-latte",
         name: "Catppuccin Latte",
         theme: CATPPUCCIN_LATTE,
+        group: Group::More,
+        swatch: plain(&CATPPUCCIN_LATTE),
     },
     BuiltIn {
         id: "rose-pine-dawn",
         name: "Rosé Pine Dawn",
         theme: ROSE_PINE_DAWN,
+        group: Group::More,
+        swatch: plain(&ROSE_PINE_DAWN),
     },
     BuiltIn {
         id: "sakura",
         name: "Sakura",
         theme: SAKURA,
+        group: Group::More,
+        swatch: plain(&SAKURA),
     },
 ];
 
+/// Where Discord's Dark theme is in [`BUILT_IN`]: what shows when a layout
+/// names no theme Discord Obsidian has.
+pub const DARK: usize = 2;
+
+/// The id Discord's Dark theme had before Appearance named it so.
+const BONFIRE_ID: &str = "bonfire";
+
 pub fn find(id: &str) -> Option<&'static BuiltIn> {
+    let id = if id == BONFIRE_ID { "dark" } else { id };
     BUILT_IN.iter().find(|theme| theme.id == id)
 }
 
@@ -656,7 +1088,7 @@ pub fn lookup<'a>(id: &str, custom: &'a [Custom]) -> Option<(&'a str, Theme)> {
 /// this version doesn't have or the person deleted.
 pub fn chosen<'a>(id: Option<&str>, custom: &'a [Custom]) -> (&'a str, Theme) {
     id.and_then(|id| lookup(id, custom))
-        .unwrap_or((BUILT_IN[0].id, YAP))
+        .unwrap_or((BUILT_IN[DARK].id, BUILT_IN[DARK].theme))
 }
 
 /// A colour's name as `ui/theme.slint` and `layout.json` have it.
@@ -726,7 +1158,7 @@ struct Stored {
 
 impl From<Stored> for Custom {
     fn from(stored: Stored) -> Self {
-        let base = find(&stored.base).unwrap_or(&BUILT_IN[0]);
+        let base = find(&stored.base).unwrap_or(&BUILT_IN[DARK]);
         let mut theme = base.theme;
         theme.dark = stored.dark.unwrap_or(theme.dark);
         for (token, text) in &stored.colours {
@@ -876,31 +1308,105 @@ impl Theme {
     }
 }
 
-/// Appearance's cards: each theme's name and the colours its preview draws
-/// with, the built-in ones first.
-pub fn cards(custom: &[Custom]) -> ModelRc<obsidian_ui::ThemeCard> {
-    let card = |id: &str, name: &str, custom: bool, theme: &Theme| obsidian_ui::ThemeCard {
-        id: id.into(),
-        name: name.into(),
-        custom,
-        rail: theme.rail,
-        sidebar: theme.sidebar,
-        chat: theme.chat,
-        raised: theme.raised,
-        accent: theme.accent,
-        text: theme.text,
-        muted: theme.muted,
+/// Appearance's cards in one of its rows: each theme's name and the colours
+/// its preview and swatch draw with. The person's own come after the More
+/// row's built-in ones.
+pub fn cards(custom: &[Custom], group: Group) -> ModelRc<obsidian_ui::ThemeCard> {
+    let card = |id: &str, name: &str, custom: bool, theme: &Theme, swatch: [Color; 2]| {
+        obsidian_ui::ThemeCard {
+            id: id.into(),
+            name: name.into(),
+            custom,
+            rail: theme.rail,
+            sidebar: theme.sidebar,
+            chat: theme.chat,
+            raised: theme.raised,
+            accent: theme.accent,
+            text: theme.text,
+            muted: theme.muted,
+            swatch_top: swatch[0],
+            swatch_bottom: swatch[1],
+        }
     };
+    let own = custom
+        .iter()
+        .filter(|_| group == Group::More)
+        .map(|custom| {
+            card(
+                &custom.id,
+                &custom.name,
+                true,
+                &custom.theme,
+                plain(&custom.theme),
+            )
+        });
     let cards: Vec<_> = BUILT_IN
         .iter()
-        .map(|built_in| card(built_in.id, built_in.name, false, &built_in.theme))
-        .chain(
-            custom
-                .iter()
-                .map(|custom| card(&custom.id, &custom.name, true, &custom.theme)),
-        )
+        .filter(|built_in| built_in.group == group)
+        .map(|built_in| {
+            card(
+                built_in.id,
+                built_in.name,
+                false,
+                &built_in.theme,
+                built_in.swatch,
+            )
+        })
+        .chain(own)
         .collect();
     ModelRc::new(VecModel::from(cards))
+}
+
+/// Shows every row of Appearance's themes.
+pub fn show_cards(window: &ObsidianWindow, custom: &[Custom]) {
+    window.set_default_themes(cards(custom, Group::Default));
+    window.set_colour_themes(cards(custom, Group::Colour));
+    window.set_themes(cards(custom, Group::More));
+}
+
+/// Whether the system shows its apps dark, for "Sync with computer": on
+/// Windows, Settings' app mode; elsewhere, what the window was told.
+pub fn system_dark(window: &ObsidianWindow) -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Registry::{
+            HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW,
+        };
+        let wide = |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+        let (key, value) = (
+            wide("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            wide("AppsUseLightTheme"),
+        );
+        let (mut light, mut size) = (1u32, 4u32);
+        // SAFETY: the strings end in nul, and the value is a DWORD of `size` bytes.
+        let read = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_DWORD,
+                std::ptr::null_mut(),
+                (&raw mut light).cast(),
+                &raw mut size,
+            )
+        };
+        let _ = window;
+        read != 0 || light == 0
+    }
+    #[cfg(not(windows))]
+    {
+        use slint::winit_030::{WinitWindowAccessor, winit::window::Theme as WinitTheme};
+        window
+            .window()
+            .with_winit_window(|winit| winit.theme())
+            .flatten()
+            .is_none_or(|theme| theme == WinitTheme::Dark)
+    }
+}
+
+/// The theme "Sync with computer" shows: Discord's Dark or Light.
+pub fn synced(dark: bool) -> &'static str {
+    if dark { "dark" } else { "light" }
 }
 
 /// Appearance's theme editor while it's open: the theme as edited so far,
@@ -1072,7 +1578,9 @@ fn luminance(colour: Color) -> f32 {
             ((value + 0.055) / 1.055).powf(2.4)
         }
     };
-    0.2126 * channel(colour.red()) + 0.7152 * channel(colour.green()) + 0.0722 * channel(colour.blue())
+    0.2126 * channel(colour.red())
+        + 0.7152 * channel(colour.green())
+        + 0.0722 * channel(colour.blue())
 }
 
 /// A whole theme from two colours the theme maker asks for: the chat's
@@ -1203,6 +1711,47 @@ mod generate_tests {
     fn a_pale_accent_takes_dark_text() {
         let theme = generate(rgb(0x111111), rgb(0xffe066));
         assert!(luminance(theme.on_accent) < 0.2);
+    }
+
+    #[test]
+    fn discords_themes_come_from_its_colours() {
+        // Dark keeps Bonfire's mapping, and Bonfire's id finds it.
+        assert_eq!(find("bonfire").map(|built_in| built_in.id), Some("dark"));
+        assert_eq!(BUILT_IN[DARK].id, "dark");
+        assert_eq!(BUILT_IN[DARK].theme, BONFIRE);
+        // Onyx is black, Light light, Ash between.
+        assert_eq!(ONYX.chat, rgb(0x000000));
+        assert_eq!(ONYX.rail, rgb(0x000000));
+        const { assert!(ONYX.dark && ASH.dark && !LIGHT.dark) };
+        assert_eq!(LIGHT.rail, rgb(0xf3f3f4));
+        assert_eq!(ASH.chat, rgb(0x323339));
+        // The washes read off Dark give Dark's own colours back.
+        let dark = discord(
+            Grounds {
+                lowest: 0x121214,
+                lower: 0x1a1a1e,
+                low: 0x202024,
+                high: 0x242429,
+            },
+            DARK_INK,
+        );
+        assert_eq!((dark.hover, dark.active), (BONFIRE.hover, BONFIRE.active));
+        // A colour theme lays black over its gradient, and keeps blurple.
+        let sunset = find("sunset").unwrap();
+        assert_eq!(sunset.group, Group::Colour);
+        assert!(sunset.theme.dark);
+        assert_eq!(sunset.theme.rail, rgb(mix_hex(0x48288c, 0, 700)));
+        assert_eq!(sunset.theme.accent, rgb(0x5865f2));
+        assert!(!find("mint-apple").unwrap().theme.dark);
+        // Sync with computer shows Dark or Light.
+        assert_eq!((synced(true), synced(false)), ("dark", "light"));
+        assert_eq!(
+            BUILT_IN
+                .iter()
+                .filter(|built_in| built_in.group == Group::Default)
+                .count(),
+            4
+        );
     }
 
     #[test]

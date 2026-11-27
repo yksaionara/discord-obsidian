@@ -52,6 +52,7 @@ const APPLICATION_AUDIO: c_int = 2049;
 const SET_BITRATE: c_int = 4002;
 const SET_INBAND_FEC: c_int = 4012;
 const SET_PACKET_LOSS_PERC: c_int = 4014;
+const GET_LOOKAHEAD: c_int = 4027;
 
 /// What an encoder is tuned for.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -60,6 +61,9 @@ pub enum Application {
     Voice,
     /// Anything else, such as a shared screen's sound.
     Audio,
+    /// Speech for a file, such as a voice message: nothing is lost on the
+    /// way, so it spends nothing on recovering losses.
+    Recording,
 }
 
 /// An Opus encoder at 48 kHz.
@@ -74,8 +78,9 @@ unsafe impl Send for Encoder {}
 impl Encoder {
     pub fn new(channels: u16, application: Application, bitrate: i32) -> Result<Self> {
         let mut error = 0;
+        let lossy = application == Application::Voice;
         let application = match application {
-            Application::Voice => APPLICATION_VOIP,
+            Application::Voice | Application::Recording => APPLICATION_VOIP,
             Application::Audio => APPLICATION_AUDIO,
         };
         // SAFETY: valid arguments; `error` is written before returning.
@@ -90,7 +95,7 @@ impl Encoder {
         };
         // SAFETY: requests that take one int, as libopus's macros pass it.
         unsafe { opus_encoder_ctl(encoder.raw.as_ptr(), SET_BITRATE, bitrate as c_int) };
-        if application == APPLICATION_VOIP {
+        if lossy {
             // Forward error correction lets a receiver rebuild a lost packet
             // from the next one; it costs bits only when loss is expected.
             unsafe {
@@ -99,6 +104,15 @@ impl Encoder {
             }
         }
         Ok(encoder)
+    }
+
+    /// How many samples the encoder runs behind, which an Ogg file's
+    /// header tells a player to skip.
+    pub fn lookahead(&self) -> u16 {
+        let mut samples: i32 = 0;
+        // SAFETY: a request that writes one int through the pointer.
+        unsafe { opus_encoder_ctl(self.raw.as_ptr(), GET_LOOKAHEAD, &mut samples as *mut i32) };
+        u16::try_from(samples).unwrap_or(0)
     }
 
     /// Encodes one frame of interleaved samples into `out`, returning the

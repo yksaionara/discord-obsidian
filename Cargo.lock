@@ -6563,6 +6563,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webrtc-sys",
+ "windows",
 ]
 
 [[package]]

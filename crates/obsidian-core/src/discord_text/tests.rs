@@ -246,6 +246,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             link_url: None,
             animated: false,
             spoiler: false,
+            voice: None,
         }],
         ..message(&id.to_string(), None)
     };
@@ -295,6 +296,7 @@ fn changes_render_again_only_the_messages_they_change() {
             link_url: None,
             animated: false,
             spoiler: false,
+            voice: None,
         }],
         ..message("9", None)
     };
@@ -403,6 +405,7 @@ fn a_reply_keeps_its_original_through_an_update_that_leaves_it_out() {
         author_id: "2".into(),
         author: "ann".into(),
         content: "lunch?".into(),
+        voice: false,
     };
     let mut open = OpenChannel::new("discord:10:11").unwrap();
     open.loaded(Load::Latest, shown(vec![reply(original.clone(), "a gif")]));
@@ -452,6 +455,7 @@ fn a_reply_on_screen_looks_its_original_up_once() {
         author_id: "2".into(),
         author: "ann".into(),
         content: "lunch?".into(),
+        voice: false,
     };
     open.original("1", Ok(Some(original.clone())));
     assert_eq!(shows(&open, 6), Some(original.clone()));
@@ -1400,6 +1404,7 @@ async fn a_file_marked_as_a_spoiler_arrives_as_one() {
             files: vec![OutgoingFile {
                 path,
                 spoiler: true,
+                voice: None,
             }],
         },
         Ok(&discord),
@@ -1482,6 +1487,7 @@ async fn a_sent_picture_has_a_link_and_downloads_to_copy() {
             files: vec![OutgoingFile {
                 path,
                 spoiler: false,
+                voice: None,
             }],
         },
         Ok(&discord),
@@ -1558,6 +1564,7 @@ fn changing_the_view_drops_old_previews_and_ignores_late_downloads() {
                     link_url: None,
                     animated: false,
                     spoiler: false,
+                    voice: None,
                 }],
                 ..message("1", None)
             },
@@ -1626,6 +1633,7 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             link_url: None,
             animated: false,
             spoiler: false,
+            voice: None,
         }],
         ..message(id, None)
     };

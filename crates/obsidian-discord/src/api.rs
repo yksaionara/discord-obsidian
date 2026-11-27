@@ -30,6 +30,11 @@ pub struct Sending<'a> {
     pub ping_reply: bool,
     /// Notifies nobody, as `@silent` does.
     pub silent: bool,
+    /// Read aloud to those viewing the channel, as `/tts` sends it.
+    pub tts: bool,
+    /// A voice message, whose one file is its recording: Discord's client
+    /// flags the message and gives the file its length and waveform.
+    pub voice: Option<&'a crate::message::VoiceClip>,
 }
 
 /// A poll to post, as Discord's "Create a Poll" dialog makes it.
@@ -528,11 +533,28 @@ impl Api {
         uploads: &[Upload],
     ) -> Result<Value> {
         let mut body = message_body(content, options.nonce);
+        let mut flags = 0;
         if options.silent {
-            body["flags"] = SUPPRESS_NOTIFICATIONS.into();
+            flags |= SUPPRESS_NOTIFICATIONS;
+        }
+        if options.voice.is_some() {
+            flags |= crate::message::IS_VOICE_MESSAGE;
+        }
+        if flags != 0 {
+            body["flags"] = flags.into();
+        }
+        if options.tts {
+            body["tts"] = true.into();
         }
         if !uploads.is_empty() {
             body["attachments"] = attachments(uploads);
+        }
+        if let (Some(voice), Some(recording)) = (options.voice, body["attachments"].get_mut(0)) {
+            use base64::Engine;
+            recording["duration_secs"] = (f64::from(voice.duration_ms) / 1000.0).into();
+            recording["waveform"] = base64::engine::general_purpose::STANDARD
+                .encode(&voice.waveform)
+                .into();
         }
         if let Some(reply) = options.reply {
             body["message_reference"] = json!({
@@ -793,6 +815,27 @@ impl Api {
 
     /// Adds or removes this account's reaction; `emoji` is the emoji itself
     /// or `name:id` for a custom one.
+    /// The commands a place offers: `/guilds/{id}`, `/channels/{id}` or
+    /// `/users/@me`, then `/application-command-index`. Discord answers 202
+    /// while it builds the index; Discord's client asks again 5 s later, up
+    /// to three times in all, as Discord Obsidian does.
+    pub async fn command_index(&self, place: &str) -> Result<Value> {
+        let path = format!("{place}/application-command-index");
+        for _ in 0..2 {
+            let response = self.execute(self.request(Method::GET, &path)).await?;
+            if response.status() != StatusCode::ACCEPTED {
+                let body = response
+                    .bytes()
+                    .await
+                    .context("could not read Discord's answer")?;
+                return serde_json::from_slice(&body)
+                    .context("could not understand Discord's answer");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// Sends an interaction, such as pressing a message's button; Discord
     /// answers 204, and the gateway says what became of it.
     pub async fn interact(&self, body: &Value) -> Result<()> {
@@ -932,6 +975,47 @@ impl Api {
         let path = format!("/channels/{channel}/messages/pins/{message}");
         let method = if pinned { Method::PUT } else { Method::DELETE };
         self.empty(self.request(method, &path)).await
+    }
+
+    /// The reminders saved, and the ids of the messages bookmarked, as
+    /// Discord's client asks for them once connected.
+    pub async fn saved_messages(&self) -> Result<crate::saved::SavedList> {
+        let path = "/users/@me/saved-messages?bookmark_ids=true";
+        let answer = self.json(self.request(Method::GET, path)).await?;
+        Ok(crate::saved::SavedList::parse(&answer))
+    }
+
+    /// A page of bookmarks, the latest saved first, saved before
+    /// `before`, the last of the page before's `saved_at`.
+    pub async fn bookmarks(&self, before: Option<u64>) -> Result<crate::saved::Bookmarks> {
+        let mut path = format!(
+            "/users/@me/saved-messages/bookmarks?limit={}",
+            crate::saved::BOOKMARKS_PAGE
+        );
+        if let Some(before) = before {
+            path.push_str(&format!("&before={}", encode(&crate::saved::iso(before))));
+        }
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        Ok(crate::saved::Bookmarks::parse(&answer))
+    }
+
+    /// Saves a message as a bookmark, or as a reminder due at a time.
+    pub async fn save_message(
+        &self,
+        channel: &str,
+        message: &str,
+        due_at_ms: Option<u64>,
+    ) -> Result<Value> {
+        let path = format!("/users/@me/saved-messages/{channel}/{message}");
+        let body = crate::saved::save_body(due_at_ms);
+        self.json(with_json(self.request(Method::PUT, &path), &body))
+            .await
+    }
+
+    /// Removes a bookmark, or a reminder, which marks it complete.
+    pub async fn unsave_message(&self, channel: &str, message: &str) -> Result<()> {
+        let path = format!("/users/@me/saved-messages/{channel}/{message}");
+        self.empty(self.request(Method::DELETE, &path)).await
     }
 
     /// A channel's pinned messages, the latest pinned first: up to [`PAGE`].

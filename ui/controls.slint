@@ -911,6 +911,12 @@ export component MenuItem inherits Rectangle {
     in property <bool> disabled;
     /// No room for an icon when it has none, so the text starts at the edge.
     in property <bool> plain;
+    /// A round picture in place of the icon, such as an app's, by its
+    /// address; or its initial while it has none.
+    in property <string> picture;
+    in property <string> initial;
+    /// An icon at its end, such as the send arrow of an app's command.
+    in property <image> trailing;
     /// Drawn as the pointer's choice; a ContextMenu moves it with the keys too.
     in property <bool> highlighted: pointer.has-hover;
     callback clicked;
@@ -934,7 +940,11 @@ export component MenuItem inherits Rectangle {
     HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 8px;
         opacity: root.disabled ? 0.45 : 1;
-        if !root.plain || root.current || root.icon.width > 0: Image {
+        if root.picture != "" || root.initial != "": VerticalLayout {
+            alignment: center;
+            Avatar { size: 20px; picture-url: root.picture; initial: root.initial; }
+        }
+        if (!root.plain || root.current || root.icon.width > 0) && root.picture == "" && root.initial == "": Image {
             source: root.current ? @image-url("icons/check.svg") : root.icon;
             width: 16px; image-fit: contain;
             colorize: root.current ? Theme.accent : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
@@ -961,6 +971,10 @@ export component MenuItem inherits Rectangle {
                     source: @image-url("icons/check.svg"); colorize: Theme.on-accent;
                 }
             }
+        }
+        if root.trailing.width > 0: Image {
+            width: 16px; image-fit: contain;
+            source: root.trailing; colorize: root.highlighted ? Theme.text : Theme.secondary;
         }
         if root.submenu: Image {
             width: 24px; image-fit: contain;
@@ -1010,10 +1024,16 @@ export struct MenuRow {
     /// Without room for an icon, unless the row has one, as Discord's person
     /// menu has none on most rows.
     plain: bool,
+    /// A round picture in place of the icon, by its address, or its
+    /// initial while it has none: an app's, on its commands.
+    picture: string,
+    initial: string,
+    /// An icon at its end: the send arrow on an app's command.
+    trailing: image,
 }
 
 // The rows of a ContextMenu or of a submenu.
-component MenuRows inherits VerticalLayout {
+export component MenuRows inherits VerticalLayout {
     in property <[MenuRow]> rows;
     /// Each row's submenu, by the row's index; a row without one has none.
     in property <[[MenuRow]]> submenus;
@@ -1035,6 +1055,7 @@ component MenuRows inherits VerticalLayout {
         MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
             checkbox: row.checkbox; checked: row.checked; disabled: row.disabled; plain: row.plain;
+            picture: row.picture; initial: row.initial; trailing: row.trailing;
             submenu: root.submenus[index].length > 0;
             highlighted: root.current == index || root.holding == index;
             hovered => { root.hovered(index); }
@@ -1413,85 +1434,82 @@ export component Banner inherits Rectangle {
     }
 }
 
-// The Discord voice gate's sensitivity, in dBFS from -80 to 0, over the
-// microphone's level as the gate hears it: green up to -18 dBFS, orange to -6,
-// red above. A handle marks the sensitivity. Dragging reports each step through
+// The Discord voice gate's sensitivity, in dBFS from -100 to 0, as Discord's
+// input sensitivity bar: yellow below the handle, where the microphone isn't
+// sent, green above it, each brighter up to the microphone's level as the
+// gate hears it. While the sensitivity is automatic there's no handle, only
+// the level, green while the gate sends. Dragging reports each step through
 // `changed` and the last through `committed`; the arrow keys move 1 dB.
 export component SensitivitySlider inherits Rectangle {
     in property <string> label;
     in-out property <int> value: -60;
-    /// dBFS; below -80 shows nothing.
+    /// dBFS; below -100 shows nothing.
     in property <float> level: -100;
     /// The gate is open: the microphone would be sent.
     in property <bool> sending;
+    /// Discord works the threshold out: the bar only shows the level.
+    in property <bool> automatic;
     callback changed(int);
     callback committed(int);
     // Where a level in dBFS falls along the track, from 0 to 1.
-    function at(decibels: float) -> float { return max(0, min(1, (decibels + 80) / 80)); }
-    height: column.preferred-height;
+    function at(decibels: float) -> float { return max(0, min(1, (decibels + 100) / 100)); }
+    height: 18px;
     accessible-role: slider;
     accessible-label: root.label;
-    accessible-value: root.value + " dB";
-    accessible-value-minimum: -80;
+    accessible-value: root.automatic ? (root.sending ? "Automatic, sending" : "Automatic") : root.value + " dB";
+    accessible-value-minimum: -100;
     accessible-value-maximum: 0;
     accessible-value-step: 1;
     accessible-action-increment => { root.step(1); }
     accessible-action-decrement => { root.step(-1); }
     forward-focus: focus;
     function set(value: int) {
-        let clamped = max(-80, min(0, value));
+        let clamped = max(-100, min(0, value));
         if clamped != root.value {
             root.value = clamped;
             root.changed(clamped);
         }
     }
     function step(by: int) {
+        if root.automatic { return; }
         root.set(root.value + by);
         root.committed(root.value);
     }
     function point(x: length) {
-        root.set(round(max(0, min(1, x / track.width)) * 80) - 80);
+        root.set(round(max(0, min(1, x / track.width)) * 100) - 100);
     }
-    column := VerticalLayout {
-        spacing: 6px;
-        HorizontalLayout {
-            spacing: 10px;
-            Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
-            Text { text: root.sending ? "Sending" : "Not sending"; color: root.sending ? Theme.live : Theme.muted; font-size: 13px; font-weight: 600; }
-            Text { text: root.value + " dB"; color: Theme.text; font-size: 13px; font-weight: 600; }
+    track := Rectangle {
+        property <float> level: root.at(root.level);
+        property <float> handle: root.automatic ? 0 : root.at(root.value);
+        Rectangle {
+            y: (parent.height - self.height) / 2; height: 6px; border-radius: 3px; clip: true;
+            background: Theme.line;
+            if !root.automatic: Rectangle { x: 0; width: parent.width * track.handle; background: #f0b232.with-alpha(0.45); }
+            Rectangle { x: parent.width * track.handle; width: parent.width * (1 - track.handle); background: #23a55a.with-alpha(root.automatic ? 0 : 0.45); }
+            if !root.automatic: Rectangle { x: 0; width: parent.width * min(track.level, track.handle); background: #f0b232; }
+            Rectangle {
+                x: parent.width * track.handle; width: parent.width * max(0, track.level - track.handle);
+                background: root.automatic && !root.sending ? Theme.muted : #23a55a;
+            }
         }
-        track := Rectangle {
-            height: 18px;
-            property <float> level: root.at(root.level);
-            property <float> orange: root.at(-18);
-            property <float> red: root.at(-6);
-            Rectangle {
-                y: (parent.height - self.height) / 2; height: 8px; border-radius: 4px; background: Theme.field; clip: true;
-                Rectangle { x: 0; width: parent.width * min(track.level, track.orange); background: Theme.live; }
-                Rectangle {
-                    x: parent.width * track.orange; width: parent.width * max(0, min(track.level, track.red) - track.orange);
-                    background: Theme.loud;
+        if !root.automatic: Rectangle {
+            x: parent.width * track.handle - self.width / 2; y: (parent.height - self.height) / 2;
+            width: 16px; height: 16px; border-radius: 8px; background: #ffffff;
+            drop-shadow-blur: 3px; drop-shadow-color: #0000004d;
+            border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+        }
+        if !root.automatic: TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                    focus.focus();
+                    root.point(self.mouse-x);
                 }
-                Rectangle { x: parent.width * track.red; width: parent.width * max(0, track.level - track.red); background: Theme.danger; }
-            }
-            Rectangle {
-                x: parent.width * root.at(root.value) - self.width / 2; y: (parent.height - self.height) / 2;
-                width: 14px; height: 14px; border-radius: 7px; background: Theme.text;
-                border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
-            }
-            TouchArea {
-                mouse-cursor: MouseCursor.pointer;
-                pointer-event(event) => {
-                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                        focus.focus();
-                        root.point(self.mouse-x);
-                    }
-                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
-                        root.committed(root.value);
-                    }
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                    root.committed(root.value);
                 }
-                moved => { if self.pressed { root.point(self.mouse-x); } }
             }
+            moved => { if self.pressed { root.point(self.mouse-x); } }
         }
     }
     focus := FocusScope {

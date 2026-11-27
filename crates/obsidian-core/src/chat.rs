@@ -337,6 +337,9 @@ pub struct OutgoingFile {
     pub path: PathBuf,
     /// Marked as a spoiler, which only Discord keeps.
     pub spoiler: bool,
+    /// A voice message's recording, which Discord Obsidian made and removes
+    /// once it's sent: its message is a voice message, as Discord flags one.
+    pub voice: Option<VoiceClip>,
 }
 
 impl From<PathBuf> for OutgoingFile {
@@ -344,6 +347,7 @@ impl From<PathBuf> for OutgoingFile {
         Self {
             path,
             spoiler: false,
+            voice: None,
         }
     }
 }
@@ -538,6 +542,8 @@ pub enum Permission {
     ManageMessages,
     /// Post polls, besides sending messages.
     SendPolls,
+    /// Send voice messages, besides sending messages.
+    SendVoiceMessages,
     /// Manage threads and forum posts, and give posts a forum's moderated
     /// tags.
     ManageThreads,
@@ -1140,6 +1146,27 @@ pub struct CustomEmoji {
     pub picture: String,
 }
 
+/// A Discord message saved for later: a bookmark, or a reminder once it has
+/// a time it's due.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedMessage {
+    pub room: String,
+    /// Its Discord id; its item is `d:` and this.
+    pub message_id: String,
+    /// When it was saved, and when a reminder is due, in Unix milliseconds.
+    pub saved_at: u64,
+    pub due_at: Option<u64>,
+    /// The message, as a search shows it; none once it's gone or this
+    /// account can no longer read it.
+    pub message: Option<Arc<ChatMessage>>,
+}
+
+impl SavedMessage {
+    pub fn item(&self) -> String {
+        format!("d:{}", self.message_id)
+    }
+}
+
 /// A message a search found, and the room it's in.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SearchHit {
@@ -1499,6 +1526,18 @@ pub struct Attachment {
     /// which [`Command::CopyAttachment`] copies its picture. Only Discord's
     /// attachments have one.
     pub url: Option<Arc<str>>,
+    /// A voice message's recording, which plays with its waveform:
+    /// [`Command::PlayVoiceMessage`].
+    pub voice: Option<VoiceClip>,
+}
+
+/// A voice message's recording, as Discord describes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VoiceClip {
+    /// How long it plays; 0 when Discord doesn't say.
+    pub duration_ms: u32,
+    /// How loud it is along its length, up to 256 levels from 0 to 255.
+    pub waveform: Arc<[u8]>,
 }
 
 /// What [`Command::Video`] tells the video playing.
@@ -1519,6 +1558,28 @@ pub enum VideoCommand {
     /// mutes it, keeping the level it had.
     Volume(f32),
     Stop,
+}
+
+/// A voice message being recorded, or stopped and waiting to be sent. How
+/// it goes shows through its recording, which its recorder keeps.
+#[derive(Clone, Debug)]
+pub struct VoiceRecording {
+    pub room: String,
+    pub recording: Arc<crate::voice_message::Recording>,
+}
+
+/// The item a voice message being recorded plays as, once it's stopped.
+pub const VOICE_RECORDING_ITEM: &str = "obsidian:voice-recording";
+
+/// The voice message playing, or paused partway, in the conversation view.
+/// How it goes shows through its clock, which its player keeps.
+#[derive(Clone, Debug)]
+pub struct VoiceMessage {
+    pub room: String,
+    pub item: String,
+    /// Its attachment's index in the item's attachments.
+    pub index: usize,
+    pub clock: Arc<crate::voice_message::VoiceClock>,
 }
 
 /// The video playing in the conversation view.
@@ -1619,13 +1680,55 @@ pub enum CardRow {
         large: bool,
     },
     Buttons(Vec<CardButton>),
-    /// A menu, by what it shows before it's opened.
+    /// A menu, by what it shows before it's opened, and what it offers
+    /// once opened; none when it can't open.
     Select {
         text: String,
         disabled: bool,
+        menu: Option<Arc<SelectMenu>>,
     },
     /// Components of a kind Discord Obsidian can't show.
     Unknown,
+}
+
+/// What an app's select menu offers: [`Command::ChooseSelect`] tells the
+/// app what's chosen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectMenu {
+    pub kind: SelectKind,
+    pub custom_id: String,
+    /// A text select's options, in order.
+    pub options: Vec<SelectOption>,
+    /// The users, roles or channels a select of them picks by default, by id.
+    pub defaults: Vec<String>,
+    /// The kinds of channel a channel select offers, by Discord's channel
+    /// type; empty for any.
+    pub channel_types: Vec<u64>,
+    /// How few and how many may be picked.
+    pub min: u8,
+    pub max: u8,
+}
+
+/// What a select menu picks from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectKind {
+    /// The options its app lists.
+    Text,
+    User,
+    Role,
+    /// Users and roles.
+    Mentionable,
+    Channel,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectOption {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+    /// Its emoji, a custom one by `:name:`.
+    pub emoji: Option<String>,
+    pub default: bool,
 }
 
 /// What a section shows beside its text.
@@ -1893,6 +1996,8 @@ pub struct SendOptions {
     pub quiet_reply: bool,
     /// A message that notifies nobody, as Discord's `@silent` sends it.
     pub silent: bool,
+    /// Read aloud to those viewing the channel, as Discord's `/tts` sends it.
+    pub tts: bool,
 }
 
 /// What the UI asks of the networks and voice. [`Command::route`] decides
@@ -1947,6 +2052,15 @@ pub enum Command {
         room: String,
         item: String,
         custom_id: String,
+    },
+    /// Choose `values` in a select menu of a Discord app's message, by its
+    /// `custom_id`, telling the app; a failure says so in the room, as
+    /// [`Event::RoomError`].
+    ChooseSelect {
+        room: String,
+        item: String,
+        custom_id: String,
+        values: Vec<String>,
     },
     /// Who reacted to an item with `key`: up to `limit` of them, after the
     /// one with id `after`. [`Event::Reactors`] follows.
@@ -2043,6 +2157,39 @@ pub enum Command {
     },
     /// Control the video playing.
     Video(VideoCommand),
+    /// Play an item's voice message, as its clock says, on `speakers`,
+    /// stopping any other; it goes as [`Event::VoiceMessage`].
+    PlayVoiceMessage {
+        room: String,
+        item: String,
+        index: usize,
+        speakers: Option<String>,
+        clock: Arc<crate::voice_message::VoiceClock>,
+    },
+    /// Stop the voice message playing.
+    StopVoiceMessage,
+    /// Record a voice message for `room` from `microphone`, as `recording`
+    /// shows, in place of any other recording. If the microphone won't
+    /// open, [`Event::VoiceRecordingFailed`] says so.
+    RecordVoiceMessage {
+        room: String,
+        microphone: Option<String>,
+        recording: Arc<crate::voice_message::Recording>,
+    },
+    /// Stop recording; the recording waits to be sent or thrown away.
+    StopVoiceRecording,
+    /// Throw the recording away.
+    DiscardVoiceRecording,
+    /// Send the recording to its room as a voice message, stopping it
+    /// first if it's still recording; it shows as it sends, as any message.
+    SendVoiceRecording,
+    /// Play the stopped recording, as its clock says, on `speakers`, as
+    /// [`Command::PlayVoiceMessage`] plays a message's; it goes as
+    /// [`Event::VoiceMessage`], with [`VOICE_RECORDING_ITEM`] as its item.
+    PlayVoiceRecording {
+        speakers: Option<String>,
+        clock: Arc<crate::voice_message::VoiceClock>,
+    },
     /// Look for people to start a DM with; each network answers with
     /// [`Event::People`].
     FindPeople {
@@ -2329,6 +2476,27 @@ pub struct OAuthPreview {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// What's saved for later: the reminders, and which messages are
+    /// bookmarked; [`Event::SavedMessages`] follows.
+    SavedMessages,
+    /// A page of bookmarks saved before `before`, Unix milliseconds, or the
+    /// latest; [`Event::Bookmarks`] follows.
+    Bookmarks {
+        before: Option<u64>,
+    },
+    /// Bookmark a room's item, or with `due_at`, Unix milliseconds, make it
+    /// a reminder; [`Event::SaveDone`] follows.
+    SaveMessage {
+        room: String,
+        item: String,
+        due_at: Option<u64>,
+    },
+    /// Remove a bookmark, or a reminder, which marks it complete.
+    UnsaveMessage {
+        room: String,
+        item: String,
+        reminder: bool,
+    },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.
     ActivityFeed,
@@ -2388,6 +2556,39 @@ pub enum DiscordCommand {
     SearchMembers {
         room: String,
         query: String,
+    },
+    /// The slash commands a Discord room offers this account; they arrive as
+    /// [`Event::Commands`].
+    Commands {
+        room: String,
+    },
+    /// Asks an app for suggestions for the option being typed, with the
+    /// interaction's `data` and `nonce`; [`Event::Suggestions`] answers by
+    /// the nonce. Asks go at most every 500 ms, as Discord's client sends
+    /// them; one a later ask replaces before it goes is dropped.
+    Suggest {
+        room: String,
+        application: String,
+        data: serde_json::Value,
+        nonce: String,
+    },
+    /// Submits an app's modal opened in a Discord room, with the
+    /// interaction's `data` and `nonce`; [`Event::ModalAnswered`] says
+    /// whether the app took it, and that it didn't after 10 s without an
+    /// answer, as Discord's client gives up.
+    SubmitModal {
+        room: String,
+        application: String,
+        data: serde_json::Value,
+        nonce: String,
+    },
+    /// Runs an app's slash command in a Discord room, with the interaction's
+    /// `data`; the app answers in the room, and a failure shows as the
+    /// room's error.
+    RunCommand {
+        room: String,
+        application: String,
+        data: serde_json::Value,
     },
     /// Accept a Discord message request, or ignore it.
     AnswerRequest {
@@ -3514,12 +3715,21 @@ impl Command {
         match self {
             Command::Voice(_) => Route::Voice,
             // Only Discord's videos play for now.
-            Command::Discord(_) | Command::Video(_) | Command::Aside(_) => Route::Discord,
+            Command::Discord(_)
+            | Command::Video(_)
+            | Command::StopVoiceMessage
+            | Command::RecordVoiceMessage { .. }
+            | Command::StopVoiceRecording
+            | Command::DiscardVoiceRecording
+            | Command::SendVoiceRecording
+            | Command::PlayVoiceRecording { .. }
+            | Command::Aside(_) => Route::Discord,
             Command::Open(_) | Command::CloseRoom | Command::FindPeople { .. } => Route::Every,
             Command::Send { room, .. }
             | Command::Edit { room, .. }
             | Command::React { room, .. }
             | Command::PressButton { room, .. }
+            | Command::ChooseSelect { room, .. }
             | Command::Reactors { room, .. }
             | Command::Vote { room, .. }
             | Command::SendPoll { room, .. }
@@ -3534,6 +3744,7 @@ impl Command {
             | Command::CopyAttachment { room, .. }
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
+            | Command::PlayVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }
@@ -3555,6 +3766,17 @@ impl Command {
             }
         }
     }
+}
+
+/// An app's answer to an ask for suggestions for the option being typed.
+#[cfg(feature = "discord")]
+#[derive(Clone, Debug, PartialEq)]
+pub enum Suggested {
+    Choices(Vec<obsidian_discord::app_commands::Choice>),
+    /// The app didn't answer, or Discord refused the ask.
+    Failed,
+    /// A later ask replaced it before it went.
+    Dropped,
 }
 
 /// What fell short of a forward to one conversation.
@@ -3629,6 +3851,11 @@ pub enum Event {
     Discord(Arc<obsidian_discord::service::Snapshot>),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
+    /// The voice message [`Command::PlayVoiceMessage`] plays; none once it
+    /// stops, as when its channel closes.
+    VoiceMessage(Option<VoiceMessage>),
+    /// [`Command::RecordVoiceMessage`] couldn't open the microphone.
+    VoiceRecordingFailed(Arc<crate::voice_message::Recording>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
     Image {
         room: String,
@@ -3692,6 +3919,30 @@ pub enum Event {
     JoinSoundSet(Result<(), String>),
     /// [`DiscordCommand::Unlink`] forgot the account.
     DiscordUnlinked,
+    /// [`DiscordCommand::SavedMessages`]'s reminders and the ids of the
+    /// messages bookmarked, or why they didn't come.
+    SavedMessages(Result<(Vec<SavedMessage>, Vec<String>), String>),
+    /// [`DiscordCommand::Bookmarks`]'s page, as asked for before `before`,
+    /// and whether earlier ones follow.
+    Bookmarks {
+        before: Option<u64>,
+        result: Result<(Vec<SavedMessage>, bool), String>,
+    },
+    /// A message was saved, here or on another device.
+    MessageSaved(SavedMessage),
+    /// A saved message was removed, by its Discord id.
+    MessageUnsaved {
+        message: String,
+    },
+    /// What became of [`DiscordCommand::SaveMessage`] or
+    /// [`DiscordCommand::UnsaveMessage`], in `room`: a bookmark's or a
+    /// reminder's, added or removed.
+    SaveDone {
+        room: String,
+        reminder: bool,
+        removed: bool,
+        result: Result<(), String>,
+    },
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {
@@ -4040,6 +4291,34 @@ pub enum Event {
         room: String,
         query: String,
         members: Vec<ChatMember>,
+    },
+    /// An app opened a form in a Discord room.
+    #[cfg(feature = "discord")]
+    Modal {
+        room: String,
+        modal: Arc<obsidian_discord::modal::Modal>,
+    },
+    /// The app took a modal's submission with this nonce, or didn't.
+    ModalAnswered {
+        nonce: String,
+        taken: bool,
+    },
+    /// What became of an ask for an app's suggestions, by its nonce.
+    #[cfg(feature = "discord")]
+    Suggestions {
+        nonce: String,
+        answer: Suggested,
+    },
+    /// The apps of a Discord server, or their slash commands, changed.
+    CommandsChanged {
+        server: String,
+    },
+    /// The slash commands a Discord room offers this account, or why
+    /// Discord didn't list them.
+    #[cfg(feature = "discord")]
+    Commands {
+        room: String,
+        index: Result<Arc<obsidian_discord::app_commands::CommandIndex>, String>,
     },
     /// Who else is typing in a room now, by name.
     Typing {

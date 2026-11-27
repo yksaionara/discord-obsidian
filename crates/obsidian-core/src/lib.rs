@@ -27,10 +27,7 @@ pub mod clock;
 mod declick;
 #[cfg(feature = "discord")]
 pub mod decode;
-#[cfg(windows)]
-mod duplication;
-#[cfg(windows)]
-mod window_capture;
+// Go Live's capture of a screen or a window, which only Discord streams.
 #[cfg(feature = "discord")]
 mod dereverb;
 pub mod discord;
@@ -39,11 +36,15 @@ pub mod discord_audio;
 #[cfg(feature = "discord")]
 pub mod discord_link;
 #[cfg(feature = "discord")]
+pub mod discord_sounds;
+#[cfg(feature = "discord")]
 pub mod discord_text;
 #[cfg(feature = "discord")]
 mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
+#[cfg(all(windows, feature = "discord"))]
+mod duplication;
 #[cfg(feature = "discord")]
 pub mod encode;
 #[cfg(feature = "matrix")]
@@ -63,6 +64,7 @@ mod matrix_video;
 #[cfg(feature = "matrix")]
 mod matrix_voice;
 pub mod mention;
+pub mod message_logger;
 pub mod meter;
 pub mod network;
 pub mod noise;
@@ -76,9 +78,6 @@ pub mod runtime;
 #[cfg(feature = "matrix")]
 pub mod session;
 #[cfg(feature = "discord")]
-pub mod discord_sounds;
-pub mod message_logger;
-#[cfg(feature = "discord")]
 pub mod soundboard;
 pub mod sounds;
 pub mod spoiler;
@@ -86,15 +85,18 @@ pub mod spoiler;
 pub mod stream_audio;
 #[cfg(feature = "discord")]
 pub mod stream_worker;
+pub mod update;
 #[cfg(feature = "discord")]
 pub mod video;
 #[cfg(feature = "discord")]
 pub mod video_player;
-pub mod update;
 pub mod voice;
 #[cfg(feature = "matrix")]
 pub mod voice_demo;
+pub mod voice_message;
 pub mod volume;
+#[cfg(all(windows, feature = "discord"))]
+mod window_capture;
 
 /// Install the TLS provider before starting Matrix or calling services.
 pub fn init_tls() -> anyhow::Result<()> {
@@ -186,9 +188,12 @@ fn check_opus() {
             [sample, sample]
         })
         .collect();
-    let mut encoder =
-        obsidian_discord::opus::Encoder::new(2, obsidian_discord::opus::Application::Audio, 128_000)
-            .expect("an Opus encoder");
+    let mut encoder = obsidian_discord::opus::Encoder::new(
+        2,
+        obsidian_discord::opus::Application::Audio,
+        128_000,
+    )
+    .expect("an Opus encoder");
     let mut decoder = obsidian_discord::opus::Decoder::new(2).expect("an Opus decoder");
     let mut packet = [0u8; 4000];
     let mut decoded = vec![0i16; FRAME * 2];

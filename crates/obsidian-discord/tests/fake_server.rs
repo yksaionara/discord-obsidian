@@ -1936,6 +1936,142 @@ async fn sends_edits_and_deletes_messages() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn plays_and_sends_voice_messages() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("plays_and_sends_voice_messages").await;
+    let mut live = discord.live();
+    // Bob's: its recording plays from its length and waveform, and it
+    // can't be edited.
+    let posted = control(server, "POST", "/_control/voice-message", "");
+    let heard = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.id == posted.trim() => Some(message),
+        _ => None,
+    })
+    .await;
+    let voice = heard.attachments[0].voice.clone().expect("a voice message");
+    assert!(
+        (2006..=2007).contains(&voice.duration_ms),
+        "{}",
+        voice.duration_ms
+    );
+    assert_eq!(voice.waveform.len(), 64);
+    let recording = discord
+        .download_now(&heard.attachments[0].url, 1 << 20)
+        .await
+        .unwrap();
+    assert!(recording.starts_with(b"OggS"));
+
+    // Alice's, as Discord's client sends one: flagged, its file named as
+    // every recording is, with its length and waveform.
+    let clip = obsidian_discord::message::VoiceClip {
+        duration_ms: 1500,
+        waveform: std::sync::Arc::from([0u8, 128, 255]),
+    };
+    let nonce = obsidian_discord::message::nonce();
+    let options = obsidian_discord::api::Sending {
+        voice: Some(&clip),
+        ..sending(&nonce, None)
+    };
+    let sent = discord
+        .send(
+            &guild,
+            &general,
+            "",
+            options,
+            vec![("voice-message.ogg".into(), recording.clone())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent.attachments[0].voice.as_ref(), Some(&clip));
+    assert_eq!(sent.attachments[0].name, "voice-message.ogg");
+    assert!(!sent.editable);
+
+    // Discord takes no text with one.
+    let nonce = obsidian_discord::message::nonce();
+    let options = obsidian_discord::api::Sending {
+        voice: Some(&clip),
+        ..sending(&nonce, None)
+    };
+    let refused = discord
+        .send(
+            &guild,
+            &general,
+            "hello",
+            options,
+            vec![("voice-message.ogg".into(), recording)],
+        )
+        .await;
+    assert!(refused.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn bookmarks_and_reminds_of_messages() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("bookmarks_and_reminds_of_messages").await;
+    let mut live = discord.live();
+    let page = discord
+        .history(&guild, &general, Span::Latest)
+        .await
+        .unwrap();
+    let (first, second) = (&page.messages[0], &page.messages[1]);
+    // A bookmark, then a reminder, each told back on the gateway.
+    let bookmark = discord
+        .save_message(&general, &first.id, None)
+        .await
+        .unwrap();
+    assert!(!bookmark.reminder());
+    assert_eq!(bookmark.message.as_ref().unwrap().id, first.id);
+    let told = live_where(&mut live, |event| match event {
+        Live::Saved(saved) if saved.message_id == first.id => Some(saved),
+        _ => None,
+    })
+    .await;
+    assert_eq!(told.guild_id.as_deref(), Some(guild.as_str()));
+    let due = obsidian_discord::message::iso_ms("2030-01-01T09:00:00.000+00:00").unwrap();
+    let reminder = discord
+        .save_message(&general, &second.id, Some(due))
+        .await
+        .unwrap();
+    assert_eq!(reminder.due_at_ms, Some(due));
+    // As Discord's client sends it: when it's due, and from its menu.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/saved", "")).unwrap();
+    assert_eq!(
+        sent[1],
+        serde_json::json!({"due_at": "2030-01-01T09:00:00.000+00:00", "source": "context_menu"})
+    );
+    // Connecting lists the reminders and which are bookmarked.
+    let list = discord.saved_messages().await.unwrap();
+    assert_eq!(list.bookmark_ids, std::slice::from_ref(&first.id));
+    assert_eq!(list.reminders[0].message_id, second.id);
+    let page = discord.bookmarks(None).await.unwrap();
+    assert!(!page.more);
+    assert_eq!(page.bookmarks[0].message_id, first.id);
+    // Marked complete, it's gone.
+    discord.unsave_message(&general, &second.id).await.unwrap();
+    live_where(&mut live, |event| match event {
+        Live::Unsaved { message, .. } if *message == second.id => Some(()),
+        _ => None,
+    })
+    .await;
+    assert!(discord.saved_messages().await.unwrap().reminders.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn votes_in_and_posts_polls() {
     let Fixture {
         _fake,
@@ -4595,6 +4731,434 @@ async fn presses_an_apps_buttons() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn chooses_in_an_apps_select_menu() {
+    use obsidian_discord::components::{Row, SelectKind};
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("chooses_in_an_apps_select_menu").await;
+    post_control(server, "/_control/components", "");
+    let deployed = timeout(WAIT, async {
+        loop {
+            let page = discord
+                .history(&guild, &general, Span::Latest)
+                .await
+                .unwrap();
+            if let Some(found) = page
+                .messages
+                .into_iter()
+                .find(|message| message.content.contains("v2.4"))
+            {
+                break found;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("Status Bot's message didn't come");
+    let menu = deployed
+        .components
+        .iter()
+        .flat_map(|card| &card.rows)
+        .find_map(|row| match row {
+            Row::Select {
+                menu: Some(menu), ..
+            } => Some(menu.clone()),
+            _ => None,
+        })
+        .expect("its menu");
+    assert_eq!((menu.kind, menu.min, menu.max), (SelectKind::Text, 1, 1));
+    assert_eq!(menu.options[1].value, "production");
+    let app = deployed.app.as_deref().unwrap().clone();
+    let mut live = discord.live();
+    let nonce = discord
+        .choose(
+            Some(&guild),
+            &general,
+            &deployed.id,
+            &app,
+            (menu.kind, &menu.custom_id),
+            &["staging".to_owned()],
+        )
+        .await
+        .unwrap();
+    // As Discord's client sends it: the menu's type, its id and the values.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent[0]["type"], 3);
+    assert_eq!(
+        sent[0]["data"],
+        serde_json::json!({"component_type": 3, "custom_id": "environment", "values": ["staging"]})
+    );
+    assert_eq!(sent[0]["nonce"], nonce.as_str());
+    let answered = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content.starts_with("Deploying") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answered.content, "Deploying to staging.");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn runs_slash_commands() {
+    use obsidian_discord::app_commands;
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("runs_slash_commands").await;
+    // The server's commands and the account's, asked for together.
+    let index = discord.command_index(Some(&guild), &general).await.unwrap();
+    let asked: Vec<String> =
+        serde_json::from_str(&control(server, "GET", "/_control/command-indexes", "")).unwrap();
+    let mut asked = asked;
+    asked.sort();
+    assert_eq!(
+        asked,
+        [
+            format!("/guilds/{guild}/application-command-index"),
+            "/users/@me/application-command-index".to_owned(),
+        ]
+    );
+    assert_eq!(index.apps[0].name, "Status Bot");
+    let remind = app_commands::find(&index.commands, "/remind", None).expect("/remind");
+    let typed = "/remind stretch minutes:5";
+    let data = app_commands::read(remind, typed)
+        .data(Some(&guild))
+        .unwrap();
+    let mut live = discord.live();
+    let nonce = discord
+        .run_command(Some(&guild), &general, &remind.application_id, data)
+        .await
+        .unwrap();
+    // Discord's client sends type 2 with the command as Discord listed it.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent[0]["type"], 2);
+    assert_eq!(sent[0]["application_id"], remind.application_id.as_str());
+    assert_eq!(sent[0]["guild_id"], guild.as_str());
+    assert_eq!(sent[0]["channel_id"], general.as_str());
+    assert_eq!(sent[0]["nonce"], nonce.as_str());
+    assert_eq!(sent[0]["analytics_location"], "slash_ui");
+    assert!(sent[0]["session_id"].is_string());
+    assert_eq!(sent[0]["data"]["name"], "remind");
+    assert_eq!(
+        sent[0]["data"]["application_command"]["id"],
+        remind.id.as_str()
+    );
+    assert_eq!(
+        sent[0]["data"]["options"],
+        serde_json::json!([
+            {"type": 3, "name": "what", "value": "stretch"},
+            {"type": 4, "name": "minutes", "value": 5},
+        ])
+    );
+    let answered = live_where(&mut live, |event| match event {
+        Live::Interaction {
+            nonce: answered,
+            failed,
+        } if answered == nonce => Some(failed),
+        _ => None,
+    })
+    .await;
+    assert!(!answered);
+    // The bot's answer is headed with who ran which command.
+    let answer = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content.starts_with("I'll remind you") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answer.content, "I'll remind you: stretch in 5 min");
+    assert_eq!(
+        answer.reply,
+        Some(obsidian_discord::message::Reply::Command {
+            author_id: "1400000000000000001".into(),
+            author: "Alice".into(),
+            name: "/remind".into(),
+        })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn runs_the_apps_menus_commands_on_their_target() {
+    use obsidian_discord::app_commands::{MESSAGE, USER};
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("runs_the_apps_menus_commands_on_their_target").await;
+    let index = discord.command_index(Some(&guild), &general).await.unwrap();
+    // The index's user and message commands are the Apps menus', not `/`'s.
+    assert!(
+        !index
+            .commands
+            .iter()
+            .any(|command| command.name == "Bookmark")
+    );
+    let names = |kind| -> Vec<String> {
+        index
+            .menu_commands(kind)
+            .into_iter()
+            .map(|(command, app)| format!("{} ({})", command.name, app.map_or("", |app| &app.name)))
+            .collect()
+    };
+    assert_eq!(names(USER), ["High Five (Status Bot)"]);
+    assert_eq!(names(MESSAGE), ["Bookmark (Status Bot)"]);
+    let bookmark = index.menu_commands(MESSAGE)[0].0;
+    let mut live = discord.live();
+    let nonce = discord
+        .run_command(
+            Some(&guild),
+            &general,
+            &bookmark.application_id,
+            bookmark.target_data("1400000000000000777"),
+        )
+        .await
+        .unwrap();
+    // As Discord's client sends it from the menu: type 2, the command's
+    // own type in `data`, no options, and the message as `target_id`.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent[0]["type"], 2);
+    assert_eq!(sent[0]["nonce"], nonce.as_str());
+    assert_eq!(sent[0]["analytics_location"], "slash_ui");
+    assert_eq!(sent[0]["data"]["type"], 3);
+    assert_eq!(sent[0]["data"]["name"], "Bookmark");
+    assert_eq!(sent[0]["data"]["target_id"], "1400000000000000777");
+    assert_eq!(sent[0]["data"]["options"], serde_json::json!([]));
+    let answer = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content.starts_with("Bookmarked") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answer.content, "Bookmarked message 1400000000000000777.");
+    // Headed "Alice used Bookmark", without the slash a slash command has.
+    assert!(matches!(
+        answer.reply,
+        Some(obsidian_discord::message::Reply::Command { ref name, .. }) if name == "Bookmark"
+    ));
+    let high_five = index.menu_commands(USER)[0].0;
+    discord
+        .run_command(
+            Some(&guild),
+            &general,
+            &high_five.application_id,
+            high_five.target_data("1400000000000000002"),
+        )
+        .await
+        .unwrap();
+    let answer = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content.starts_with("High five") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answer.content, "High five, <@1400000000000000002>!");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn asks_apps_for_suggestions() {
+    use obsidian_discord::app_commands::{self, Choice};
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("asks_apps_for_suggestions").await;
+    let index = discord.command_index(Some(&guild), &general).await.unwrap();
+    let weather = app_commands::find(&index.commands, "/weather", None).expect("/weather");
+    let asking = app_commands::read(weather, "/weather Pa")
+        .suggestion_request(Some(&guild))
+        .expect("city takes suggestions");
+    let mut live = discord.live();
+    let nonce = obsidian_discord::message::nonce();
+    discord
+        .suggest(
+            Some(&guild),
+            &general,
+            &weather.application_id,
+            asking.data,
+            &nonce,
+        )
+        .await
+        .unwrap();
+    // Discord's client sends type 4 with the focused option as typed, and
+    // no analytics.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent[0]["type"], 4);
+    assert_eq!(sent[0]["nonce"], nonce.as_str());
+    assert_eq!(sent[0]["guild_id"], guild.as_str());
+    assert!(sent[0]["session_id"].is_string());
+    assert!(sent[0].get("analytics_location").is_none());
+    assert_eq!(
+        sent[0]["data"]["options"],
+        serde_json::json!([{"type": 3, "name": "city", "value": "Pa", "focused": true}])
+    );
+    let choices = live_where(&mut live, |event| match event {
+        Live::Suggested {
+            nonce: answered,
+            choices,
+        } if answered == nonce => Some(choices),
+        _ => None,
+    })
+    .await;
+    assert_eq!(
+        choices,
+        [
+            Choice {
+                name: "Paris, France".into(),
+                value: "fr-paris".into()
+            },
+            Choice {
+                name: "Panama City".into(),
+                value: "pa-panama".into()
+            },
+        ]
+    );
+    // An app that doesn't answer fails the ask.
+    let asking = app_commands::read(weather, "/weather fail")
+        .suggestion_request(Some(&guild))
+        .unwrap();
+    let nonce = obsidian_discord::message::nonce();
+    discord
+        .suggest(
+            Some(&guild),
+            &general,
+            &weather.application_id,
+            asking.data,
+            &nonce,
+        )
+        .await
+        .unwrap();
+    let failed = live_where(&mut live, |event| match event {
+        Live::Interaction {
+            nonce: answered,
+            failed,
+        } if answered == nonce => Some(failed),
+        _ => None,
+    })
+    .await;
+    assert!(failed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fills_in_apps_modals() {
+    use obsidian_discord::{app_commands, modal::Answer};
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("fills_in_apps_modals").await;
+    let index = discord.command_index(Some(&guild), &general).await.unwrap();
+    let feedback = app_commands::find(&index.commands, "/feedback", None).expect("/feedback");
+    let data = app_commands::read(feedback, "/feedback")
+        .data(Some(&guild))
+        .unwrap();
+    let mut live = discord.live();
+    let ran = discord
+        .run_command(Some(&guild), &general, &feedback.application_id, data)
+        .await
+        .unwrap();
+    // The app answers with a form, naming the command's nonce.
+    let modal = live_where(&mut live, |event| match event {
+        Live::Modal(modal) => Some(modal),
+        _ => None,
+    })
+    .await;
+    assert_eq!(modal.nonce.as_deref(), Some(ran.as_str()));
+    assert_eq!(modal.title, "Send feedback");
+    assert_eq!(modal.app_name, "Status Bot");
+    assert_eq!(modal.items.len(), 4);
+    let mut answers = modal.answers();
+    assert_eq!(
+        modal.problems(&answers)[0].as_deref(),
+        Some("This field is required.")
+    );
+    answers[0] = Answer::Text("Voice messages".into());
+    answers[2] = Answer::Chosen(vec!["voice".into()]);
+    answers[3] = Answer::Checked(true);
+    let nonce = obsidian_discord::message::nonce();
+    discord
+        .submit_modal(
+            Some(&guild),
+            &general,
+            &modal.app_id,
+            modal.data(&answers),
+            &nonce,
+        )
+        .await
+        .unwrap();
+    // Discord's client sends type 5 with each component in its place.
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    let submitted = &sent[1];
+    assert_eq!(submitted["type"], 5);
+    assert_eq!(submitted["nonce"], nonce.as_str());
+    assert_eq!(submitted["data"]["id"], modal.id.as_str());
+    assert_eq!(submitted["data"]["custom_id"], "feedback_form");
+    assert_eq!(
+        submitted["data"]["components"],
+        serde_json::json!([
+            {"type": 18, "component": {"type": 4, "custom_id": "idea", "value": "Voice messages"}},
+            {"type": 10},
+            {"type": 18, "component": {"type": 3, "custom_id": "area", "values": ["voice"]}},
+            {"type": 18, "component": {"type": 23, "custom_id": "contact", "value": true}},
+        ])
+    );
+    let failed = live_where(&mut live, |event| match event {
+        Live::Interaction {
+            nonce: answered,
+            failed,
+        } if answered == nonce => Some(failed),
+        _ => None,
+    })
+    .await;
+    assert!(!failed);
+    // A submission the app refuses fails.
+    answers[0] = Answer::Text("fail".into());
+    let nonce = obsidian_discord::message::nonce();
+    discord
+        .submit_modal(
+            Some(&guild),
+            &general,
+            &modal.app_id,
+            modal.data(&answers),
+            &nonce,
+        )
+        .await
+        .unwrap();
+    let failed = live_where(&mut live, |event| match event {
+        Live::Interaction {
+            nonce: answered,
+            failed,
+        } if answered == nonce => Some(failed),
+        _ => None,
+    })
+    .await;
+    assert!(failed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn links_by_qr_code() {
     let Fixture { _fake, server, .. } = Fixture::start("links_by_qr_code").await;
     // Linking by QR code: the code shows, Alice scans it and confirms on her
@@ -7074,5 +7638,7 @@ fn sending<'a>(nonce: &'a str, reply: Option<&'a str>) -> obsidian_discord::api:
         reply,
         ping_reply: true,
         silent: false,
+        tts: false,
+        voice: None,
     }
 }

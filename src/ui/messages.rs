@@ -216,7 +216,7 @@ fn with_mentions(body: &str, mentions: &[obsidian_core::mention::Mentioned]) -> 
 /// Markdown as styled text, with web addresses linked. Slint's Markdown
 /// subset rejects some syntax, such as headings; those show as typed,
 /// keeping their links.
-fn styled(body: &str) -> slint::StyledText {
+pub(super) fn styled(body: &str) -> slint::StyledText {
     styled_or(body, body)
 }
 
@@ -611,6 +611,7 @@ pub(super) fn message_row_within(
         })
         .collect();
     let files = |placement: Placement| -> Vec<FileCell> {
+        // A voice message's recording shows as its player, not a file.
         message
             .attachments
             .iter()
@@ -619,6 +620,7 @@ pub(super) fn message_row_within(
                 attachment.preview.is_none()
                     && !loading(attachment)
                     && !attachment.video
+                    && attachment.voice.is_none()
                     && attachment.placement == placement
             })
             .map(|(index, attachment)| {
@@ -771,6 +773,7 @@ pub(super) fn message_row_within(
         gallery_height,
         stickers: image_cells(stickers),
         files: ModelRc::new(VecModel::from(files(Placement::Message))),
+        voices: voice_cells(message),
         embeds: ModelRc::new(VecModel::from(embeds)),
         cards: ModelRc::new(VecModel::from(cards)),
         blocks: blocks.map_or_else(ModelRc::default, |blocks| {
@@ -922,9 +925,19 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select {
+            text,
+            disabled,
+            menu,
+        } => CardRow {
             kind: CardRowKind::Select,
             select: text.as_str().into(),
+            select_id: menu
+                .as_ref()
+                .map(|menu| menu.custom_id.as_str())
+                .unwrap_or_default()
+                .into(),
+            select_enabled: menu.is_some() && !disabled,
             ..Default::default()
         },
         Row::Unknown => CardRow {
@@ -1379,4 +1392,30 @@ pub(super) fn emoji_card_for(
         .and_then(|id| app.emoji_server(id))
         .and_then(|server| app.state.servers.iter().find(|known| known.id == server));
     emoji_card(target, server.map(|server| &**server), &app.state, pictures)
+}
+
+/// A message's voice message, as its bubble draws it: as many bars as
+/// Discord's client draws for its length.
+fn voice_cells(message: &ChatMessage) -> ModelRc<VoiceCell> {
+    let cells: Vec<VoiceCell> = message
+        .attachments
+        .iter()
+        .enumerate()
+        .filter(|(_, attachment)| attachment.placement == Placement::Message)
+        .filter_map(|(index, attachment)| {
+            let voice = attachment.voice.as_ref()?;
+            let count = obsidian_core::voice_message::bar_count(u64::from(voice.duration_ms));
+            let bars = obsidian_core::voice_message::bars(&voice.waveform, count);
+            Some(VoiceCell {
+                index: index as i32,
+                bars: ModelRc::new(VecModel::from(bars)),
+                duration: i32::try_from(voice.duration_ms).unwrap_or(i32::MAX),
+            })
+        })
+        .collect();
+    if cells.is_empty() {
+        ModelRc::default()
+    } else {
+        ModelRc::new(VecModel::from(cells))
+    }
 }

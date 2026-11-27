@@ -63,6 +63,18 @@ pub struct Channels {
     /// Buttons pressed whose apps haven't answered, by the interaction's
     /// nonce, with their room; at most [`KEPT_PRESSES`].
     pub(super) pressed: std::collections::VecDeque<(String, String)>,
+    /// The slash commands each server or DM offers, once Discord listed
+    /// them; kept while Discord Obsidian runs, as Discord's client keeps them.
+    pub(super) commands: super::slash::Indexes,
+    /// When the last ask for an app's suggestions went, and how many were
+    /// asked, so one a later ask replaced is dropped.
+    pub(super) suggest_pace: super::slash::Pace,
+    /// Asks for suggestions that went and await their app, by nonce; at
+    /// most [`KEPT_PRESSES`].
+    pub(super) suggesting: std::collections::VecDeque<String>,
+    /// Modal submissions that went and await their app, by nonce; at most
+    /// [`KEPT_PRESSES`].
+    pub(super) submitting: std::collections::VecDeque<String>,
 }
 
 /// How many pressed buttons wait for their app's answer at once.

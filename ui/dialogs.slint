@@ -1033,3 +1033,204 @@ export component PollDialog inherits Rectangle {
         }
     }
 }
+
+/// An option of a modal's select menu, radio group or checkbox group.
+export struct ModalChoice { label: string, description: string, chosen: bool }
+
+/// A field of an app's modal, or what it shows.
+export struct ModalRow {
+    // 0 a line of text, 1 a paragraph, 2 a select menu, 3 a radio group,
+    // 4 a checkbox group, 5 a checkbox, 6 text it shows, 7 a field Discord
+    // Obsidian can't fill in.
+    kind: int,
+    label: string, description: string, required: bool,
+    placeholder: string, value: string,
+    content: styled-text,
+    options: [ModalChoice],
+    // A select menu's box: its chosen options, or its placeholder.
+    summary: string, open: bool, checked: bool,
+    // Why it can't go as it is.
+    problem: string,
+}
+
+// A select menu's option, a radio button or a checkbox, with its label.
+component ModalOption inherits Rectangle {
+    in property <ModalChoice> choice;
+    // 0 a menu's option, ticked when chosen; 1 round; 2 square.
+    in property <int> shape;
+    callback picked;
+    min-height: 36px; border-radius: 4px;
+    background: pick.has-hover ? Theme.hover : transparent;
+    accessible-role: checkbox;
+    accessible-checked: root.choice.chosen;
+    accessible-label: root.choice.label;
+    accessible-action-default => { root.picked(); }
+    pick := TouchArea { mouse-cursor: pointer; clicked => { root.picked(); } }
+    HorizontalLayout {
+        padding: 8px; spacing: 10px;
+        if root.shape != 0: Middle {
+            Rectangle {
+                width: 20px; height: 20px; border-radius: root.shape == 1 ? 10px : 4px;
+                border-width: 2px; border-color: root.choice.chosen ? #5865f2 : Theme.muted;
+                background: root.choice.chosen && root.shape == 2 ? #5865f2 : transparent;
+                if root.choice.chosen && root.shape == 1: Rectangle { width: 10px; height: 10px; border-radius: 5px; background: #5865f2; }
+                if root.choice.chosen && root.shape == 2: Image { source: @image-url("icons/check.svg"); width: 14px; colorize: white; }
+            }
+        }
+        VerticalLayout {
+            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            Text { text: root.choice.label; color: Theme.text; font-size: 15px; wrap: word-wrap; }
+            if root.choice.description != "": Text { text: root.choice.description; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+        }
+        if root.shape == 0 && root.choice.chosen: Middle {
+            Image { source: @image-url("icons/check.svg"); width: 18px; colorize: #5865f2; }
+        }
+    }
+}
+
+// A form an app opened, as Discord shows it: the app's icon and the
+// form's title, a warning that it goes to the app, its fields, and Cancel
+// and Submit. Clicking outside or Escape closes it.
+export component ModalDialog inherits Rectangle {
+    in property <string> title;
+    in property <string> app;
+    in property <string> app-icon;
+    /// What shows in place of the app's icon without one.
+    in property <string> app-initial;
+    in property <[ModalRow]> rows;
+    /// Why the submission failed.
+    in property <string> error;
+    in property <bool> sending;
+    callback text-edited(int, string);
+    callback picked(int, int);
+    callback menu(int);
+    callback submit;
+    callback close;
+    in property <float> motion: 1;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(500px, root.width - 48px);
+        height: min(root.height - 48px, head.preferred-height + form.preferred-height + foot.preferred-height + 40px);
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.title;
+        TouchArea { }
+        FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close(); return accept; }
+                return reject;
+            }
+            VerticalLayout {
+                padding: 20px; spacing: 0px;
+                head := HorizontalLayout {
+                    padding-bottom: 12px; spacing: 10px;
+                    Middle { Avatar { size: 24px; initial: root.app-initial; picture-url: root.app-icon; } }
+                    Text { text: root.title; color: Theme.text; font-size: 20px; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    form := VerticalLayout {
+                        spacing: 16px; alignment: start;
+                        if root.error != "": Rectangle {
+                            border-radius: 8px; background: Theme.danger.with-alpha(0.15); border-width: 1px; border-color: Theme.danger;
+                            HorizontalLayout {
+                                padding: 10px;
+                                Text { text: root.error; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+                            }
+                        }
+                        Rectangle {
+                            border-radius: 8px; background: #f0b2321f; border-width: 1px; border-color: #f0b232;
+                            HorizontalLayout {
+                                padding: 10px;
+                                Text {
+                                    text: "This form will be submitted to " + root.app + ". Do not share passwords or other sensitive information.";
+                                    color: Theme.text; font-size: 14px; wrap: word-wrap;
+                                }
+                            }
+                        }
+                        for row[index] in root.rows: VerticalLayout {
+                            spacing: 6px;
+                            if row.kind == 6: StyledText {
+                                min-width: 0px; text: row.content; link-color: Theme.link; default-color: Theme.text; default-font-size: 15px;
+                            }
+                            if row.kind != 5 && row.kind != 6 && row.label != "": HorizontalLayout {
+                                spacing: 2px; alignment: start;
+                                Text { text: row.label; color: Theme.text; font-size: 15px; font-weight: 600; wrap: word-wrap; }
+                                if row.required: Text { text: " *"; color: Theme.danger; font-size: 15px; font-weight: 600; }
+                            }
+                            if row.kind != 6 && row.description != "": Text { text: row.description; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                            if row.kind == 0: TextField {
+                                min-height: 40px; text-size: 15px; pad: 10px; fill: Theme.sunken;
+                                placeholder: row.placeholder; label: row.label; text: row.value; enabled: !root.sending;
+                                edited(text) => { root.text-edited(index, text); }
+                            }
+                            if row.kind == 1: Rectangle {
+                                min-height: 100px; border-radius: 6px; background: Theme.sunken;
+                                border-width: paragraph.has-focus ? 1px : 0px; border-color: Theme.accent.with-alpha(0.8);
+                                if row.value == "": Text {
+                                    x: 10px; y: 10px; width: parent.width - 20px;
+                                    text: row.placeholder; color: Theme.muted; font-size: 15px; wrap: word-wrap;
+                                }
+                                paragraph := TextInput {
+                                    x: 10px; y: 10px; width: parent.width - 20px; height: max(80px, self.preferred-height);
+                                    text: row.value; single-line: false; wrap: word-wrap; enabled: !root.sending;
+                                    font-size: 15px; color: Theme.text; accessible-label: row.label;
+                                    selection-background-color: Theme.accent.with-alpha(0.35);
+                                    edited => { root.text-edited(index, self.text); }
+                                }
+                            }
+                            if row.kind == 2: VerticalLayout {
+                                spacing: 4px;
+                                Rectangle {
+                                    height: 40px; border-radius: 6px; background: Theme.sunken;
+                                    accessible-role: combobox; accessible-label: row.label; accessible-value: row.summary;
+                                    accessible-action-default => { root.menu(index); }
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.menu(index); } }
+                                    HorizontalLayout {
+                                        padding-left: 10px; padding-right: 10px; spacing: 8px;
+                                        Text { text: row.summary; color: row.value != "" ? Theme.text : Theme.muted; font-size: 15px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                                        Middle { Image { source: @image-url("icons/chevron-down.svg"); width: 18px; colorize: Theme.secondary; transform-rotation: row.open ? 180deg : 0deg; } }
+                                    }
+                                }
+                                if row.open: Rectangle {
+                                    border-radius: 6px; background: Theme.panel; border-width: 1px; border-color: Theme.edge;
+                                    VerticalLayout {
+                                        padding: 4px;
+                                        for choice[option] in row.options: ModalOption { choice: choice; shape: 0; picked => { root.picked(index, option); } }
+                                    }
+                                }
+                            }
+                            if row.kind == 3 || row.kind == 4: VerticalLayout {
+                                for choice[option] in row.options: ModalOption {
+                                    choice: choice; shape: row.kind == 3 ? 1 : 2;
+                                    picked => { root.picked(index, option); }
+                                }
+                            }
+                            if row.kind == 5: ModalOption {
+                                choice: { label: row.label, description: "", chosen: row.checked }; shape: 2;
+                                picked => { root.picked(index, 0); }
+                            }
+                            if row.kind == 7: Text {
+                                text: "Discord Obsidian can't fill in this field yet.";
+                                color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                            }
+                            if row.problem != "": Text { text: row.problem; color: Theme.danger; font-size: 13px; wrap: word-wrap; }
+                        }
+                    }
+                }
+                foot := HorizontalLayout {
+                    padding-top: 16px; spacing: 12px;
+                    ActionButton { text: "Cancel"; horizontal-stretch: 1; clicked => { root.close(); } }
+                    ActionButton {
+                        text: root.sending ? "Submitting..." : "Submit"; primary: true; enabled: !root.sending; horizontal-stretch: 1;
+                        clicked => { root.submit(); }
+                    }
+                }
+            }
+        }
+    }
+}

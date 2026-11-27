@@ -27,6 +27,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
             Unfriend,
             Ignore,
             Block,
+            Apps,
             Roles,
             Timeout,
             Kick,
@@ -40,7 +41,7 @@ fn a_member_below_gets_every_choice_in_discords_order() {
 fn nobody_acts_on_those_above_them_or_the_owner() {
     let app = staff();
     let personal = [
-        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Roles, CopyId,
+        Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Apps, Roles, CopyId,
     ];
     assert_eq!(app.person_choices("3"), personal, "Cara, a Lead");
     assert_eq!(app.person_choices("99"), personal, "Owen, the owner");
@@ -49,7 +50,7 @@ fn nobody_acts_on_those_above_them_or_the_owner() {
     assert_eq!(
         app.person_choices("3"),
         [
-            Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, CopyId
+            Profile, Mention, Message, Call, AddNote, AddFriend, Ignore, Block, Apps, CopyId
         ],
         "Leads may do nothing, to another Lead"
     );
@@ -73,12 +74,12 @@ fn ones_own_entry_has_no_friend_or_moderation_choices() {
     // has it, whether or not she may change it.
     assert_eq!(
         staff().person_choices("1"),
-        [Profile, EditServerProfile, Roles, CopyId]
+        [Profile, EditServerProfile, Apps, Roles, CopyId]
     );
     // Without Manage Roles.
     assert_eq!(
         server(&["20"]).person_choices("1"),
-        [Profile, EditServerProfile, CopyId]
+        [Profile, EditServerProfile, Apps, CopyId]
     );
 }
 
@@ -97,6 +98,7 @@ fn without_permissions_only_personal_choices_show() {
             Unfriend,
             Ignore,
             Block,
+            Apps,
             CopyId
         ]
     );
@@ -408,6 +410,7 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
             Unfriend,
             Ignore,
             Block,
+            Apps,
             Roles,
             Timeout,
             Kick,

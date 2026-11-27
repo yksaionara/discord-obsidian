@@ -156,9 +156,9 @@ in polls, watch the votes come in, make your own and end them early.
 
 ### Themes
 
-Ten of them, Catppuccin and Tokyo Night among them, and Bonfire, which is
-Discord's own colors. Or make your own in the editor, and watch the window
-change as you type each color.
+Discord's own: Light, Ash, Dark and Onyx, its 21 color themes, and Sync
+with computer. Then Catppuccin, Tokyo Night and more. Or make your own in
+the editor, and watch the window change as you type each color.
 
 <img src="docs/images/features/themes.webp" alt="The same channel in each of the ten built-in themes, one after another.">
 
@@ -201,6 +201,16 @@ they do in Discord.
   files to, with Markdown, embeds, custom emoji, stickers and spoilers.
   Discord's own links to servers, channels, messages and profiles open in
   Discord Obsidian, including one handed to it by the desktop.
+- **Slash commands**: `/` lists the apps' commands and Discord's own, with
+  each command's options over the composer and the app's suggestions for
+  them, and Enter runs it. Forms apps open in answer fill in and submit as
+  in Discord, and the Apps entry of a message's or a person's menu runs
+  the apps' commands on them. Apps' buttons press and their select menus
+  open, for their options or the server's people, roles and channels.
+- **Voice messages** play with their waveform, at Discord's four speeds,
+  and the composer's + records one, which you can play back before sending.
+- **Bookmarks and reminders**: bookmark a message or set it a reminder from
+  its menu, and find both in the inbox.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.

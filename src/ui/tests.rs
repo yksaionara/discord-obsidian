@@ -289,6 +289,89 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
 }
 
 #[test]
+fn the_recording_bar_takes_the_keyboard_and_enter_sends_it() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = ObsidianWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.invoke_focus_composer();
+    let recorder = window.global::<VoiceRecorder>();
+    let sent = Rc::new(Cell::new(0));
+    let sends = sent.clone();
+    recorder.on_send(move || sends.set(sends.get() + 1));
+    recorder.set_recording(true);
+    recorder.set_active(true);
+    // The bar shows in the composer's place and has the keyboard: typing
+    // writes nothing, and Enter sends the recording.
+    tap(&window, "a".into());
+    tap(&window, Key::Return.into());
+    assert_eq!(sent.get(), 1);
+    assert_eq!(window.get_draft(), "");
+}
+
+#[test]
+fn a_saved_messages_menu_and_inbox_line_say_how_it_stands() {
+    use obsidian_core::chat::SavedMessage;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = ObsidianWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    let mut adapter = adapter.borrow_mut();
+    let room = "discord:10:11".to_owned();
+    let now = obsidian_core::clock::now_ms();
+    {
+        let state = &mut adapter.app.state;
+        state.discord_online = true;
+        state.selected = Some(room.clone());
+        state.saved.bookmark_ids.insert("5".into());
+        state.saved.reminders.push(SavedMessage {
+            room: room.clone(),
+            message_id: "6".into(),
+            saved_at: now,
+            due_at: Some(now - 3 * 3_600_000),
+            message: None,
+        });
+    }
+    adapter.show_saved_menu(&window, "d:5");
+    assert_eq!(window.get_menu_saved(), 2, "bookmarked");
+    adapter.show_saved_menu(&window, "d:7");
+    assert_eq!(window.get_menu_saved(), 1);
+    let rows = window.get_menu_reminder_rows();
+    assert_eq!(rows.row_count(), 5, "Discord's five times");
+    assert_eq!(rows.row_data(0).unwrap().text, "in 30m");
+    adapter.show_saved_menu(&window, "d:6");
+    assert_eq!(window.get_menu_saved(), 3);
+    let rows = window.get_menu_reminder_rows();
+    assert_eq!(rows.row_data(0).unwrap().text, "Reminder due 3 hours ago");
+    assert_eq!(rows.row_data(1).unwrap().text, "Mark Complete");
+    // A Matrix room's messages aren't saved.
+    adapter.app.state.selected = Some("!room:matrix.org".into());
+    adapter.show_saved_menu(&window, "d:5");
+    assert_eq!(window.get_menu_saved(), 0);
+
+    let lines = adapter.saved_rows(true);
+    assert_eq!(lines[0].when, "Due 3 hours ago");
+    assert!(lines[0].overdue);
+    assert_eq!(
+        lines[0].body,
+        "A message you set a reminder for could not be found."
+    );
+}
+
+#[test]
 fn typing_with_nothing_focused_goes_to_the_composer() {
     use slint::platform::{Key, WindowEvent};
     let window = one_message("Hi");
@@ -713,10 +796,14 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         text_size: Some(2),
         link_previews: Some(false),
         unmute_on_join: Some(true),
-        noise_suppression: obsidian_core::noise::Suppressor::RNNoise,
-        noise_strength: obsidian_core::noise::Strength::Light,
+        noise_suppression: obsidian_core::noise::Suppressor::Standard,
+        voice: VoiceSettings {
+            profile: obsidian_core::noise::Profile::Studio,
+            echo_cancellation: false,
+            attenuation: 40,
+            ..VoiceSettings::default()
+        },
         input_sensitivity: Some(-45),
-        reduce_room_echo: true,
         ..Default::default()
     };
     let row = layout.restyle(&message, message_row(&message, &HashSet::new()));
@@ -760,30 +847,52 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     let window = classic_window();
     layout.apply(&window);
     assert!(window.get_twelve_hour_clock() && !window.get_link_previews());
-    // Discord calls suppress noise with the chosen network, as far as chosen.
+    // Discord calls suppress noise with the chosen suppressor, in the
+    // profile chosen, as Discord's Voice settings have them.
     assert_eq!(window.get_noise_suppression(), 1);
-    assert_eq!(window.get_noise_strength(), 2);
     assert_eq!(
         obsidian_core::noise::chosen(),
-        obsidian_core::noise::Suppressor::RNNoise
+        obsidian_core::noise::Suppressor::Standard
     );
+    assert_eq!(window.get_input_profile(), 1);
+    assert!(!window.get_echo_cancellation() && window.get_gain_control());
+    assert_eq!(window.get_attenuation(), 40);
+    // Studio is Discord's: nothing on, and an open gate at -84 dBFS.
+    let studio = obsidian_core::noise::processing();
+    assert_eq!(studio.suppressor, obsidian_core::noise::Suppressor::Off);
+    assert!(!studio.echo_cancellation && !studio.gain_control && !studio.auto_sensitivity);
+    assert_eq!(studio.sensitivity, -84.0);
     let saved = serde_json::to_value(&layout).unwrap();
-    assert_eq!(saved["noise_suppression"], "rnnoise");
-    assert_eq!(saved["noise_strength"], "light");
+    assert_eq!(saved["noise_suppression"], "standard");
+    assert_eq!(saved["voice"]["profile"], "studio");
     assert_eq!(window.get_sensitivity(), -45);
-    assert!(window.get_dereverb() && !defaults.reduce_room_echo);
     assert_eq!(defaults.sensitivity(), -60);
+    // Discord's defaults: Custom, with everything on but attenuation and QoS.
+    assert_eq!(defaults.voice, VoiceSettings::default());
+    assert!(defaults.voice.auto_sensitivity && defaults.voice.bypass_processing);
+    assert_eq!(
+        defaults.voice.profile,
+        obsidian_core::noise::Profile::Custom
+    );
+    // RNNoise, which the dropdown no longer offers, shows as Standard.
+    let older: Layout = serde_json::from_str(r#"{"noise_suppression": "rnnoise"}"#).unwrap();
+    older.apply(&window);
+    assert_eq!(window.get_noise_suppression(), 1);
+    layout.apply(&window);
     let out_of_range = Layout {
         input_sensitivity: Some(12),
         ..Default::default()
     };
     assert_eq!(out_of_range.sensitivity(), 0);
-    // The third choice is Off; an index out of range is the default.
+    // The third choice is None; an index out of range is the default.
     assert_eq!(
         chosen(&SUPPRESSORS, 2),
         obsidian_core::noise::Suppressor::Off
     );
-    assert_eq!(chosen(&STRENGTHS, -1), obsidian_core::noise::Strength::Full);
+    assert_eq!(
+        chosen(&PROFILES, -1),
+        obsidian_core::noise::Profile::VoiceIsolation
+    );
     assert_eq!(window.get_message_font_size(), 18.);
     // Joining a call turns the microphone on once it connects.
     let unmuted = Rc::new(Cell::new(false));
@@ -860,7 +969,9 @@ fn each_sounds_own_volume_counts_only_while_adjusting_each() {
     let each: Vec<i32> = window.get_each_sound().iter().collect();
     assert_eq!(
         each,
-        [100, 100, 100, 50, 100, 100, 100, 100, 100, 100, 100, 100, 100]
+        [
+            100, 100, 100, 50, 100, 100, 100, 100, 100, 100, 100, 100, 100
+        ]
     );
     let saved = serde_json::to_value(&layout).unwrap();
     assert_eq!(saved["sound_set"], "rhodes");
@@ -1302,6 +1413,7 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
         spoiler: false,
         video: false,
         url: None,
+        voice: None,
     };
     let row = message_row_plain(&ChatMessage {
         attachments: vec![attachment("wide.png", false)],
@@ -1319,6 +1431,90 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
     });
     assert_eq!(row.images.row_count(), 0);
     assert_eq!(row.files.row_count(), 1);
+}
+
+#[test]
+fn a_voice_message_shows_as_its_player_with_discords_bars() {
+    let row = message_row_plain(&ChatMessage {
+        attachments: vec![obsidian_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(16_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+            voice: Some(obsidian_core::chat::VoiceClip {
+                duration_ms: 10_000,
+                waveform: Arc::from([0u8, 255]),
+            }),
+        }],
+        ..Default::default()
+    });
+    assert_eq!(row.files.row_count(), 0, "not a file card");
+    let voice = row.voices.row_data(0).unwrap();
+    assert_eq!((voice.index, voice.duration), (0, 10_000));
+    // Ten seconds draw 16 bars, rising from silence to the loudest.
+    assert_eq!(voice.bars.row_count(), 16);
+    assert_eq!(voice.bars.row_data(0), Some(0.0));
+    assert_eq!(voice.bars.row_data(15), Some(1.0));
+}
+
+#[test]
+fn an_apps_select_menu_opens_by_its_id_unless_disabled() {
+    use obsidian_core::chat::{Card, CardRow as Row, SelectKind, SelectMenu};
+    let menu = |disabled| Row::Select {
+        text: "Pick an environment".into(),
+        disabled,
+        menu: Some(Arc::new(SelectMenu {
+            kind: SelectKind::Text,
+            custom_id: "environment".into(),
+            options: vec![],
+            defaults: vec![],
+            channel_types: vec![],
+            min: 1,
+            max: 1,
+        })),
+    };
+    let row = message_row_plain(&ChatMessage {
+        cards: vec![Card {
+            framed: false,
+            color: None,
+            rows: vec![
+                menu(false),
+                menu(true),
+                Row::Select {
+                    text: "Old".into(),
+                    disabled: false,
+                    menu: None,
+                },
+            ],
+        }],
+        ..Default::default()
+    });
+    let rows = row.cards.row_data(0).unwrap().rows;
+    let shown: Vec<_> = (0..3)
+        .map(|index| {
+            let row = rows.row_data(index).unwrap();
+            (
+                row.select.to_string(),
+                row.select_id.to_string(),
+                row.select_enabled,
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("Pick an environment".into(), "environment".into(), true),
+            ("Pick an environment".into(), "environment".into(), false),
+            ("Old".into(), String::new(), false),
+        ]
+    );
 }
 
 #[test]
@@ -1345,6 +1541,7 @@ fn a_selection_copies_the_pictures_it_runs_through() {
                 spoiler: false,
                 video: false,
                 url: None,
+                voice: None,
             }],
             ..Default::default()
         },
@@ -1421,7 +1618,10 @@ fn a_link_showing_other_text_asks_before_it_opens() {
             .dispatch_event(WindowEvent::PointerReleased { position, button });
     }
     let opened = opened.borrow();
-    assert!(!opened.is_empty(), "a click on the link reaches Discord Obsidian");
+    assert!(
+        !opened.is_empty(),
+        "a click on the link reaches Discord Obsidian"
+    );
     assert!(
         opened
             .iter()
@@ -1851,6 +2051,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
             "Ignore",
             "Block",
             "Change nickname",
+            "Apps",
             "Roles",
             "Time out Dave",
             "Kick Dave",
@@ -1886,7 +2087,7 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
 
     // Roles: those this account may give or take, ticked where held. One out
     // of reach would show, greyed, only if Dave held it.
-    let roles = window.get_menu_submenus().row_data(10).unwrap();
+    let roles = window.get_menu_submenus().row_data(11).unwrap();
     let shown: Vec<(String, bool, bool)> = roles
         .iter()
         .map(|row| (row.text.to_string(), row.checked, row.disabled))
@@ -1901,13 +2102,42 @@ fn a_server_members_menu_follows_permissions_and_ticks_roles() {
     assert!(
         !window
             .get_menu_submenus()
-            .row_data(10)
+            .row_data(11)
             .unwrap()
             .row_data(0)
             .unwrap()
             .checked,
         "Crew unticks at once, and the menu stays open"
     );
+
+    // Apps: the channel's user commands, which say so while they load, and
+    // that there are none once Discord lists none.
+    let apps = |window: &ObsidianWindow| -> Vec<(String, bool)> {
+        window
+            .get_menu_submenus()
+            .row_data(10)
+            .unwrap()
+            .iter()
+            .map(|row| (row.text.to_string(), row.disabled))
+            .collect()
+    };
+    assert_eq!(apps(&window), [("Loading...".to_owned(), true)]);
+    let room = adapter.borrow().app.state.selected.clone().unwrap();
+    adapter.borrow_mut().apply(Event::Commands {
+        room,
+        index: Err("no".into()),
+    });
+    adapter.borrow_mut().refresh(&window);
+    assert_eq!(apps(&window), [("No Commands Available".to_owned(), true)]);
+    // A message's menu in the channel has its Apps too.
+    window.invoke_open_message_apps("d:99".into());
+    assert!(window.get_menu_apps_shown());
+    let rows: Vec<String> = window
+        .get_menu_apps()
+        .iter()
+        .map(|row| row.text.to_string())
+        .collect();
+    assert_eq!(rows, ["No Commands Available"]);
 
     // Leads and the owner get no moderation.
     window.invoke_prepare_menu("3".into(), true);
@@ -4319,7 +4549,13 @@ fn friends_in_a_servers_voice_channel_show_where() {
             "lounge",
             true,
             false,
-            vec![person("ann"), VoicePerson { streaming: true, ..person("bob") }],
+            vec![
+                person("ann"),
+                VoicePerson {
+                    streaming: true,
+                    ..person("bob")
+                },
+            ],
         ),
         room("general", false, false, Vec::new()),
         // A DM call isn't a server's voice channel.
@@ -4351,7 +4587,10 @@ fn friends_in_a_servers_voice_channel_show_where() {
     // from them who streams there, as Discord's does.
     let rail = refresh::rail_rows(&state, &rooms_by_id, &Default::default());
     let initials = |people: &ModelRc<TipPerson>| -> Vec<String> {
-        people.iter().map(|person| person.initial.to_string()).collect()
+        people
+            .iter()
+            .map(|person| person.initial.to_string())
+            .collect()
     };
     assert_eq!(initials(&rail[0].voice), ["A"]);
     assert_eq!(initials(&rail[0].streams), ["B"]);
@@ -4463,6 +4702,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
             spoiler: false,
             video: false,
             url: None,
+            voice: None,
         }],
         ..Default::default()
     })]);
@@ -4503,6 +4743,7 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
+        voice: None,
     };
     adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
         item: "i0".into(),
@@ -6595,8 +6836,10 @@ fn a_chosen_theme_is_kept_and_survives_a_window_made_again() {
     )
     .unwrap();
     bind_callbacks(&window, &adapter);
-    assert_eq!(window.get_theme_id(), "yap");
-    assert_eq!(window.get_themes().row_count(), theme::BUILT_IN.len());
+    assert_eq!(window.get_theme_id(), "dark");
+    assert_eq!(window.get_themes().row_count(), more_themes());
+    assert_eq!(window.get_default_themes().row_count(), 4);
+    assert_eq!(window.get_colour_themes().row_count(), 21);
     let nord = theme::find("nord").unwrap().theme;
     window.invoke_choose_theme("nord".into());
     assert_eq!(window.get_theme_id(), "nord");
@@ -6613,7 +6856,7 @@ fn a_chosen_theme_is_kept_and_survives_a_window_made_again() {
     assert_eq!(again.get_theme_id(), "nord");
 
     // An id Discord Obsidian doesn't know changes nothing, and a stored one it no longer
-    // has shows Yap.
+    // has shows Discord's Dark.
     again.invoke_choose_theme("missing".into());
     assert_eq!(theme::Theme::shown(&again), nord);
     let fresh = classic_window();
@@ -6622,8 +6865,37 @@ fn a_chosen_theme_is_kept_and_survives_a_window_made_again() {
         ..Default::default()
     }
     .apply(&fresh);
-    assert_eq!(theme::Theme::shown(&fresh), theme::YAP);
-    assert_eq!(fresh.get_theme_id(), "yap");
+    assert_eq!(
+        theme::Theme::shown(&fresh),
+        theme::BUILT_IN[theme::DARK].theme
+    );
+    assert_eq!(fresh.get_theme_id(), "dark");
+
+    // Sync with computer follows the system into Dark or Light, and choosing
+    // a theme stops it.
+    window.invoke_sync_theme();
+    assert!(window.get_theme_sync());
+    let synced = theme::synced(theme::system_dark(&window));
+    assert_eq!(window.get_theme_id(), synced);
+    assert!(Layout::read(directory.path()).theme_sync);
+    window.invoke_choose_theme("onyx".into());
+    assert!(!window.get_theme_sync() && !Layout::read(directory.path()).theme_sync);
+}
+
+/// How many themes Appearance's More Themes row lists before the person's own.
+fn more_themes() -> usize {
+    theme::BUILT_IN
+        .iter()
+        .filter(|built_in| built_in.group == theme::Group::More)
+        .count()
+}
+
+/// Where a built-in theme is among those a new theme can start from.
+fn start_of(id: &str) -> i32 {
+    theme::BUILT_IN
+        .iter()
+        .position(|built_in| built_in.id == id)
+        .unwrap() as i32
 }
 
 #[test]
@@ -6636,7 +6908,12 @@ fn built_in_themes_have_their_own_ids_and_say_whether_they_are_dark() {
             u32::from(chat.red()) + u32::from(chat.green()) + u32::from(chat.blue()) > 3 * 128;
         assert_eq!(built_in.theme.dark, !light, "{}", built_in.name);
     }
-    assert_eq!(theme::BUILT_IN[0].theme, theme::YAP, "Yap comes first");
+    assert_eq!(
+        theme::BUILT_IN[0].id,
+        "light",
+        "Discord's Light comes first"
+    );
+    assert_eq!(theme::find("yap").unwrap().theme, theme::YAP);
 }
 
 #[test]
@@ -6693,10 +6970,13 @@ fn a_custom_theme_keeps_its_colours_by_name_and_falls_back_to_its_base() {
         custom
     );
 
-    // A base Discord Obsidian doesn't know is Yap.
+    // A base Discord Obsidian doesn't know is Discord's Dark.
     let unknown: theme::Custom =
         serde_json::from_value(serde_json::json!({ "base": "gone" })).unwrap();
-    assert_eq!((unknown.base, unknown.theme), ("yap", theme::YAP));
+    assert_eq!(
+        (unknown.base, unknown.theme),
+        ("dark", theme::BUILT_IN[theme::DARK].theme)
+    );
 }
 
 #[test]
@@ -6746,7 +7026,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_new_theme();
     assert!(window.get_theme_editor());
     assert_eq!(window.get_theme_name(), "Nord copy");
-    assert_eq!(window.get_theme_start(), 5);
+    assert_eq!(window.get_theme_start(), start_of("nord"));
     assert_eq!(window.get_theme_starts().row_count(), theme::BUILT_IN.len());
     let colours = window.get_theme_colours();
     assert_eq!(colours.row_count(), theme::Theme::NAMES.len());
@@ -6787,8 +7067,8 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     );
     assert_eq!(window.get_theme_id(), "custom:1");
     let themes = window.get_themes();
-    assert_eq!(themes.row_count(), theme::BUILT_IN.len() + 1);
-    let card = themes.row_data(theme::BUILT_IN.len()).unwrap();
+    assert_eq!(themes.row_count(), more_themes() + 1);
+    let card = themes.row_data(more_themes()).unwrap();
     assert_eq!(
         (card.id.as_str(), card.name.as_str(), card.custom),
         ("custom:1", "Midnight", true)
@@ -6830,7 +7110,7 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     // A new theme from another start takes its colours and name.
     window.invoke_new_theme();
     assert_eq!(window.get_theme_name(), "Midnight copy");
-    window.invoke_theme_start_chosen(10);
+    window.invoke_theme_start_chosen(start_of("sakura"));
     assert_eq!(window.get_theme_name(), "Sakura copy");
     assert_eq!(
         theme::Theme::shown(&window),
@@ -6842,26 +7122,25 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
     window.invoke_cancel_theme();
     assert_eq!(theme::Theme::shown(&window), midnight);
 
-    // Renamed, then deleted while chosen: Yap shows.
+    // Renamed, then deleted while chosen: Discord's Dark shows.
     window.invoke_edit_theme("custom:1".into());
     window.set_theme_name("Dusk".into());
     window.invoke_save_theme();
     assert_eq!(
-        window
-            .get_themes()
-            .row_data(theme::BUILT_IN.len())
-            .unwrap()
-            .name,
+        window.get_themes().row_data(more_themes()).unwrap().name,
         "Dusk"
     );
     window.invoke_edit_theme("custom:1".into());
     window.invoke_delete_theme();
     assert!(!window.get_theme_editor());
-    assert_eq!(window.get_theme_id(), "yap");
-    assert_eq!(theme::Theme::shown(&window), theme::YAP);
-    assert_eq!(window.get_themes().row_count(), theme::BUILT_IN.len());
+    assert_eq!(window.get_theme_id(), "dark");
+    assert_eq!(
+        theme::Theme::shown(&window),
+        theme::BUILT_IN[theme::DARK].theme
+    );
+    assert_eq!(window.get_themes().row_count(), more_themes());
     let layout = Layout::read(directory.path());
-    assert_eq!(layout.theme.as_deref(), Some("yap"));
+    assert_eq!(layout.theme.as_deref(), Some("dark"));
     assert!(layout.custom_themes.is_empty());
 }
 
@@ -6893,8 +7172,12 @@ fn a_window_made_again_while_editing_drops_the_edit() {
         "rows lose the edited mention colour"
     );
     assert!(!again.get_theme_editor());
-    assert_eq!(theme::Theme::shown(&again), theme::YAP);
-    assert_eq!(theme::mention_color(), 0x7cc4ff);
+    assert_eq!(
+        theme::Theme::shown(&again),
+        theme::BUILT_IN[theme::DARK].theme
+    );
+    // Discord's Dark draws mentions in its light blurple.
+    assert_eq!(theme::mention_color(), 0xc9cdfb);
     assert!(Layout::read(directory.path()).custom_themes.is_empty());
 }
 
@@ -7327,6 +7610,7 @@ fn a_card_of_components_shows_headings_files_and_buttons_that_work() {
             video: false,
             gif: None,
             url: None,
+            voice: None,
         }],
         cards: vec![Card {
             framed: true,
@@ -8112,15 +8396,22 @@ fn obsidian_navigation_matches_the_reference_column_width() {
     assert_eq!(window.get_sidebar_width(), 240.0);
     assert_eq!(window.get_sidebar_shown(), 240.0);
     Layout::default().apply_appearance(&window);
-    assert_eq!(window.get_theme_id(), "yap");
+    assert_eq!(window.get_theme_id(), "dark");
 }
 
 #[test]
-fn obsidian_defaults_to_bonfire_and_keeps_saved_appearance_choices() {
+fn obsidian_defaults_to_discords_dark_and_keeps_saved_appearance_choices() {
     i_slint_backend_testing::init_no_event_loop();
     let window = ObsidianWindow::new().unwrap();
     Layout::default().apply_appearance(&window);
-    assert_eq!(window.get_theme_id(), "bonfire");
+    assert_eq!(window.get_theme_id(), "dark");
+    // A layout from when Dark was called Bonfire keeps it.
+    Layout {
+        theme: Some("bonfire".into()),
+        ..Default::default()
+    }
+    .apply_appearance(&window);
+    assert_eq!(window.get_theme_id(), "dark");
     assert_eq!(window.get_sidebar_width(), 304.0);
 
     let saved = Layout {
@@ -8515,6 +8806,7 @@ fn obsidian_server_rail_scroll_snapshot_benchmark() {
         i_slint_backend_testing::TestingBackendOptions {
             mock_time: true,
             threading: false,
+            renderer_name: Some("skia".into()),
         },
     )))
     .unwrap();
@@ -8710,16 +9002,24 @@ fn people_dragged_between_voice_channels_land_where_they_are_let_go() {
     for y in (40..700).step_by(2) {
         let position = slint::LogicalPosition::new(200., y as f32);
         let button = PointerEventButton::Left;
-        window.window().dispatch_event(WindowEvent::PointerMoved { position });
-        window.window().dispatch_event(WindowEvent::PointerPressed { position, button });
-        window.window().dispatch_event(WindowEvent::PointerReleased { position, button });
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerPressed { position, button });
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased { position, button });
         let found = std::mem::take(&mut *clicked.borrow_mut());
         if !found.is_empty() {
             rows.entry(found).or_default().push(y as f32);
         }
     }
     let centre = |label: &str| {
-        let ys = rows.get(label).unwrap_or_else(|| panic!("no row for {label}: {rows:?}"));
+        let ys = rows
+            .get(label)
+            .unwrap_or_else(|| panic!("no row for {label}: {rows:?}"));
         slint::LogicalPosition::new(200., (ys[0] + ys[ys.len() - 1]) / 2.)
     };
     let dispatch = |event| window.window().dispatch_event(event);
@@ -8732,12 +9032,18 @@ fn people_dragged_between_voice_channels_land_where_they_are_let_go() {
 
     // A flick: pressed, dragged over Den and on to Attic, let go there at once.
     dispatch(WindowEvent::PointerMoved { position: hiro });
-    dispatch(WindowEvent::PointerPressed { position: hiro, button });
+    dispatch(WindowEvent::PointerPressed {
+        position: hiro,
+        button,
+    });
     let past = slint::LogicalPosition::new(hiro.x + 12., hiro.y);
     dispatch(WindowEvent::PointerMoved { position: past });
     dispatch(WindowEvent::PointerMoved { position: den });
     dispatch(WindowEvent::PointerMoved { position: attic });
-    dispatch(WindowEvent::PointerReleased { position: attic, button });
+    dispatch(WindowEvent::PointerReleased {
+        position: attic,
+        button,
+    });
     let_go();
     assert_eq!(
         moves.borrow_mut().drain(..).collect::<Vec<_>>(),
@@ -8747,14 +9053,20 @@ fn people_dragged_between_voice_channels_land_where_they_are_let_go() {
     // The list refreshes mid-drag: the release still drops, on Den.
     let hiro = centre("u-Hiro");
     dispatch(WindowEvent::PointerMoved { position: hiro });
-    dispatch(WindowEvent::PointerPressed { position: hiro, button });
+    dispatch(WindowEvent::PointerPressed {
+        position: hiro,
+        button,
+    });
     let past = slint::LogicalPosition::new(hiro.x + 12., hiro.y);
     dispatch(WindowEvent::PointerMoved { position: past });
     window.set_rooms(rooms(true));
     settle(&window);
     dispatch(WindowEvent::PointerMoved { position: attic });
     dispatch(WindowEvent::PointerMoved { position: den });
-    dispatch(WindowEvent::PointerReleased { position: den, button });
+    dispatch(WindowEvent::PointerReleased {
+        position: den,
+        button,
+    });
     let_go();
     assert_eq!(
         moves.borrow_mut().drain(..).collect::<Vec<_>>(),
@@ -8763,9 +9075,94 @@ fn people_dragged_between_voice_channels_land_where_they_are_let_go() {
 
     // Nothing is left following the pointer: a click on Attic moves no one.
     dispatch(WindowEvent::PointerMoved { position: attic });
-    dispatch(WindowEvent::PointerPressed { position: attic, button });
-    dispatch(WindowEvent::PointerReleased { position: attic, button });
+    dispatch(WindowEvent::PointerPressed {
+        position: attic,
+        button,
+    });
+    dispatch(WindowEvent::PointerReleased {
+        position: attic,
+        button,
+    });
     let_go();
     assert!(moves.borrow().is_empty());
+    window.hide().unwrap();
+}
+
+/// Renders Settings › Voice off screen, with its advanced settings open, and
+/// Appearance, as PNGs in `OBSIDIAN_REVIEW_DIR`, to look at a change without
+/// a window. Run it alone: it sets the testing platform for the process.
+#[test]
+#[ignore = "writes review snapshots to OBSIDIAN_REVIEW_DIR"]
+fn review_settings_snapshots() {
+    let Some(directory) = std::env::var_os("OBSIDIAN_REVIEW_DIR") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            mock_time: true,
+            threading: false,
+            renderer_name: Some("skia".into()),
+        },
+    )))
+    .unwrap();
+    let window = obsidian::window().unwrap();
+    let layout = Layout {
+        theme: std::env::var("OBSIDIAN_REVIEW_THEME")
+            .ok()
+            .or(Some("dark".into())),
+        ..Layout::default()
+    };
+    layout.apply_appearance(&window);
+    layout.apply(&window);
+    window.set_discord_linked(true);
+    window.set_microphones(ModelRc::new(VecModel::from(vec![SharedString::from(
+        "Razer Blackshark V3 Pro",
+    )])));
+    window.set_speakers(ModelRc::new(VecModel::from(vec![SharedString::from(
+        "BlackShark V3 Pro - Chat",
+    )])));
+    window.set_gate_level(-38.0);
+    window.set_settings_open(true);
+    window.show().unwrap();
+    let save = |name: &str, width: f32, height: f32| {
+        window
+            .window()
+            .set_size(slint::LogicalSize::new(width, height));
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(500));
+            window.window().take_snapshot().unwrap();
+        }
+        let frame = window.window().take_snapshot().unwrap();
+        image::save_buffer(
+            directory.join(name),
+            frame.as_bytes(),
+            frame.width(),
+            frame.height(),
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
+    };
+    for (section, name) in [(1, "voice"), (7, "appearance")] {
+        window.set_settings_section(section);
+        save(&format!("{name}.png"), 1280., 2400.);
+    }
+    window.set_settings_section(1);
+    window.set_voice_advanced(true);
+    save("voice-advanced.png", 1280., 3200.);
+    window.set_settings_open(false);
+    // The main window, on the local preview's sample server.
+    let runtime = tempfile::tempdir().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        runtime.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    adapter.borrow_mut().action(&window, Action::Preview);
+    window.set_workspace(true);
+    layout.apply_appearance(&window);
+    save("main.png", 1600., 900.);
     window.hide().unwrap();
 }

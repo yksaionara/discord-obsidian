@@ -509,6 +509,40 @@ export component AccountSettings inherits VerticalLayout {
 }
 
 // Settings: the audio devices and camera, and how calls start and sound.
+// A title in Discord's Voice settings: white, semibold.
+component VoiceLabel inherits Text {
+    color: Theme.text; font-size: 15px; font-weight: 600; wrap: word-wrap;
+}
+
+// One of Discord's input profiles: a radio, its name and what it does.
+component ProfileRadio inherits Rectangle {
+    in property <string> text;
+    in property <string> description;
+    in property <bool> checked;
+    callback clicked;
+    height: radio-row.preferred-height;
+    accessible-role: radio-button; accessible-label: root.text; accessible-description: root.description;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.clicked(); }
+    radio-row := HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            alignment: start; padding-top: 1px;
+            Rectangle {
+                width: 20px; height: 20px; border-radius: 10px;
+                border-width: 2px; border-color: root.checked ? Theme.accent : Theme.secondary;
+                if root.checked: Rectangle { width: 10px; height: 10px; border-radius: 5px; background: Theme.accent; }
+            }
+        }
+        VerticalLayout {
+            spacing: 2px; horizontal-stretch: 1;
+            Text { text: root.text; color: Theme.text; font-size: 15px; font-weight: 500; }
+            Label { text: root.description; }
+        }
+    }
+    TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
 export component VoiceSettings inherits VerticalLayout {
     in property <[string]> microphones;
     in property <[string]> speakers;
@@ -525,13 +559,27 @@ export component VoiceSettings inherits VerticalLayout {
     in property <image> camera-preview;
     in property <string> camera-note;
     in-out property <bool> unmute-on-join;
-    in-out property <bool> level-voice;
-    /// What suppresses noise in Discord calls: 0 DeepFilterNet, 1 RNNoise, 2
-    /// nothing; and how far: 0 full, 1 medium, 2 light.
+    /// Discord's Input Profile: 0 Voice Isolation, 1 Studio, 2 Custom.
+    in-out property <int> input-profile: 2;
+    /// Custom's noise suppression, as Discord's dropdown: 0 DeepFilterNet
+    /// (where Discord runs Krisp), 1 Standard (WebRTC's), 2 None.
     in-out property <int> noise-suppression;
-    in-out property <int> noise-strength;
-    /// Discord calls take the room's reverb out of the microphone.
-    in-out property <bool> dereverb;
+    /// Custom's switches, and the advanced voice settings, as Discord's.
+    in-out property <bool> echo-cancellation: true;
+    in-out property <bool> gain-control: true;
+    in-out property <bool> auto-sensitivity: true;
+    in-out property <bool> voice-activity: true;
+    in-out property <bool> bypass-processing: true;
+    in-out property <bool> device-suggestions: true;
+    in-out property <bool> silence-warning: true;
+    in-out property <bool> switch-warning: true;
+    /// Global Attenuation: how far other applications go down, in percent,
+    /// and while whom speaks.
+    in-out property <int> attenuation: 0;
+    in-out property <bool> attenuate-self;
+    in-out property <bool> attenuate-others: true;
+    in-out property <bool> quality-of-service;
+    in-out property <bool> advanced-open;
     /// The quietest speech Discord calls send, in dBFS; and the microphone as
     /// the voice gate hears it, refreshed while this shows.
     in-out property <int> sensitivity: -60;
@@ -595,7 +643,7 @@ export component VoiceSettings inherits VerticalLayout {
     /// Forgets the mute (1) or deafen (2) shortcut.
     callback clear-shortcut(int);
     spacing: 16px;
-    SettingsTitle { text: "Voice & video"; }
+    SettingsTitle { text: "Voice"; }
     // Each row's two columns take half the width each, whatever is in them:
     // a column starts at its least width and stretches from there, so none
     // has one.
@@ -603,62 +651,242 @@ export component VoiceSettings inherits VerticalLayout {
         spacing: 16px;
         VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
-            SettingsHeading { text: "MICROPHONE"; }
+            VoiceLabel { text: "Microphone"; }
             ComboBox { model: root.microphones; current-index <=> root.microphone-index; enabled: root.microphones.length > 0; accessible-label: "Microphone device"; selected => { root.select-microphone(self.current-index); } }
-            VolumeSlider {
-                label: "Microphone volume"; value <=> root.microphone-volume;
-                changed => { root.call-volumes-changed(); }
-                committed => { root.preferences-changed(); }
-            }
         }
         VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
-            SettingsHeading { text: "SPEAKERS"; }
+            VoiceLabel { text: "Speaker"; }
             ComboBox { model: root.speakers; current-index <=> root.speaker-index; enabled: root.speakers.length > 0; accessible-label: "Speaker device"; selected => { root.select-speaker(self.current-index); } }
-            VolumeSlider {
-                label: "Speaker volume"; value <=> root.speaker-volume;
-                changed => { root.call-volumes-changed(); }
-                committed => { root.preferences-changed(); }
-            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 16px;
+        VolumeSlider {
+            horizontal-stretch: 1; min-width: 0; preferred-width: 0;
+            label: "Microphone Volume"; value <=> root.microphone-volume;
+            changed => { root.call-volumes-changed(); }
+            committed => { root.preferences-changed(); }
+        }
+        VolumeSlider {
+            horizontal-stretch: 1; min-width: 0; preferred-width: 0;
+            label: "Speaker Volume"; value <=> root.speaker-volume;
+            changed => { root.call-volumes-changed(); }
+            committed => { root.preferences-changed(); }
         }
     }
     if root.microphones.length == 0 && root.speakers.length == 0: Label { text: "No audio devices found. Connect one, then refresh."; }
-    if root.discord: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "MIC TEST"; }
-        Label {
-            text: root.input-mode == 1 ? "Start a test and hold your push-to-talk key as you speak: you'll hear yourself as Discord calls send you. Wear headphones, or your speakers may echo."
-                : "Start a test and say something: you'll hear yourself as Discord calls send you, after noise suppression and the input sensitivity, at your volumes. Wear headphones, or your speakers may echo.";
+    // As Discord's: a "Mic Test" button beside a long row of thin ticks that
+    // fill with the level the gate hears, green while it would send.
+    if root.discord: HorizontalLayout {
+        spacing: 16px;
+        ActionButton {
+            text: root.mic-testing ? "Stop Testing" : "Mic Test";
+            primary: true; enabled: root.microphones.length > 0 || root.mic-testing;
+            clicked => { root.mic-testing = !root.mic-testing; }
         }
-        HorizontalLayout {
-            spacing: 16px;
-            // As Discord's: a "Mic Test" button beside a long row of thin
-            // ticks that fill with the level.
-            ActionButton {
-                text: root.mic-testing ? "Stop Testing" : "Mic Test";
-                primary: true; enabled: root.microphones.length > 0 || root.mic-testing;
-                clicked => { root.mic-testing = !root.mic-testing; }
-            }
-            // The microphone as the gate hears it, over the slider's 80 dB:
-            // green while it would send, grey while it wouldn't.
-            VerticalLayout {
-                horizontal-stretch: 1; alignment: center;
-                bar := HorizontalLayout {
-                    height: 24px; spacing: 4px;
-                    property <float> shown: !root.mic-testing ? 0 : max(0, min(1, (root.gate-level + 80) / 80));
-                    accessible-role: progress-indicator;
-                    accessible-label: "Mic test level";
-                    accessible-value: round(self.shown * 100) + "%" + (root.mic-testing && !root.gate-sending ? ", not sending" : "");
-                    for segment in 64: Rectangle {
-                        border-radius: 1px;
-                        background: (segment + 0.5) / 64 > bar.shown ? Theme.line
-                            : root.gate-sending ? Theme.live : Theme.muted;
-                    }
+        VerticalLayout {
+            horizontal-stretch: 1; alignment: center;
+            bar := HorizontalLayout {
+                height: 24px; spacing: 4px;
+                property <float> shown: !root.mic-testing ? 0 : max(0, min(1, (root.gate-level + 100) / 100));
+                accessible-role: progress-indicator;
+                accessible-label: "Mic test level";
+                accessible-value: round(self.shown * 100) + "%" + (root.mic-testing && !root.gate-sending ? ", not sending" : "");
+                for segment in 64: Rectangle {
+                    border-radius: 2px;
+                    background: (segment + 0.5) / 64 > bar.shown ? Theme.line
+                        : root.gate-sending ? Theme.live : Theme.muted;
                 }
             }
         }
-        if root.mic-testing && root.gate-meter-note != "": Label { text: root.gate-meter-note; }
     }
+    if root.discord && root.mic-testing && root.gate-meter-note != "": Label { text: root.gate-meter-note; }
+    if root.discord: Label {
+        text: root.input-mode == 1 ? "Hold your push-to-talk key as you speak: you'll hear yourself as Discord calls send you. Wear headphones, or your speakers may echo."
+            : "Say something: you'll hear yourself as Discord calls send you. Wear headphones, or your speakers may echo.";
+    }
+    Rectangle { height: 1px; background: Theme.line; }
+    if root.discord: VerticalLayout {
+        spacing: 12px;
+        VoiceLabel { text: "Input Profile"; }
+        for profile[index] in [
+            { name: "Voice Isolation", description: "Just your beautiful voice: let Discord cut through the noise" },
+            { name: "Studio", description: "Pure audio: open mic with no processing" },
+            { name: "Custom", description: "Advanced mode: give me all the buttons and dials!" },
+        ]: ProfileRadio {
+            text: profile.name; description: profile.description; checked: root.input-profile == index;
+            clicked => { root.input-profile = index; root.preferences-changed(); }
+        }
+    }
+    if root.discord && root.input-profile == 2 && root.input-mode == 0: VerticalLayout {
+        spacing: 8px;
+        SettingsSwitch {
+            text: "Automatically Adjust Input Sensitivity";
+            description: "Controls how much sound Discord transmits from your mic.";
+            checked <=> root.auto-sensitivity;
+            toggled => { root.preferences-changed(); }
+        }
+        SensitivitySlider {
+            label: "Input Sensitivity"; value <=> root.sensitivity; automatic: root.auto-sensitivity;
+            level: root.gate-level; sending: root.gate-sending;
+            committed => { root.preferences-changed(); }
+        }
+        if root.gate-meter-note != "": Label { text: root.gate-meter-note; }
+    }
+    if root.discord && root.input-profile == 2: HorizontalLayout {
+        spacing: 16px;
+        VerticalLayout {
+            spacing: 4px; horizontal-stretch: 1; alignment: center;
+            VoiceLabel { text: "Noise Suppression"; }
+            Label { text: "Reduces background noise from your mic. Powered by DeepFilterNet."; }
+        }
+        Middle {
+            Picker {
+                width: 216px; model: ["DeepFilterNet", "Standard", "None"]; chosen: root.noise-suppression;
+                accessible-label: "Noise Suppression";
+                selected => { root.noise-suppression = self.current-index; root.preferences-changed(); }
+            }
+        }
+    }
+    if root.discord && root.input-profile == 2: SettingsSwitch {
+        text: "Echo Cancellation";
+        checked <=> root.echo-cancellation;
+        toggled => { root.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Push to Talk";
+        checked: root.input-mode == 1; controlled: true;
+        toggled(on) => { root.input-mode = on ? 1 : 0; root.preferences-changed(); }
+    }
+    if root.input-mode == 1: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "PUSH TO TALK KEYBIND"; }
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            Rectangle {
+                width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
+                border-width: root.talk-recording ? 2px : 0px; border-color: Theme.accent;
+                accessible-role: text;
+                accessible-label: "Push to talk keybind";
+                accessible-value: root.talk-key != "" ? root.talk-key : "No keybind set";
+                Text {
+                    x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
+                    text: root.talk-recording ? "Press a key..." : root.talk-key != "" ? root.talk-key : "No keybind set";
+                    color: root.talk-key != "" && !root.talk-recording ? Theme.text : Theme.muted;
+                    font-weight: root.talk-key != "" && !root.talk-recording ? 600 : 400;
+                }
+            }
+            ActionButton {
+                text: root.talk-recording ? "Stop recording" : root.talk-key == "" ? "Record keybind" : "Edit keybind";
+                danger: root.talk-recording;
+                clicked => { root.record-talk-key(!root.talk-recording); }
+            }
+        }
+        Label {
+            text: root.talk-recording ? "Press the key to hold while you talk. Escape stops without changing it."
+                : root.talk-key == "" ? "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+                : root.talk-note;
+        }
+    }
+    if root.input-mode == 1: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "PUSH TO TALK RELEASE DELAY"; }
+        VolumeSlider {
+            label: "Push to talk release delay"; value <=> root.talk-delay; maximum: 2000; step: 10; full-mark: false;
+            shown: self.value >= 1000 ? (self.value / 1000).to-fixed(2) + " s" : self.value + " ms";
+            committed => { root.preferences-changed(); }
+        }
+        Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
+    }
+    if root.discord: Rectangle {
+        border-radius: 8px;
+        background: root.advanced-open ? Theme.sunken : transparent;
+        height: advanced.preferred-height;
+        advanced := VerticalLayout {
+            padding: root.advanced-open ? 16px : 0px; spacing: 20px;
+            HorizontalLayout {
+                spacing: 16px;
+                VerticalLayout {
+                    spacing: 4px; horizontal-stretch: 1; alignment: center;
+                    VoiceLabel { text: root.advanced-open ? "Hide Advanced Voice Settings" : "Show Advanced Voice Settings"; }
+                    if !root.advanced-open: Label { text: "Automatic Gain Control, Advanced Voice Activity, Bypass System Audio Input Processing, and more"; }
+                }
+                Middle {
+                    IconButton {
+                        icon: root.advanced-open ? @image-url("icons/chevron-up.svg") : @image-url("icons/chevron-down.svg");
+                        label: root.advanced-open ? "Hide Advanced Voice Settings" : "Show Advanced Voice Settings";
+                        clicked => { root.advanced-open = !root.advanced-open; }
+                    }
+                }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "Automatic Gain Control";
+                description: "Automatically adjust microphone volume to keep it clear and consistent.";
+                enabled: root.input-profile == 2;
+                checked: root.input-profile == 2 ? root.gain-control : root.input-profile == 0; controlled: true;
+                toggled(on) => { root.gain-control = on; root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "Advanced Voice Activity";
+                description: "Turning this off may help if your voice is not being detected by the automatic input sensitivity.";
+                enabled: root.input-profile == 2 && root.auto-sensitivity;
+                checked: root.input-profile == 2 ? root.voice-activity : root.input-profile == 0; controlled: true;
+                toggled(on) => { root.voice-activity = on; root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "Bypass System Audio Input Processing";
+                description: "System audio processing may interfere with Discord’s audio processing";
+                checked <=> root.bypass-processing;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "Audio Device Suggestions";
+                description: "Show a suggestion when Discord detects a new audio device.";
+                checked <=> root.device-suggestions;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "No Audio Detected Warning";
+                description: "Show a warning when Discord is not detecting audio from your mic";
+                checked <=> root.silence-warning;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "Switch Voice Channel Warning";
+                description: "Show a confirmation prompt before switching to a different voice channel.";
+                checked <=> root.switch-warning;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.advanced-open: VerticalLayout {
+                spacing: 8px;
+                VoiceLabel { text: "Global Attenuation"; }
+                Label { text: "Lower the volume of other applications by this percent when someone is speaking. Set to 0% to completely disable global attenuation."; }
+                VolumeSlider {
+                    label: "Attenuation Strength"; value <=> root.attenuation; maximum: 100;
+                    committed => { root.preferences-changed(); }
+                }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "When I speak";
+                checked <=> root.attenuate-self;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "When others speak";
+                checked <=> root.attenuate-others;
+                toggled => { root.preferences-changed(); }
+            }
+            if root.advanced-open: SettingsSwitch {
+                text: "Quality Of Service";
+                description: "Hints to your router that the packets Discord is transmitting are high priority. Some routers or internet service providers may misbehave when this is set.";
+                checked <=> root.quality-of-service;
+                toggled => { root.preferences-changed(); }
+            }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.line; }
+    SettingsTitle { text: "Video"; }
     HorizontalLayout {
         spacing: 16px;
         VerticalLayout {
@@ -703,32 +931,6 @@ export component VoiceSettings inherits VerticalLayout {
         description: "Otherwise you join muted, and unmute when you're ready.";
         checked <=> root.unmute-on-join;
         toggled => { root.preferences-changed(); }
-    }
-    SettingsSwitch {
-        text: "Even out your voice";
-        description: "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.";
-        checked <=> root.level-voice;
-        toggled => { root.preferences-changed(); }
-    }
-    if root.discord: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "NOISE SUPPRESSION IN DISCORD CALLS"; }
-        Choices {
-            label: "Noise suppression in Discord calls"; options: ["DeepFilterNet", "RNNoise", "Off"];
-            current <=> root.noise-suppression;
-            chosen => { root.preferences-changed(); }
-        }
-        Label { text: "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."; }
-    }
-    if root.discord && root.noise-suppression != 2: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "NOISE SUPPRESSION STRENGTH"; }
-        Choices {
-            label: "Noise suppression strength"; options: ["Full", "Medium", "Light"];
-            current <=> root.noise-strength;
-            chosen => { root.preferences-changed(); }
-        }
-        Label { text: "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."; }
     }
     if root.discord: VerticalLayout {
         spacing: 8px;
@@ -785,65 +987,6 @@ export component VoiceSettings inherits VerticalLayout {
             }
         }
     }
-    if root.discord: SettingsSwitch {
-        text: "Take out your room's echo in Discord calls";
-        description: "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.";
-        checked <=> root.dereverb;
-        toggled => { root.preferences-changed(); }
-    }
-    VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "INPUT MODE"; }
-        Choices {
-            label: "Input mode"; options: ["Voice activity", "Push to talk"];
-            current <=> root.input-mode;
-            chosen => { root.preferences-changed(); }
-        }
-        Label {
-            text: root.input-mode == 0 ? "Discord sends your voice when it hears you speak."
-                : "Discord sends your microphone only while you hold a key.";
-        }
-    }
-    if root.input-mode == 1: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "PUSH TO TALK KEYBIND"; }
-        HorizontalLayout {
-            spacing: 8px; alignment: start;
-            Rectangle {
-                width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
-                border-width: root.talk-recording ? 2px : 0px; border-color: Theme.accent;
-                accessible-role: text;
-                accessible-label: "Push to talk keybind";
-                accessible-value: root.talk-key != "" ? root.talk-key : "No keybind set";
-                Text {
-                    x: 12px; width: parent.width - 24px; overflow: elide; font-size: 14px;
-                    text: root.talk-recording ? "Press a key..." : root.talk-key != "" ? root.talk-key : "No keybind set";
-                    color: root.talk-key != "" && !root.talk-recording ? Theme.text : Theme.muted;
-                    font-weight: root.talk-key != "" && !root.talk-recording ? 600 : 400;
-                }
-            }
-            ActionButton {
-                text: root.talk-recording ? "Stop recording" : root.talk-key == "" ? "Record keybind" : "Edit keybind";
-                danger: root.talk-recording;
-                clicked => { root.record-talk-key(!root.talk-recording); }
-            }
-        }
-        Label {
-            text: root.talk-recording ? "Press the key to hold while you talk. Escape stops without changing it."
-                : root.talk-key == "" ? "Push to talk is on, but no keybind is set, so your microphone sends nothing."
-                : root.talk-note;
-        }
-    }
-    if root.input-mode == 1: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "PUSH TO TALK RELEASE DELAY"; }
-        VolumeSlider {
-            label: "Push to talk release delay"; value <=> root.talk-delay; maximum: 2000; step: 10; full-mark: false;
-            shown: self.value >= 1000 ? (self.value / 1000).to-fixed(2) + " s" : self.value + " ms";
-            committed => { root.preferences-changed(); }
-        }
-        Label { text: "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."; }
-    }
     VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: "MUTE AND DEAFEN SHORTCUTS"; }
@@ -862,19 +1005,6 @@ export component VoiceSettings inherits VerticalLayout {
                 : root.shortcut-note;
         }
     }
-    if root.discord && root.input-mode == 0: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "INPUT SENSITIVITY IN DISCORD CALLS"; }
-        SensitivitySlider {
-            label: "Input sensitivity"; value <=> root.sensitivity;
-            level: root.gate-level; sending: root.gate-sending;
-            committed => { root.preferences-changed(); }
-        }
-        Label {
-            text: root.gate-meter-note != "" ? root.gate-meter-note
-                : "Discord sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Discord hears it to decide.";
-        }
-    }
 }
 
 /// A theme as Appearance offers it: its name, and the colours of its preview.
@@ -890,6 +1020,10 @@ export struct ThemeCard {
     accent: color,
     text: color,
     muted: color,
+    /// The colours its swatch runs between, top to bottom: the same for a
+    /// plain theme, a gradient's ends for one of Discord's colour themes.
+    swatch-top: color,
+    swatch-bottom: color,
 }
 
 /// A colour in the theme editor: its name, the colour, and its field's text,
@@ -901,6 +1035,46 @@ export struct ThemeColour {
     colour: color,
     hex: string,
     wrong: bool,
+}
+
+// One of Discord's theme swatches: a rounded square in the theme's colour,
+// or its gradient, ringed in blurple with a check while chosen; or the sync
+// button, whose theme follows the system's.
+component ThemeSwatch inherits Rectangle {
+    in property <ThemeCard> card;
+    in property <bool> current;
+    in property <bool> sync;
+    callback clicked();
+    width: 60px; height: 60px;
+    accessible-role: button;
+    accessible-label: (root.sync ? "Sync with computer" : root.card.name) + (root.current ? ", chosen" : "");
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        border-radius: 8px; clip: true;
+        background: root.sync ? Theme.sunken : @linear-gradient(180deg, root.card.swatch-top 0%, root.card.swatch-bottom 100%);
+        border-width: root.current ? 2px : 1px;
+        border-color: root.current ? #5865f2 : swatch-touch.has-hover ? Theme.secondary : Theme.line;
+        if root.sync: Image {
+            width: 24px; height: 24px; source: @image-url("icons/refresh-cw.svg"); colorize: Theme.text;
+        }
+    }
+    if root.current: Rectangle {
+        x: parent.width - 14px; y: -6px; width: 20px; height: 20px; border-radius: 10px;
+        background: #5865f2; border-width: 2px; border-color: Theme.chat;
+        Image { width: 12px; height: 12px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+    }
+    swatch-touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+        changed has-hover => {
+            if self.has-hover {
+                Tip.text = root.sync ? "Sync with computer" : root.card.name; Tip.side = 0;
+                Tip.x = self.absolute-position.x + self.width / 2; Tip.y = self.absolute-position.y;
+            } else if Tip.text == (root.sync ? "Sync with computer" : root.card.name) {
+                Tip.text = "";
+            }
+        }
+    }
 }
 
 // A theme to choose: a small window drawn in its own colours, with its name
@@ -1123,8 +1297,14 @@ export component AppearanceSettings inherits VerticalLayout {
     callback preferences-changed();
     in-out property <bool> show-nameplates;
     in-out property <bool> reduce-motion;
+    /// Discord's Default Themes and Color Themes, as swatches, and the rest
+    /// as cards; the one shown by its id, and whether it follows the system.
+    in property <[ThemeCard]> default-themes;
+    in property <[ThemeCard]> colour-themes;
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
+    in property <bool> theme-sync;
+    callback sync-theme();
     /// The editor, while it's open: the colours, the name, whether the theme
     /// is dark, and whether it edits a saved theme rather than making one,
     /// from the theme at start-index among the starts.
@@ -1160,9 +1340,39 @@ export component AppearanceSettings inherits VerticalLayout {
     spacing: 16px;
     SettingsTitle { text: "Appearance"; }
     if !root.editor: VerticalLayout {
+        spacing: 12px;
+        Text { text: "Theme"; color: Theme.text; font-size: 16px; font-weight: 600; }
+        Text { text: "Default Themes"; color: Theme.text; font-size: 14px; font-weight: 600; }
+        HorizontalLayout {
+            spacing: 12px; alignment: start;
+            for card in root.default-themes: ThemeSwatch {
+                card: card; current: !root.theme-sync && card.id == root.theme-id;
+                clicked => { root.choose-theme(card.id); }
+            }
+            // Discord's sync button: the theme follows the system's mode.
+            ThemeSwatch {
+                sync: true; current: root.theme-sync;
+                clicked => { root.sync-theme(); }
+            }
+        }
+        Text { text: "Color Themes"; color: Theme.text; font-size: 14px; font-weight: 600; }
+        Rectangle {
+            property <length> gap: 12px;
+            property <int> columns: max(1, floor((self.width + self.gap) / (60px + self.gap)));
+            height: ceil(root.colour-themes.length / self.columns) * (60px + self.gap) - self.gap;
+            accessible-role: list; accessible-label: "Color Themes";
+            for card[index] in root.colour-themes: ThemeSwatch {
+                x: mod(index, parent.columns) * (60px + parent.gap);
+                y: floor(index / parent.columns) * (60px + parent.gap);
+                card: card; current: !root.theme-sync && card.id == root.theme-id;
+                clicked => { root.choose-theme(card.id); }
+            }
+        }
+    }
+    if !root.editor: VerticalLayout {
         spacing: 8px;
         HorizontalLayout {
-            SettingsHeading { text: "THEME"; vertical-alignment: center; horizontal-stretch: 1; }
+            SettingsHeading { text: "MORE THEMES"; vertical-alignment: center; horizontal-stretch: 1; }
             ActionButton {
                 text: "New theme"; small: true; icon: @image-url("icons/circle-plus.svg");
                 clicked => { root.new-theme(); }

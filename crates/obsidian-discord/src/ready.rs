@@ -74,6 +74,8 @@ pub mod permission {
     pub const CREATE_GUILD_EXPRESSIONS: u64 = 1 << 43;
     /// Playing other servers' sounds, for those with Nitro.
     pub const USE_EXTERNAL_SOUNDS: u64 = 1 << 45;
+    /// Sending voice messages, besides sending messages.
+    pub const SEND_VOICE_MESSAGES: u64 = 1 << 46;
     /// Posting polls, besides sending messages.
     pub const SEND_POLLS: u64 = 1 << 49;
     /// Pinning messages and unpinning them, which `MANAGE_MESSAGES` once gave.

@@ -190,7 +190,10 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::AddToChannelList
                 | MenuChoice::RemoveFromChannelList
                 | MenuChoice::UnfollowCategory => 3,
-                MenuChoice::ServerNickname | MenuChoice::Roles | MenuChoice::MoveTo => 4,
+                MenuChoice::ServerNickname
+                | MenuChoice::Apps
+                | MenuChoice::Roles
+                | MenuChoice::MoveTo => 4,
                 MenuChoice::MoveUp | MenuChoice::MoveDown => 9,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
@@ -337,6 +340,8 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 notification_rows(app, id)
             } else if row.id == choice_id(MenuChoice::Roles) {
                 role_rows(adapter, id)
+            } else if row.id == choice_id(MenuChoice::Apps) {
+                apps_rows(adapter, id)
             } else if row.id == choice_id(MenuChoice::InviteToServer) {
                 invite_rows(app, user.as_deref())
             } else if let (true, Some((room, user))) =
@@ -388,6 +393,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::Mention => ("Mention", &icons.mention),
         MenuChoice::ServerNickname => ("Change nickname", &icons.rename),
         MenuChoice::Roles => ("Roles", &icons.roles),
+        MenuChoice::Apps => ("Apps", &icons.apps),
         MenuChoice::RemoveTimeout => ("Remove timeout", &icons.timeout),
         MenuChoice::Timeout => ("Time out", &icons.timeout),
         MenuChoice::Kick => ("Kick", &icons.kick),
@@ -453,7 +459,8 @@ fn discord_rank(choice: MenuChoice) -> u8 {
         MenuChoice::Ignore | MenuChoice::Unignore => 13,
         MenuChoice::Block | MenuChoice::Unblock => 14,
         MenuChoice::ServerNickname => 20,
-        MenuChoice::Roles => 21,
+        MenuChoice::Apps => 21,
+        MenuChoice::Roles => 22,
         MenuChoice::CopyId => 100,
         MenuChoice::CopyLink => 99,
         _ => 50,
@@ -821,6 +828,11 @@ pub(super) fn choose(
     if target.starts_with(EVENTS) {
         return;
     }
+    #[cfg(feature = "discord")]
+    if id.starts_with(super::apps_menu::APP_COMMAND) {
+        adapter.run_app_command(window, id);
+        return;
+    }
     // A checkbox shows its new state at once, as the menu stays open.
     let ticked = toggle(window, id);
     // Someone's menu in a voice channel acts on them in its server.
@@ -1008,7 +1020,9 @@ pub(super) fn choose(
         }),
         // Its roles are its submenu's, as are the servers to invite to and
         // the channels to move to.
-        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo => None,
+        MenuChoice::Roles | MenuChoice::Apps | MenuChoice::InviteToServer | MenuChoice::MoveTo => {
+            None
+        }
         MenuChoice::LocalMute => {
             if let Some(muted) = ticked {
                 obsidian_core::volume::mute(&target, muted);
@@ -1147,7 +1161,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 67] = [
+const CHOICES: [MenuChoice; 68] = [
     MenuChoice::MarkRead,
     MenuChoice::MoveUp,
     MenuChoice::MoveDown,
@@ -1179,6 +1193,7 @@ const CHOICES: [MenuChoice; 67] = [
     MenuChoice::Mention,
     MenuChoice::ServerNickname,
     MenuChoice::Roles,
+    MenuChoice::Apps,
     MenuChoice::Timeout,
     MenuChoice::RemoveTimeout,
     MenuChoice::Kick,
@@ -1250,6 +1265,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::Mention => "mention",
         MenuChoice::ServerNickname => "server-nickname",
         MenuChoice::Roles => "roles",
+        MenuChoice::Apps => "apps",
         MenuChoice::Timeout => "timeout",
         MenuChoice::RemoveTimeout => "remove-timeout",
         MenuChoice::Kick => "kick",
@@ -1315,6 +1331,17 @@ fn mute_id(muting: Muting) -> String {
         Muting::Always => "mute-always".into(),
         Muting::Off => "unmute".into(),
     }
+}
+
+/// The apps' user commands a person's Apps submenu lists; Discord's alone.
+#[cfg(feature = "discord")]
+fn apps_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
+    super::apps_menu::person_rows(adapter, user)
+}
+
+#[cfg(not(feature = "discord"))]
+fn apps_rows(_: &Adapter, _: &str) -> Vec<MenuRow> {
+    Vec::new()
 }
 
 #[cfg(test)]

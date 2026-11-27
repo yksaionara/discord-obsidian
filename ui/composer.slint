@@ -283,6 +283,132 @@ export component MentionList inherits SuggestionFrame {
     }
 }
 
+/// A slash command the composer lists, or a choice of the option being typed.
+export struct CommandRow {
+    // "/remind", or a choice's name.
+    name: string,
+    // Its options' names after it, as "what minutes where".
+    options: string,
+    description: string,
+    // Its app's name, at the row's end.
+    app: string,
+    // The app's icon, or its initial; Discord's own show Discord's mark.
+    picture-url: string, initial: string, tint: color, builtin: bool,
+    // The app's name over its first command.
+    heading: string,
+}
+
+/// An option of the command written: required, typed in, being typed.
+export struct CommandChip { name: string, required: bool, given: bool, current: bool }
+
+/// The command written, over the composer as Discord shows it.
+export struct CommandBar {
+    shown: bool,
+    // "/music play".
+    name: string, app: string,
+    picture-url: string, initial: string, tint: color, builtin: bool,
+    // The option being typed and what it asks for.
+    current-name: string, current-description: string,
+}
+
+// An app's icon in the command list and bar, or Discord's mark for its own.
+component CommandIcon inherits Rectangle {
+    in property <string> picture-url;
+    in property <string> initial;
+    in property <color> tint;
+    in property <bool> builtin;
+    in property <length> size: 32px;
+    width: root.size; height: root.size;
+    if !root.builtin: Avatar { size: root.size; initial: root.initial; tint: root.tint; picture-url: root.picture-url; }
+    if root.builtin: Rectangle {
+        width: root.size; height: root.size; border-radius: root.size / 2; background: #5865f2;
+        Image { source: @image-url("icons/discord.svg"); width: root.size * 0.6; height: root.size * 0.6; colorize: white; }
+    }
+}
+
+// Slash commands for the `/` word being typed, each app's under its name,
+// or the choices of the option being typed, as Discord's composer lists
+// them. The window shows eight at a time around the highlighted one.
+export component CommandList inherits SuggestionFrame {
+    in property <[CommandRow]> rows;
+    /// The highlighted one.
+    in property <int> row-index;
+    /// Instead of rows: that the apps' commands or suggestions are on their
+    /// way, or didn't come.
+    in property <string> note;
+    callback row-chosen(int);
+    height: suggestions.preferred-height;
+    suggestions := VerticalLayout {
+        padding: 6px; spacing: 0px;
+        if root.note != "" && root.rows.length == 0: HorizontalLayout {
+            padding: 10px;
+            Text { text: root.note; color: Theme.muted; font-size: 14px; }
+        }
+        for row[index] in root.rows: VerticalLayout {
+            if row.heading != "": HorizontalLayout { padding-left: 6px; SuggestionHeading { text: row.heading; } }
+            Rectangle {
+                height: row.description != "" ? 52px : 36px; border-radius: 6px;
+                background: index == root.row-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
+                accessible-role: list-item;
+                accessible-label: row.name + (row.description != "" ? ", " + row.description : "");
+                pick := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.row-chosen(index); }
+                }
+                HorizontalLayout {
+                    padding-left: 8px; padding-right: 10px; spacing: 12px;
+                    if row.description != "": VerticalLayout {
+                        alignment: center;
+                        CommandIcon { picture-url: row.picture-url; initial: row.initial; tint: row.tint; builtin: row.builtin; }
+                    }
+                    VerticalLayout {
+                        alignment: center; spacing: 2px; horizontal-stretch: 1;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: row.name; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; }
+                            Text { text: row.options; color: Theme.muted; font-size: 14px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                        }
+                        if row.description != "": Text { text: row.description; color: Theme.secondary; font-size: 13px; overflow: elide; }
+                    }
+                    Text { text: row.app; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+}
+
+// The command written, its options, and what the one being typed asks for,
+// in a bar over the composer as Discord's composer shows them.
+export component CommandOptions inherits SuggestionFrame {
+    in property <CommandBar> bar;
+    in property <[CommandChip]> chips;
+    height: layout.preferred-height;
+    layout := VerticalLayout {
+        padding: 10px; padding-left: 12px; spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            CommandIcon { size: 20px; picture-url: root.bar.picture-url; initial: root.bar.initial; tint: root.bar.tint; builtin: root.bar.builtin; }
+            Text { text: root.bar.name; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+            for chip in root.chips: Rectangle {
+                height: 22px; width: label.preferred-width + 14px; border-radius: 4px;
+                background: chip.current ? Theme.accent.with-alpha(0.3) : chip.given ? Theme.active : Theme.field;
+                border-width: chip.current ? 1px : 0px; border-color: Theme.accent;
+                label := Text {
+                    text: chip.name + (chip.required ? "" : "?");
+                    color: chip.current || chip.given ? Theme.text : Theme.muted; font-size: 13px; font-weight: 600;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: root.bar.app; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+        }
+        if root.bar.current-name != "": HorizontalLayout {
+            spacing: 6px;
+            Text { text: root.bar.current-name; color: Theme.text; font-size: 13px; font-weight: 700; }
+            Text { text: root.bar.current-description; color: Theme.secondary; font-size: 13px; overflow: elide; horizontal-stretch: 1; }
+        }
+    }
+}
+
 // Emoji for the `:name` being typed, each with its name.
 export component EmojiSuggestions inherits SuggestionFrame {
     in property <[EmojiCell]> emoji;

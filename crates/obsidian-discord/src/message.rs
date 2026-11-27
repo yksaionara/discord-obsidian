@@ -69,6 +69,9 @@ const STICKER_SIZE: u32 = 160;
 
 /// The attachment flag that marks a spoiler.
 pub(crate) const IS_SPOILER: u64 = 1 << 3;
+/// The message flag of a voice message, whose audio file Discord's client
+/// plays with its waveform.
+pub const IS_VOICE_MESSAGE: u64 = 1 << 13;
 /// The flag of an attachment, or an embed's picture, that moves.
 const IS_ANIMATED: u64 = 1 << 5;
 
@@ -305,6 +308,10 @@ pub enum Reply {
         author_id: String,
         author: String,
         content: String,
+        /// The original is a voice message, which Discord's client quotes
+        /// as "Click to see voice message".
+        #[serde(default)]
+        voice: bool,
     },
     Deleted,
     /// Discord didn't look the original up, as in the MESSAGE_UPDATE that
@@ -313,6 +320,17 @@ pub enum Reply {
         /// The original's id, in the reply's channel, empty when Discord
         /// didn't name it.
         id: String,
+    },
+    /// An app's answer to a command, which Discord's client heads as a
+    /// reply is headed: "Name used /command", or "Name used Command" for a
+    /// user or message command from the Apps menu.
+    Command {
+        /// Who ran it.
+        author_id: String,
+        author: String,
+        /// The command as the header names it: a slash command with its
+        /// subcommands, as `/remind me`, or a menu command, as `Bookmark`.
+        name: String,
     },
 }
 
@@ -324,6 +342,7 @@ impl Reply {
             author_id: original["author"]["id"].as_str().unwrap_or_default().into(),
             author: author_name(original).into(),
             content: original["content"].as_str().unwrap_or_default().into(),
+            voice: original["flags"].as_u64().unwrap_or_default() & IS_VOICE_MESSAGE != 0,
         }
     }
 
@@ -334,6 +353,10 @@ impl Reply {
             author_id: original.author_id.clone(),
             author: original.author.clone(),
             content: original.content.clone(),
+            voice: original
+                .attachments
+                .iter()
+                .any(|attachment| attachment.voice.is_some()),
         }
     }
 }
@@ -369,6 +392,39 @@ pub struct Attachment {
     pub shown: Shown,
     /// Marked as a spoiler: by a name starting `SPOILER_`, or by its flags.
     pub spoiler: bool,
+    /// A voice message's recording: an audio file of a message flagged
+    /// [`IS_VOICE_MESSAGE`].
+    #[serde(default)]
+    pub voice: Option<VoiceClip>,
+}
+
+/// A voice message's recording, as its attachment describes it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VoiceClip {
+    /// How long it plays, from `duration_secs`; 0 when it doesn't say.
+    pub duration_ms: u32,
+    /// How loud it is along its length, up to 256 levels from 0 to 255,
+    /// from the base64 `waveform`; empty when it doesn't say.
+    pub waveform: Arc<[u8]>,
+}
+
+impl VoiceClip {
+    fn of(attachment: &Value) -> Self {
+        use base64::Engine;
+        let seconds = attachment["duration_secs"].as_f64().unwrap_or(0.0);
+        let waveform = attachment["waveform"]
+            .as_str()
+            .and_then(|waveform| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(waveform)
+                    .ok()
+            })
+            .unwrap_or_default();
+        Self {
+            duration_ms: (seconds.clamp(0.0, f64::from(u32::MAX) / 1000.0) * 1000.0).round() as u32,
+            waveform: waveform.into(),
+        }
+    }
 }
 
 /// Where a message's picture shows.
@@ -569,11 +625,15 @@ impl MessageApp {
 
 /// A nonce like the official client's: a snowflake for the current time.
 pub fn nonce() -> String {
+    // Its low bits count, as a snowflake's increment does, so two made in
+    // the same millisecond differ.
+    static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    ((now.saturating_sub(DISCORD_EPOCH_MS)) << 22).to_string()
+    let made = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0x3f_ffff;
+    ((now.saturating_sub(DISCORD_EPOCH_MS) << 22) | made).to_string()
 }
 
 /// How long a call lasted, as Discord says it.
@@ -665,16 +725,21 @@ pub fn parse(value: &Value) -> Option<Message> {
         _ => value,
     };
     // `null` says the original was deleted; no field at all says nothing.
-    let reply = (kind == REPLY).then(|| match value.get("referenced_message") {
-        Some(original @ Value::Object(_)) => Reply::of(original),
-        Some(_) => Reply::Deleted,
-        None => Reply::Unknown {
-            id: value["message_reference"]["message_id"]
-                .as_str()
-                .unwrap_or_default()
-                .into(),
-        },
-    });
+    let reply = (kind == REPLY)
+        .then(|| match value.get("referenced_message") {
+            Some(original @ Value::Object(_)) => Reply::of(original),
+            Some(_) => Reply::Deleted,
+            None => Reply::Unknown {
+                id: value["message_reference"]["message_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .into(),
+            },
+        })
+        .or_else(|| command_reply(kind, value));
+    // A voice message's audio plays with its waveform, as Discord's client
+    // plays an audio file of a message so flagged.
+    let voice = shown["flags"].as_u64().unwrap_or_default() & IS_VOICE_MESSAGE != 0;
     let attachments = shown["attachments"]
         .as_array()
         .into_iter()
@@ -710,6 +775,7 @@ pub fn parse(value: &Value) -> Option<Message> {
                 shown: Shown::Message,
                 spoiler: name.starts_with("SPOILER_")
                     || attachment["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+                voice: (voice && kind.starts_with("audio/")).then(|| VoiceClip::of(attachment)),
             })
         })
         .collect::<Vec<_>>();
@@ -738,7 +804,7 @@ pub fn parse(value: &Value) -> Option<Message> {
     }
     // A message of components alone shows its files only where its
     // components place them.
-    let components = components::parse(&shown["components"]);
+    let mut components = components::parse(&shown["components"]);
     let mut attachments =
         if shown["flags"].as_u64().unwrap_or_default() & components::IS_COMPONENTS_V2 == 0 {
             attachments
@@ -772,13 +838,18 @@ pub fn parse(value: &Value) -> Option<Message> {
             animated: false,
             shown: Shown::Sticker,
             spoiler: false,
+            voice: None,
         });
     }
     attachments.extend(components.media);
-    // Buttons press only on the message itself, not on a forwarded copy.
+    // Buttons press and menus open only on the message itself, not on a
+    // forwarded copy.
     let app = (!forwarded && components.cards.iter().any(Card::pressable))
         .then(|| MessageApp::of(value))
         .flatten();
+    if app.is_none() {
+        components.cards.iter_mut().for_each(Card::shut_menus);
+    }
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
@@ -811,7 +882,11 @@ pub fn parse(value: &Value) -> Option<Message> {
         components: components.cards,
         reactions,
         // A poll's question and answers stay as they were sent.
-        editable: matches!(kind, DEFAULT | REPLY) && !forwarded && value["poll"].is_null(),
+        // Nor a voice message, as Discord's client has it.
+        editable: matches!(kind, DEFAULT | REPLY)
+            && !forwarded
+            && value["poll"].is_null()
+            && !voice,
         mentions: ids(&value["mentions"], |user| user["id"].as_str()),
         mention_roles: ids(&value["mention_roles"], Value::as_str),
         mention_everyone: value["mention_everyone"].as_bool().unwrap_or(false),
@@ -851,6 +926,44 @@ pub fn parse(value: &Value) -> Option<Message> {
         app,
         logged_deletion: None,
         earlier: Vec::new(),
+    })
+}
+
+/// The head of an app's answer to a slash command: who ran which, from
+/// `interaction_metadata`, or the older `interaction` Discord also sends.
+fn command_reply(kind: u64, value: &Value) -> Option<Reply> {
+    if kind != CHAT_INPUT_COMMAND {
+        return None;
+    }
+    let metadata = &value["interaction_metadata"];
+    let older = &value["interaction"];
+    let name = metadata["name"]
+        .as_str()
+        .or_else(|| older["name"].as_str())?;
+    let user = match &metadata["user"] {
+        user @ Value::Object(_) => user,
+        _ => &older["user"],
+    };
+    // A user or message command's has no slash: its type is 2 or 3, and it
+    // names its target.
+    let menu = metadata["command_type"]
+        .as_u64()
+        .is_some_and(|kind| kind != 1)
+        || metadata.get("target_user").is_some()
+        || metadata.get("target_message_id").is_some();
+    let name = if menu {
+        name.to_owned()
+    } else {
+        format!("/{name}")
+    };
+    Some(Reply::Command {
+        author_id: user["id"].as_str().unwrap_or_default().into(),
+        author: user["global_name"]
+            .as_str()
+            .or_else(|| user["username"].as_str())
+            .unwrap_or_default()
+            .into(),
+        name,
     })
 }
 
@@ -2290,7 +2403,8 @@ mod tests {
                 id: "9".into(),
                 author_id: "2".into(),
                 author: "ann".into(),
-                content: "hello".into()
+                content: "hello".into(),
+                voice: false,
             })
         );
         assert!(message.attachments[0].image);
@@ -2981,5 +3095,36 @@ mod tests {
         names.learn_user(&json!({"id": "1", "public_flags": 0}));
         assert!(!names.is_official("1"));
         assert!(!names.is_official("2"));
+    }
+
+    /// A menu that opens is the app's to hear of, but not on a forwarded copy.
+    #[test]
+    fn a_menu_opens_only_on_the_apps_own_message() {
+        use crate::components::Row;
+        let menu = json!([{"type": 1, "components": [{"type": 3, "custom_id": "pick",
+            "options": [{"label": "A", "value": "a"}]}]}]);
+        let own = parse(&json!({
+            "id": "5", "channel_id": "11", "type": 0, "content": "Pick",
+            "author": {"id": "7", "username": "bot", "bot": true},
+            "attachments": [], "embeds": [], "components": menu,
+        }))
+        .unwrap();
+        assert_eq!(own.app.as_deref().map(|app| app.id.as_str()), Some("7"));
+        let opens = |message: &Message| {
+            matches!(
+                &message.components[0].rows[0],
+                Row::Select { menu: Some(_), .. }
+            )
+        };
+        assert!(opens(&own));
+        let forwarded = parse(&json!({
+            "id": "6", "channel_id": "11", "type": 0, "content": "",
+            "author": {"id": "1", "username": "me"}, "attachments": [], "embeds": [],
+            "message_reference": {"type": 1, "channel_id": "11", "message_id": "5"},
+            "message_snapshots": [{"message": {"type": 0, "content": "Pick", "flags": 0,
+                "attachments": [], "embeds": [], "components": menu}}],
+        }))
+        .unwrap();
+        assert!(forwarded.app.is_none() && !opens(&forwarded));
     }
 }

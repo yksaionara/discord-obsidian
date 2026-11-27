@@ -416,12 +416,12 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
         .name("obsidian-sound".into())
         .spawn(move || {
             #[cfg(feature = "discord")]
-            let discord = (set == SoundSet::Discord)
+            let mut samples = (set == SoundSet::Discord)
                 .then(|| crate::discord_sounds::samples(sound))
-                .flatten();
+                .flatten()
+                .unwrap_or_else(|| render(set, sound));
             #[cfg(not(feature = "discord"))]
-            let discord = None;
-            let mut samples = discord.unwrap_or_else(|| render(set, sound));
+            let mut samples = render(set, sound);
             samples.iter_mut().for_each(|sample| *sample *= volume);
             if let Err(error) = play_samples(&samples, speaker.as_deref()) {
                 tracing::warn!(

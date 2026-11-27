@@ -609,6 +609,8 @@ impl Matrix {
             | Command::Voters { .. } => {}
             // Discord Obsidian pins only Discord's messages.
             Command::Pin { .. } => {}
+            // Only Discord's apps have buttons and menus.
+            Command::PressButton { .. } | Command::ChooseSelect { .. } => {}
             // Matrix's attachments have no address, which copying asks for.
             Command::CopyAttachment { .. } => {}
             Command::Delete { room, item } => {
@@ -884,6 +886,13 @@ impl Matrix {
             | Command::Discord(_)
             | Command::Aside(_)
             | Command::PlayVideo { .. }
+            | Command::PlayVoiceMessage { .. }
+            | Command::StopVoiceMessage
+            | Command::RecordVoiceMessage { .. }
+            | Command::StopVoiceRecording
+            | Command::DiscardVoiceRecording
+            | Command::SendVoiceRecording
+            | Command::PlayVoiceRecording { .. }
             | Command::Video(_) => {}
         }
         true
@@ -1949,6 +1958,7 @@ async fn publish_timeline(
                             gif: None,
                             url: None,
                             spoiler: false,
+                            voice: None,
                             video: false,
                             preview: cached.flatten(),
                         }];
@@ -1970,6 +1980,7 @@ async fn publish_timeline(
                             gif: None,
                             url: None,
                             spoiler: false,
+                            voice: None,
                             video: false,
                         }];
                     }
@@ -1990,6 +2001,7 @@ async fn publish_timeline(
                             gif: None,
                             url: None,
                             spoiler: false,
+                            voice: None,
                             video: false,
                         }];
                     }
@@ -2010,6 +2022,7 @@ async fn publish_timeline(
                             gif: None,
                             url: None,
                             spoiler: false,
+                            voice: None,
                             video: false,
                         }];
                     }

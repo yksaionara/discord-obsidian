@@ -79,10 +79,12 @@ pub enum Row {
     },
     Buttons(Vec<Button>),
     /// A menu, by what it shows before it's opened: the options picked by
-    /// default, or its placeholder.
+    /// default, or its placeholder; and what it offers once opened.
     Select {
         text: String,
         disabled: bool,
+        #[serde(default)]
+        menu: Option<std::sync::Arc<SelectMenu>>,
     },
     /// Components of a kind Discord Obsidian can't show, one or more.
     Unknown,
@@ -108,6 +110,62 @@ pub struct Button {
     /// What pressing it tells the app, for a button that isn't a link.
     #[serde(default)]
     pub custom_id: Option<String>,
+}
+
+/// What a select menu offers, as its app made it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SelectMenu {
+    pub kind: SelectKind,
+    /// What choosing tells the app.
+    pub custom_id: String,
+    /// A string select's options, in order.
+    pub options: Vec<SelectOption>,
+    /// The users, roles or channels a select of them picks by default.
+    pub defaults: Vec<String>,
+    /// The kinds of channel a channel select offers, by Discord's channel
+    /// type; empty for any.
+    pub channel_types: Vec<u64>,
+    /// How few and how many may be picked: 1 and 1 unless the app says,
+    /// up to 25.
+    pub min: u8,
+    pub max: u8,
+}
+
+/// What a select menu picks from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SelectKind {
+    /// The options its app lists.
+    Text,
+    User,
+    Role,
+    /// Users and roles.
+    Mentionable,
+    Channel,
+}
+
+impl SelectKind {
+    /// Its component type, which choosing names.
+    pub fn component_type(self) -> u64 {
+        match self {
+            Self::Text => STRING_SELECT,
+            Self::User => USER_SELECT,
+            Self::Role => ROLE_SELECT,
+            Self::Mentionable => MENTIONABLE_SELECT,
+            Self::Channel => CHANNEL_SELECT,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SelectOption {
+    pub label: String,
+    /// What picking it tells the app.
+    pub value: String,
+    pub description: Option<String>,
+    /// In Discord's markup: the emoji itself, or `<:name:id>`.
+    pub emoji: Option<String>,
+    /// Picked before anyone chooses.
+    pub default: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -136,8 +194,23 @@ impl Card {
                 beside: Some(Beside::Button(button)),
                 ..
             } => button.pressable(),
+            Row::Select {
+                disabled: false,
+                menu: Some(_),
+                ..
+            } => true,
             _ => false,
         })
+    }
+
+    /// Its menus no longer open, as on a forwarded copy, whose app isn't
+    /// told of anything.
+    pub fn shut_menus(&mut self) {
+        for row in &mut self.rows {
+            if let Row::Select { menu, .. } = row {
+                *menu = None;
+            }
+        }
     }
 }
 
@@ -297,19 +370,7 @@ fn button(component: &Value) -> Option<Button> {
         5 => Style::Link,
         _ => return None,
     };
-    let emoji = &component["emoji"];
-    let emoji = match (emoji["id"].as_str(), emoji["name"].as_str()) {
-        (Some(id), name) => {
-            let prefix = if emoji["animated"].as_bool().unwrap_or(false) {
-                "a"
-            } else {
-                ""
-            };
-            Some(format!("<{prefix}:{}:{id}>", name.unwrap_or("emoji")))
-        }
-        (None, Some(name)) => Some(name.to_owned()),
-        (None, None) => None,
-    };
+    let emoji = emoji(&component["emoji"]);
     let label = component["label"].as_str().unwrap_or_default().to_owned();
     if label.is_empty() && emoji.is_none() {
         return None;
@@ -330,14 +391,55 @@ fn button(component: &Value) -> Option<Button> {
     })
 }
 
-/// A select menu, by the options it picks by default or its placeholder.
+/// An emoji as Discord's markup writes it: the emoji itself, or
+/// `<:name:id>`, or `<a:name:id>` for an animated one.
+fn emoji(emoji: &Value) -> Option<String> {
+    match (emoji["id"].as_str(), emoji["name"].as_str()) {
+        (Some(id), name) => {
+            let prefix = if emoji["animated"].as_bool().unwrap_or(false) {
+                "a"
+            } else {
+                ""
+            };
+            Some(format!("<{prefix}:{}:{id}>", name.unwrap_or("emoji")))
+        }
+        (None, Some(name)) => Some(name.to_owned()),
+        (None, None) => None,
+    }
+}
+
+/// A select menu, by the options it picks by default or its placeholder,
+/// and what it offers.
 fn select(component: &Value) -> Row {
-    let picked: Vec<&str> = component["options"]
+    let kind = match component["type"].as_u64() {
+        Some(USER_SELECT) => SelectKind::User,
+        Some(ROLE_SELECT) => SelectKind::Role,
+        Some(MENTIONABLE_SELECT) => SelectKind::Mentionable,
+        Some(CHANNEL_SELECT) => SelectKind::Channel,
+        _ => SelectKind::Text,
+    };
+    let options: Vec<SelectOption> = component["options"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|option| option["default"].as_bool().unwrap_or(false))
-        .filter_map(|option| option["label"].as_str())
+        .filter_map(|option| {
+            Some(SelectOption {
+                label: option["label"].as_str()?.to_owned(),
+                value: option["value"].as_str()?.to_owned(),
+                description: option["description"]
+                    .as_str()
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned),
+                emoji: emoji(&option["emoji"]),
+                default: option["default"].as_bool().unwrap_or(false),
+            })
+        })
+        .take(25)
+        .collect();
+    let picked: Vec<&str> = options
+        .iter()
+        .filter(|option| option.default)
+        .map(|option| option.label.as_str())
         .collect();
     let text = if picked.is_empty() {
         component["placeholder"]
@@ -347,9 +449,37 @@ fn select(component: &Value) -> Row {
     } else {
         picked.join(", ")
     };
+    let count = |key: &str| {
+        component[key]
+            .as_u64()
+            .map_or(1, |count| count.min(25) as u8)
+    };
+    let max = count("max_values").max(1);
+    let menu = component["custom_id"].as_str().map(|custom_id| {
+        std::sync::Arc::new(SelectMenu {
+            kind,
+            custom_id: custom_id.to_owned(),
+            options,
+            defaults: component["default_values"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|value| value["id"].as_str().map(str::to_owned))
+                .collect(),
+            channel_types: component["channel_types"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .collect(),
+            min: count("min_values").min(max),
+            max,
+        })
+    });
     Row::Select {
         text,
         disabled: component["disabled"].as_bool().unwrap_or(false),
+        menu,
     }
 }
 
@@ -379,6 +509,7 @@ fn media(item: &Value, slot: usize, size: (u64, u64), spoiler: bool) -> Option<A
         animated: !video && animated(item),
         shown: Shown::Component(slot),
         spoiler: spoiler || item["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+        voice: None,
     })
 }
 
@@ -403,6 +534,7 @@ fn file(component: &Value, slot: usize, spoiler: bool) -> Option<Attachment> {
         animated: false,
         shown: Shown::Component(slot),
         spoiler,
+        voice: None,
     })
 }
 
@@ -473,16 +605,12 @@ mod tests {
         assert_eq!(buttons[1].emoji.as_deref(), Some("👍"));
         assert_eq!(buttons[1].url, None);
         // Two kinds Discord Obsidian doesn't know are told of once.
-        assert_eq!(
-            below.rows,
-            [
-                Row::Unknown,
-                Row::Select {
-                    text: "Pick one".into(),
-                    disabled: false
-                }
-            ]
-        );
+        assert_eq!(below.rows[0], Row::Unknown);
+        let Row::Select { text, menu, .. } = &below.rows[1] else {
+            panic!("a menu");
+        };
+        assert_eq!(text, "Pick one");
+        assert_eq!(menu.as_ref().unwrap().options[0].value, "a");
         let media: Vec<_> = parsed
             .media
             .iter()
@@ -500,6 +628,46 @@ mod tests {
         assert!(parsed.media[0].preview_url.is_some());
         assert_eq!(parsed.media[3].preview_url, None);
         assert_eq!(parsed.media[3].size, Some(12));
+    }
+
+    #[test]
+    fn a_select_menu_offers_its_options_and_limits() {
+        let parsed = parse(&json!([
+            {"type": 1, "components": [{"type": 3, "custom_id": "colour", "min_values": 0, "max_values": 2,
+                "options": [
+                    {"label": "Red", "value": "r", "description": "Warm", "emoji": {"name": "🔴"}},
+                    {"label": "Blue", "value": "b", "default": true,
+                     "emoji": {"id": "5", "name": "blue", "animated": true}},
+                ]}]},
+            {"type": 1, "components": [{"type": 8, "custom_id": "where", "channel_types": [0, 5],
+                "default_values": [{"id": "11", "type": "channel"}], "max_values": 40}]},
+        ]));
+        let menus: Vec<_> = parsed.cards[0]
+            .rows
+            .iter()
+            .map(|row| match row {
+                Row::Select { text, menu, .. } => (text.clone(), menu.clone().unwrap()),
+                _ => panic!("a menu"),
+            })
+            .collect();
+        let (text, colour) = &menus[0];
+        assert_eq!(text, "Blue", "it shows what it picks by default");
+        assert_eq!(
+            (colour.kind, colour.min, colour.max),
+            (SelectKind::Text, 0, 2)
+        );
+        assert_eq!(colour.options[0].description.as_deref(), Some("Warm"));
+        assert_eq!(colour.options[0].emoji.as_deref(), Some("🔴"));
+        assert_eq!(colour.options[1].emoji.as_deref(), Some("<a:blue:5>"));
+        let (text, place) = &menus[1];
+        assert_eq!(text, "Make a selection");
+        assert_eq!(
+            (place.kind, place.min, place.max),
+            (SelectKind::Channel, 1, 25)
+        );
+        assert_eq!(place.defaults, ["11"]);
+        assert_eq!(place.channel_types, [0, 5]);
+        assert_eq!(SelectKind::Channel.component_type(), 8);
     }
 
     #[test]

@@ -1,9 +1,10 @@
 //! Discord voice's audio on this machine. LiveKit's device module only serves
 //! its own calls, so Discord voice opens the chosen microphone and speakers
-//! itself, through [`crate::audio_io`]. The microphone goes through WebRTC's
-//! echo cancellation, DeepFilterNet's noise suppression (or RNNoise's), WebRTC's
-//! gain control, Discord Obsidian's leveling and the microphone's volume, and a gate
-//! that speech opens.
+//! itself, through [`crate::audio_io`]. The microphone goes through what the
+//! input profile asks, as Discord's client runs it: WebRTC's echo
+//! cancellation, DeepFilterNet's noise suppression where Discord runs Krisp
+//! (or WebRTC's, its Standard), WebRTC's gain control, then the microphone's
+//! volume, and a gate that speech opens.
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -17,8 +18,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use livekit::webrtc::native::apm::AudioProcessingModule;
-use tokio::sync::mpsc::UnboundedSender;
 use obsidian_discord::voice::{CHANNELS, FRAME, Listener, Microphone, SAMPLE_RATE, Surplus, Track};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     audio_io::{LastingInput, LastingOutput},
@@ -240,10 +241,19 @@ const BEFORE_OPENING: usize = 10;
 /// meanwhile, so the gate stays shut for this many after the microphone opens.
 const WARM_UP: u32 = 20;
 
+/// The automatic input sensitivity opens the gate this many dB above the
+/// noise it hears between words, within these bounds, in RMS dBFS.
+const AUTO_ABOVE: f32 = 10.0;
+const AUTO_LOWEST: f32 = -70.0;
+const AUTO_HIGHEST: f32 = -40.0;
+
 /// Sends the microphone only while someone talks, starting a little before.
 struct Gate {
     /// The quietest speech it opens on, in RMS dBFS.
     sensitivity: f32,
+    /// The microphone's level between words, in RMS dBFS, from which the
+    /// automatic sensitivity works out its threshold.
+    floor: f32,
     hold: u32,
     heard: u32,
     /// How many blocks in a row would have opened it.
@@ -258,6 +268,7 @@ impl Default for Gate {
     fn default() -> Self {
         Self {
             sensitivity: crate::noise::DEFAULT_SENSITIVITY,
+            floor: AUTO_LOWEST - AUTO_ABOVE,
             hold: 0,
             heard: 0,
             opening: 0,
@@ -270,6 +281,24 @@ impl Default for Gate {
 impl Gate {
     fn is_open(&self) -> bool {
         self.hold > 0
+    }
+
+    /// Follows the noise between words: it falls to a quieter block within a
+    /// few blocks and rises a decibel a second, a fifth of that while the
+    /// gate is open, so speech hardly lifts it.
+    fn hear_floor(&mut self, level: f32) {
+        if !level.is_finite() {
+            self.floor = self.floor.min(AUTO_LOWEST - AUTO_ABOVE);
+        } else if level < self.floor {
+            self.floor += (level - self.floor) * 0.2;
+        } else {
+            self.floor += if self.is_open() { 0.002 } else { 0.01 };
+        }
+    }
+
+    /// The threshold the automatic sensitivity opens at.
+    fn auto_threshold(&self) -> f32 {
+        (self.floor + AUTO_ABOVE).clamp(AUTO_LOWEST, AUTO_HIGHEST)
     }
 
     /// Takes the next 10 ms block, with its level and whether the suppressor
@@ -355,6 +384,7 @@ struct CaptureRequest {
     track: Track,
     stop: Arc<AtomicBool>,
     talking: Arc<AtomicBool>,
+    silent: Arc<AtomicBool>,
     opened: mpsc::SyncSender<Result<()>>,
 }
 
@@ -390,6 +420,7 @@ impl MicrophoneThread {
 pub struct Capture {
     stop: Arc<AtomicBool>,
     talking: Arc<AtomicBool>,
+    silent: Arc<AtomicBool>,
     track: Track,
 }
 
@@ -398,7 +429,20 @@ impl Capture {
     pub fn talking(&self) -> bool {
         self.talking.load(Ordering::Relaxed)
     }
+
+    /// Whether the microphone has given nothing but silence for
+    /// [`SILENT_FOR`], as a device that isn't plugged in, is muted at the
+    /// system or isn't allowed to record does: Discord then warns that it
+    /// isn't detecting any input.
+    pub fn silent(&self) -> bool {
+        self.silent.load(Ordering::Relaxed)
+    }
 }
+
+/// Blocks of a microphone's samples, all within this of zero, in a row
+/// before it counts as giving nothing: five seconds.
+const SILENT_FOR: u32 = 500;
+const SILENT_PEAK: i16 = 4;
 
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -578,16 +622,23 @@ pub fn speakers(
     Ok((Speakers { stop }, frames))
 }
 
-/// The microphone's processing, block by block: WebRTC cancels echo and
-/// filters out rumble, the chosen suppressor takes out noise and hears
-/// speech, WebRTC controls the gain of what's left, and Discord Obsidian levels it and
-/// sets its volume. The gate decides what's sent.
+/// The microphone's processing, block by block, as the input profile asks:
+/// WebRTC cancels echo and filters out rumble, the chosen suppressor takes
+/// out noise and hears speech, WebRTC suppresses noise if that's the one
+/// chosen and controls the gain of what's left, and the microphone's volume
+/// goes on. The gate decides what's sent.
 struct Processing {
-    echo: AudioProcessingModule,
+    /// Echo cancellation and the high-pass filter, while either is asked,
+    /// with what they were made for.
+    echo: Option<AudioProcessingModule>,
+    echo_made: (bool, bool),
     /// Takes out the room's reverb while asked to.
     dereverb: Option<crate::dereverb::Dereverb>,
     denoiser: Denoiser,
-    gain: AudioProcessingModule,
+    /// WebRTC's noise suppression and gain control, while either is asked,
+    /// with what they were made for.
+    gain: Option<AudioProcessingModule>,
+    gain_made: (bool, bool),
     leveler: crate::leveling::Leveler,
     gate: Gate,
     /// Sends instead of the gate in push-to-talk.
@@ -600,37 +651,64 @@ struct Processing {
 impl Processing {
     /// Takes up `denoiser` if it's the suppressor chosen.
     fn new(denoiser: Option<Denoiser>) -> Self {
-        let mut echo = AudioProcessingModule::new(true, false, true, false);
-        let _ = echo.set_stream_delay_ms(ECHO_DELAY_MS);
-        let chosen = crate::noise::chosen();
-        Self {
-            echo,
+        let chosen = crate::noise::processing().suppressor;
+        let mut processing = Self {
+            echo: None,
+            echo_made: (false, false),
             dereverb: None,
             denoiser: denoiser
                 .filter(|denoiser| denoiser.suppressor() == chosen)
                 .unwrap_or_else(|| Denoiser::new(chosen, crate::noise::limit())),
-            gain: AudioProcessingModule::new(false, true, false, false),
+            gain: None,
+            gain_made: (false, false),
             leveler: crate::leveling::Leveler::default(),
             gate: Gate::default(),
             talk: crate::push_to_talk::Talk::default(),
             level: f32::NEG_INFINITY,
             samples: [0.0; BLOCK],
+        };
+        processing.make(&crate::noise::processing());
+        processing
+    }
+
+    /// Makes WebRTC's modules for what `settings` ask, again only when that
+    /// changed: echo cancellation and the high-pass filter first, noise
+    /// suppression and gain control after the suppressor.
+    fn make(&mut self, settings: &crate::noise::Processing) {
+        let echo = (settings.echo_cancellation, settings.high_pass);
+        if echo != self.echo_made || (self.echo.is_none() && echo != (false, false)) {
+            self.echo_made = echo;
+            self.echo = (echo != (false, false)).then(|| {
+                let mut module = AudioProcessingModule::new(echo.0, false, echo.1, false);
+                let _ = module.set_stream_delay_ms(ECHO_DELAY_MS);
+                module
+            });
+        }
+        let gain = (settings.gain_control, settings.suppressor.webrtc());
+        if gain != self.gain_made || (self.gain.is_none() && gain != (false, false)) {
+            self.gain_made = gain;
+            self.gain = (gain != (false, false))
+                .then(|| AudioProcessingModule::new(false, gain.0, false, gain.1));
         }
     }
 
     /// Notes what the speakers played, for echo cancellation.
     fn played(&mut self, frame: &mut [i16]) {
-        let _ = self
-            .echo
-            .process_reverse_stream(frame, SAMPLE_RATE as i32, i32::from(CHANNELS));
+        if let Some(echo) = self.echo.as_mut().filter(|_| self.echo_made.0) {
+            let _ = echo.process_reverse_stream(frame, SAMPLE_RATE as i32, i32::from(CHANNELS));
+        }
     }
 
     /// Processes 10 ms of mono microphone in place, and returns the blocks
     /// to send, as f32 in full scale: none while the gate is shut, or in
     /// push-to-talk while the key is up.
     fn block(&mut self, block: &mut [i16]) -> &[[f32; BLOCK]] {
-        let _ = self.echo.process_stream(block, SAMPLE_RATE as i32, 1);
-        let chosen = crate::noise::chosen();
+        let settings = crate::noise::processing();
+        self.make(&settings);
+        if let Some(echo) = &mut self.echo {
+            let _ = echo.process_stream(block, SAMPLE_RATE as i32, 1);
+        }
+        let chosen = settings.suppressor;
         if self.denoiser.suppressor() != chosen {
             tracing::info!(?chosen, "Discord microphone switches noise suppression");
             self.denoiser = Denoiser::new(chosen, crate::noise::limit());
@@ -661,21 +739,20 @@ impl Processing {
         for (sample, value) in block.iter_mut().zip(&self.samples) {
             *sample = value.clamp(-32768.0, 32767.0) as i16;
         }
-        let _ = self.gain.process_stream(block, SAMPLE_RATE as i32, 1);
-        // The gate hears the voice at its volume, as it's sent, but before
-        // leveling, which could lift noise past it.
+        if let Some(gain) = &mut self.gain {
+            let _ = gain.process_stream(block, SAMPLE_RATE as i32, 1);
+        }
+        // The gate hears the voice at its volume, as it's sent.
         let volume = crate::volume::microphone();
         let level = decibels(block) + 20.0 * volume.log10();
         self.level = level;
         for (value, sample) in self.samples.iter_mut().zip(block.iter()) {
             *value = f32::from(*sample);
         }
-        self.leveler.process(
-            &mut self.samples,
-            SAMPLE_RATE,
-            crate::leveling::enabled(),
-            volume,
-        );
+        // Only the volume: WebRTC's gain control evens the voice out, as in
+        // Discord's client.
+        self.leveler
+            .process(&mut self.samples, SAMPLE_RATE, false, volume);
         for (sample, value) in block.iter_mut().zip(&self.samples) {
             *sample = value.clamp(-32768.0, 32767.0) as i16;
         }
@@ -685,7 +762,16 @@ impl Processing {
         if let Some(sending) = talking {
             return self.gate.pass(&self.samples, sending);
         }
-        self.gate.sensitivity = crate::noise::sensitivity();
+        self.gate.hear_floor(level);
+        self.gate.sensitivity = if settings.auto_sensitivity {
+            self.gate.auto_threshold()
+        } else {
+            settings.sensitivity
+        };
+        // Discord's automatic sensitivity listens for speech with Krisp
+        // while Advanced Voice Activity is on; otherwise, and with the
+        // threshold set by hand, the level alone decides.
+        let speech = !settings.auto_sensitivity || !settings.voice_activity || speech;
         self.gate.block(&self.samples, level, speech)
     }
 }
@@ -768,6 +854,7 @@ pub fn capture(
     let (opened, result) = mpsc::sync_channel(1);
     let stop = Arc::new(AtomicBool::new(false));
     let talking = Arc::new(AtomicBool::new(false));
+    let silent = Arc::new(AtomicBool::new(false));
     thread.start(CaptureRequest {
         microphone: microphone.map(str::to_owned),
         reverse,
@@ -775,6 +862,7 @@ pub fn capture(
         track: track.clone(),
         stop: stop.clone(),
         talking: talking.clone(),
+        silent: silent.clone(),
         opened,
     })?;
     result
@@ -784,6 +872,7 @@ pub fn capture(
     Ok(Capture {
         stop,
         talking,
+        silent,
         track,
     })
 }
@@ -811,8 +900,21 @@ impl CaptureRequest {
             recycle(played);
         }
         let mut block = [0i16; BLOCK];
+        let mut quiet = 0u32;
         while !self.stop.load(Ordering::Relaxed) {
             stream.read(&mut block);
+            quiet = if block
+                .iter()
+                .all(|sample| sample.unsigned_abs() <= SILENT_PEAK.unsigned_abs())
+            {
+                quiet.saturating_add(1)
+            } else {
+                0
+            };
+            let silent = quiet >= SILENT_FOR;
+            if silent != self.silent.load(Ordering::Relaxed) {
+                self.silent.store(silent, Ordering::Relaxed);
+            }
             while let Ok(mut played) = reverse.try_recv() {
                 processing.played(&mut played);
                 recycle(played);

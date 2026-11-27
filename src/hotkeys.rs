@@ -64,11 +64,13 @@ impl Shortcut {
                 name.push_str(part);
             }
         }
-        name + &self.key.name
+        name + self.key.name.as_str()
     }
 
     fn modifiers(&self) -> u32 {
-        u32::from(self.ctrl) * CTRL | u32::from(self.shift) * SHIFT | u32::from(self.alt) * ALT
+        (u32::from(self.ctrl) * CTRL)
+            | (u32::from(self.shift) * SHIFT)
+            | (u32::from(self.alt) * ALT)
     }
 
     /// Whether a key press in the window is this shortcut.
@@ -278,9 +280,9 @@ mod windows {
                 }
                 match wparam as u32 {
                     WM_KEYDOWN | WM_SYSKEYDOWN => {
-                        let modifiers = u32::from(held(VK_CONTROL)) * CTRL
-                            | u32::from(held(VK_SHIFT)) * SHIFT
-                            | u32::from(held(VK_MENU)) * ALT;
+                        let modifiers = (u32::from(held(VK_CONTROL)) * CTRL)
+                            | (u32::from(held(VK_SHIFT)) * SHIFT)
+                            | (u32::from(held(VK_MENU)) * ALT);
                         if modifiers == MODIFIERS[index].load(Ordering::Relaxed)
                             && !DOWN[index].swap(true, Ordering::Relaxed)
                             && !ours_in_front()

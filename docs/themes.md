@@ -7,7 +7,35 @@ std-widgets' colour scheme and the scrollbars'. `src/ui/theme.rs` holds the buil
 `BUILT_IN`; `ui/theme.slint` says what each colour paints. The choice
 is kept in `layout.json` as `theme`, the theme's id, and applied before the
 window's first frame, and again to a window made anew. An id Discord Obsidian doesn't
-know, or a deleted theme's, shows Yap.
+know, or a deleted theme's, shows Discord's Dark; `bonfire`, Dark's id before
+Appearance named it so, finds it.
+
+## Discord's themes
+
+Appearance shows Discord's own rows first, as its client does. **Default
+Themes**: Light, Ash, Dark and Onyx as swatches, the chosen one ringed in
+blurple with a check, and after them the sync button. **Sync with computer**
+follows the system's mode as Dark or Light (`theme_sync` in `layout.json`):
+on Windows, Settings' app mode, `AppsUseLightTheme`, read every 2 s;
+elsewhere, the window's theme as winit has it. Choosing a theme stops it.
+**Color Themes**: Discord's 21 gradients, by their names in its client.
+Then **More Themes**, Discord Obsidian's own and the community palettes as
+cards, and the person's own.
+
+Each of Discord's themes is built from its client's colour tokens (its
+`--background-base-lowest`, `-lower`, `-low` and `--background-surface-high`
+per theme, read from its public bundle) by `theme::discord`, which maps them
+as Bonfire mapped Dark (below): grounds from the background variables;
+hovers, selections and lines as Discord's grey wash, `#97979f`, over them at
+the opacities read off Dark, and borders as much stronger as each theme's
+`--border-subtle` is (Light's 2.3 times Dark's, Onyx's 1.65), so Onyx's black
+panels stay apart. Dark is Bonfire's mapping itself. A colour theme is
+flat: Discord lays its grounds over the gradient, black at 70% on a dark one
+and white at 80% on a light one; Discord Obsidian lays them over the
+gradient's first colour for the server list and sidebar and its average for
+the chat, keeps Dark's or Light's raised surfaces as Discord does, and keeps
+blurple. Its swatch shows the gradient's ends, or its first and middle
+colours where it ends where it began.
 
 ## Custom themes
 
@@ -26,7 +54,7 @@ click on one opens the picker for it alone. Each change shows at once, even
 mid-drag, so the whole window is the preview. Save keeps the theme and chooses it; Cancel, leaving
 Appearance or closing settings shows the theme from before. A saved theme's
 card has a pencil that opens it again to rename, change or delete it;
-deleting the chosen one shows Yap. A window rebuilt while the editor is open,
+deleting the chosen one shows Discord's Dark. A window rebuilt while the editor is open,
 as closing to the [tray](tray.md) does, drops the unsaved edit.
 
 `layout.json` keeps them in `custom_themes`, in the order Appearance shows
@@ -54,8 +82,13 @@ colours and a card.
 
 | Theme | Id | Dark | Accent | From |
 | --- | --- | --- | --- | --- |
-| Yap | `yap` | yes | marigold | Discord Obsidian's own, the default |
-| Bonfire | `bonfire` | yes | blurple | Discord's Dark theme |
+| Light | `light` | no | blurple | Discord's Light theme |
+| Ash | `ash` | yes | blurple | Discord's Ash theme |
+| Dark | `dark` | yes | blurple | Discord's Dark theme, once Bonfire; the default |
+| Onyx | `onyx` | yes | blurple | Discord's Onyx theme |
+| Mint Apple … Sepia | `mint-apple` … `sepia` | as Discord's | blurple | Discord's colour themes |
+| Obsidian | `yap` | yes | marigold | Discord Obsidian's own |
+| Midnight | `midnight` | yes | violet | Discord Obsidian's own |
 | Catppuccin Mocha | `catppuccin-mocha` | yes | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
 | Dracula | `dracula` | yes | purple | [Dracula](https://draculatheme.com/contribute) |
 | Nord | `nord` | yes | frost nord8 | [Nord](https://www.nordtheme.com/docs/colors-and-palettes) |
@@ -86,7 +119,7 @@ colours, not their names for UI parts, so each mapping is Discord Obsidian's:
   colour) instead of white, sweep skeletons with a white band, and draw the
   tooltip light, since its text is the theme's text colour.
 
-Bonfire maps Discord's Dark theme from the CSS variables of its web client
+Dark (once Bonfire) maps Discord's Dark theme from the CSS variables of its web client
 (`.theme-dark` with `.theme-darker`, which is what its settings call Dark;
 `.theme-dark` alone is Ash, `.theme-midnight` Onyx), read from the public
 bundle: the rail and sidebar are `--background-base-lowest` (#121214), the chat

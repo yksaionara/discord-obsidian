@@ -101,7 +101,13 @@ screens. `OBSIDIAN_CAMERA_TEST_PATTERN=1` lists a test pattern camera to share.
 
 Once Discord has started the stream, Discord Obsidian unpauses it with op 22, as
 Discord-video-stream does, and the worker gets its server and sends the video
-there (`obsidian_discord::stream_connection`). The connection is a call's
+there (`obsidian_discord::stream_connection`). The worker connects at once,
+at the last frame's size: what's shared may give no frame for a while, as a
+window that's minimized or a screen duplication briefly refuses, and waiting
+for one to connect left the stream "starting" for good. A stream not live
+35 s after its first frame (Discord's 15 s to name a server and the
+connection's 15 s handshake) stops with an error rather than staying that
+way. The connection is a call's
 (`voice_connection.rs`), on voice gateway version 8 as Discord's clients use:
 heartbeats acknowledge the last sequence number, and binary DAVE messages start
 with one. It identifies with the stream's RTC server and `video: true`,
@@ -156,9 +162,15 @@ all that viewers asked for doubled what went out. An RTCP sender report goes
 out every second.
 
 Before sharing, the share button's menu picks a resolution and a frame rate:
-one of the modes 480p, 720p, 1080p, 1440p or the screen's own size (up to 4K),
-and any frame rate typed in, from 1 to 360 fps, or picked from 30, 60, 144,
-240 and 360. On Windows a screen is captured through DXGI Desktop Duplication
+Discord's 720p, 1080p, 1440p or Source, the screen's own size up to 1440p
+(a larger screen is scaled down to fit it), and any frame rate typed in,
+from 1 to 360 fps, or picked from Discord's 15, 30 and 60 and, beyond what
+Discord offers, 120, 144, 240 and 360. Its presets are Discord's Smoother
+Video (720p 60) and Better Readability (Source 15), then Games (1080p 144)
+and Max (1440p 360). The live menu's Stream Quality submenu offers the same,
+and its popup is as tall as the submenu from the start, since a popup's
+place is set as it opens and one that grew pushed the submenu off the
+window. A layout's 480p from before still streams at 480p. On Windows a screen is captured through DXGI Desktop Duplication
 (`crates/obsidian-core/src/duplication.rs`), which gives every frame the
 screen presents, up to its refresh rate; WGC, which WebRTC's capturer uses,
 gives about 60. So is a shared window while it fills its screen and is the

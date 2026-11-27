@@ -32,6 +32,8 @@ mod join;
 mod members;
 mod messages;
 mod mfa;
+#[cfg(feature = "discord")]
+mod modal;
 mod new_post;
 mod oauth;
 mod place_search;
@@ -42,15 +44,18 @@ mod profile_editor;
 mod profiles;
 mod reactions;
 mod rooms;
+mod saved;
 mod scheduled_event;
+mod select_menus;
 mod server;
 mod server_order;
 mod server_settings;
 mod session;
+#[cfg(feature = "discord")]
+mod slash;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
-pub use server_order::Drop as ServerDrop;
 pub use browse::{BrowseChannels, BrowsedChannel, BrowsedKind};
 pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
@@ -64,8 +69,14 @@ pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
 pub use mfa::MfaPrompt;
+#[cfg(feature = "discord")]
+pub use modal::ModalForm;
 pub use new_post::{NewPost, POST_TAGS, POST_TITLE_LIMIT};
 pub use oauth::OAuthDialog;
+#[cfg(feature = "discord")]
+pub use obsidian_discord::app_commands::{MESSAGE as MESSAGE_COMMANDS, USER as USER_COMMANDS};
+#[cfg(feature = "discord")]
+pub use obsidian_discord::modal::{Answer as ModalAnswer, Field as ModalField, Wrap as ModalWrap};
 pub use place_search::Place;
 pub use places::{
     ChannelAsk, ChannelDialog, INVITE_AGES, INVITE_USES, InviteDialog, LeaveDialog, ListedCategory,
@@ -79,7 +90,13 @@ pub use profile_editor::{
 };
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
+pub use saved::{
+    MAX_BOOKMARKS, MAX_REMINDERS, Saved, SavedOf, due_label, reminder_due, reminder_times,
+    reminder_times_now,
+};
 pub use scheduled_event::EventDialog;
+pub use select_menus::{OpenSelect, SelectChoice};
+pub use server_order::Drop as ServerDrop;
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -94,6 +111,8 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+#[cfg(feature = "discord")]
+pub use slash::{AppsMenu, CommandRow, MenuCommand, OptionChip, OptionsBar, Shown as SlashShown};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
     default_thread_name,
@@ -109,7 +128,8 @@ use profiles::dm_profile;
 const MENTION_SUGGESTIONS: usize = 8;
 const MENTION_GROUPS: usize = 4;
 
-const STOPPED: &str = "The connection has stopped. Restart Discord Obsidian to restore your session.";
+const STOPPED: &str =
+    "The connection has stopped. Restart Discord Obsidian to restore your session.";
 
 /// Reactions offered before someone has used any, in order.
 pub const DEFAULT_REACTIONS: [&str; 4] = ["👍", "❤️", "😂", "🎉"];
@@ -588,6 +608,13 @@ pub struct AppState {
     /// Members of the selected room a search found for mentioning, beyond those
     /// listed.
     pub found_members: Vec<ChatMember>,
+    /// Slash commands: those each Discord room offers, and what the
+    /// composer shows of them.
+    #[cfg(feature = "discord")]
+    pub slash: slash::Slash,
+    /// The form an app opened, over the window.
+    #[cfg(feature = "discord")]
+    pub modal: Option<ModalForm>,
     /// Server icons and avatars that arrived, by address; those off screen
     /// go once many have.
     pub pictures: HashMap<String, Arc<Picture>>,
@@ -697,6 +724,24 @@ pub struct AppState {
     pub viewer: Option<Viewer>,
     /// The video playing in the selected room.
     pub video: Option<chat::Video>,
+    /// The voice message playing, or paused partway, in the selected room
+    /// or the thread beside it.
+    pub voice_message: Option<chat::VoiceMessage>,
+    /// Where voice messages stopped, by item, so playing one again goes on
+    /// from there, as Discord's client remembers.
+    pub voice_positions: HashMap<String, u64>,
+    /// How fast voice messages play, from Discord's [`voice_message::RATES`];
+    /// 0 for 1x.
+    pub voice_rate: f32,
+    /// Voice messages play silently.
+    pub voice_muted: bool,
+    /// The voice message being recorded in the selected room, or stopped
+    /// and waiting to be sent, which takes the composer's place.
+    pub voice_recording: Option<chat::VoiceRecording>,
+    /// An app's select menu, open under its message.
+    pub select: Option<OpenSelect>,
+    /// Discord's bookmarks and reminders.
+    pub saved: Saved,
     /// The profile card that's open.
     pub profile: Option<ProfileView>,
     pub role: Option<RoleView>,
@@ -782,7 +827,7 @@ impl AppState {
             .map_or(&[], Vec::as_slice)
     }
 
-    fn editing(&self) -> bool {
+    pub(crate) fn editing(&self) -> bool {
         matches!(self.compose(), Some(Compose::Edit { .. }))
     }
 
@@ -1413,7 +1458,9 @@ pub enum Action {
     MarkRead(String),
     /// Mark every channel of every server read, from the rail's "Read all";
     /// with `dms`, from a Shift+click, every DM too.
-    MarkAllRead { dms: bool },
+    MarkAllRead {
+        dms: bool,
+    },
     /// Go to wherever a conversation is listed and open it.
     Open(String),
     /// [`Action::Open`], showing the conversation's messages: a voice
@@ -1444,6 +1491,29 @@ pub enum Action {
     /// The `@` or `#` word being typed in the composer changed, or there's
     /// none now: its sigil and what follows it.
     MentionQuery(Option<(char, String)>),
+    /// A slash command was chosen from the list by its id, which runs when
+    /// several share its name.
+    PickCommand(String),
+    /// Escape closed the list of slash commands, until the draft changes.
+    DismissCommands,
+    /// An Apps menu opened in a room: its commands load, if they haven't.
+    LoadCommands(String),
+    /// A user or message command chosen from an Apps menu, by its id, runs
+    /// on its target: the person's or the message's id.
+    RunMenuCommand {
+        room: String,
+        command: String,
+        target: String,
+    },
+    /// A text field of the app's modal open, by its place, holds this.
+    ModalText(usize, String),
+    /// An option of a field of the app's modal, by their places, was
+    /// picked; option 0 of a checkbox ticks it.
+    ModalPick(usize, usize),
+    /// A select menu of the app's modal was opened or closed.
+    ModalMenu(Option<usize>),
+    SubmitModal,
+    CloseModal,
     /// Open the dialog for starting a DM, look for people in it, start one, or close it.
     OpenNewDm,
     /// Edit this account's newest message that can be edited, as Up in an empty
@@ -1465,6 +1535,28 @@ pub enum Action {
         item: String,
         custom_id: String,
     },
+    /// Bookmark a Discord message, by item.
+    Bookmark(String),
+    /// Set a Discord message a reminder, due at Unix milliseconds.
+    Remind {
+        item: String,
+        due_at: u64,
+    },
+    /// Remove a message's bookmark, or its reminder, marking it complete.
+    Unsave(String),
+    /// The bookmarks' list asks for its first page of them, or the next.
+    LoadBookmarks,
+    /// Open the select menu named `custom_id` under an item.
+    OpenSelect {
+        item: String,
+        custom_id: String,
+    },
+    /// Pick, or no longer pick, a line of the open menu, by its value.
+    PickSelect(String),
+    /// Close the open menu, telling its app of a change.
+    CloseSelect,
+    /// Narrow the open menu's people, roles or channels.
+    SearchSelect(String),
     RequestDelete(String),
     /// Delete a message without asking first, as Shift and a click on its
     /// Delete do in Discord's client.
@@ -1546,6 +1638,28 @@ pub enum Action {
     },
     /// Control the video playing.
     Video(chat::VideoCommand),
+    /// Play an item's voice message, or pause it while it plays.
+    ToggleVoiceMessage {
+        item: String,
+        index: usize,
+    },
+    /// Move an item's voice message to this far through it, from 0 to 1.
+    SeekVoiceMessage {
+        item: String,
+        index: usize,
+        fraction: f32,
+    },
+    /// Play voice messages at the next of Discord's speeds.
+    VoiceMessageRate,
+    /// Record a voice message in the selected room, as the composer's
+    /// "Record Voice Message" does.
+    RecordVoiceMessage,
+    StopVoiceRecording,
+    DiscardVoiceRecording,
+    /// Send the recording, stopping it first.
+    SendVoiceRecording,
+    /// Mute voice messages, or unmute them.
+    MuteVoiceMessages,
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -1650,7 +1764,10 @@ pub enum Action {
     /// The rail's order this device keeps, from its layout.
     SetServerOrder(Vec<String>),
     /// Moves a server or folder one place up or down the rail.
-    MoveServer { id: String, up: bool },
+    MoveServer {
+        id: String,
+        up: bool,
+    },
     /// Shows the "Streaming Now" card for the stream `user` shares in the
     /// voice channel `room`, asking Discord for its preview; `None` hides it.
     PreviewStream(Option<(String, String)>),
@@ -2637,6 +2754,8 @@ impl Application {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
         let mut effects = self.dispatch_action(action);
+        #[cfg(feature = "discord")]
+        effects.extend(self.update_slash());
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
         if !composing {
@@ -2647,6 +2766,8 @@ impl Application {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         let mut effects = self.apply_event(event);
+        #[cfg(feature = "discord")]
+        effects.extend(self.update_slash());
         // A DM just started, or a thread asked for, opens once the lists
         // have it.
         if let Some(room) = self
@@ -2907,6 +3028,39 @@ impl Application {
                 vec![]
             }
             Action::MentionQuery(query) => self.mention_query(query),
+            #[cfg(feature = "discord")]
+            Action::PickCommand(id) => self.pick_command(id),
+            #[cfg(feature = "discord")]
+            Action::DismissCommands => self.dismiss_commands(),
+            #[cfg(feature = "discord")]
+            Action::LoadCommands(room) => self.load_commands(room),
+            #[cfg(feature = "discord")]
+            Action::RunMenuCommand {
+                room,
+                command,
+                target,
+            } => self.run_menu_command(&room, &command, &target),
+            #[cfg(feature = "discord")]
+            Action::ModalText(index, text) => self.modal_text(index, text),
+            #[cfg(feature = "discord")]
+            Action::ModalPick(index, option) => self.modal_pick(index, option),
+            #[cfg(feature = "discord")]
+            Action::ModalMenu(index) => self.modal_menu(index),
+            #[cfg(feature = "discord")]
+            Action::SubmitModal => self.submit_modal(),
+            #[cfg(feature = "discord")]
+            Action::CloseModal => self.close_modal(),
+            // Slash commands and apps' forms are Discord's.
+            #[cfg(not(feature = "discord"))]
+            Action::PickCommand(_)
+            | Action::DismissCommands
+            | Action::LoadCommands(_)
+            | Action::RunMenuCommand { .. }
+            | Action::ModalText(..)
+            | Action::ModalPick(..)
+            | Action::ModalMenu(_)
+            | Action::SubmitModal
+            | Action::CloseModal => vec![],
             Action::SetDraft(body) => self.set_draft(body),
             Action::Send => self.send(),
             Action::Reply(item) => self.reply(item),
@@ -2919,6 +3073,14 @@ impl Application {
             }
             Action::React { item, key } => self.react(item, key),
             Action::PressButton { item, custom_id } => self.press_button(item, custom_id),
+            Action::Bookmark(item) => self.save_message(item, None),
+            Action::Remind { item, due_at } => self.save_message(item, Some(due_at)),
+            Action::Unsave(item) => self.unsave_message(item),
+            Action::LoadBookmarks => self.load_bookmarks(),
+            Action::OpenSelect { item, custom_id } => self.open_select(item, custom_id),
+            Action::PickSelect(value) => self.pick_select(value),
+            Action::CloseSelect => self.close_select(),
+            Action::SearchSelect(query) => self.search_select(query),
             Action::RequestDelete(item) => self.request_delete(item),
             Action::DeleteNow(item) => self.delete_now(item),
             Action::Vote { item, answers } => self.vote(item, answers),
@@ -2989,6 +3151,18 @@ impl Application {
                 }
                 vec![Effect::Backend(Command::Video(command))]
             }
+            Action::ToggleVoiceMessage { item, index } => self.toggle_voice_message(item, index),
+            Action::SeekVoiceMessage {
+                item,
+                index,
+                fraction,
+            } => self.seek_voice_message(item, index, fraction),
+            Action::VoiceMessageRate => self.step_voice_rate(),
+            Action::RecordVoiceMessage => self.record_voice_message(),
+            Action::StopVoiceRecording => self.stop_voice_recording(),
+            Action::DiscardVoiceRecording => self.discard_voice_recording(),
+            Action::SendVoiceRecording => self.send_voice_recording(),
+            Action::MuteVoiceMessages => self.mute_voice_messages(),
             Action::StepImage(step) => self.step_image(step),
             Action::CloseImage => {
                 self.state.viewer = None;
@@ -3077,7 +3251,11 @@ impl Application {
             // come; the preview's servers are already here.
             Action::SetServerOrder(order) => {
                 self.state.server_order = order;
-                if self.state.preview { self.rearrange_servers() } else { vec![] }
+                if self.state.preview {
+                    self.rearrange_servers()
+                } else {
+                    vec![]
+                }
             }
             Action::MoveServer { id, up } => {
                 match server_order::moved_entries(&self.state.servers, &id, up) {
@@ -3090,7 +3268,12 @@ impl Application {
                 vec![]
             }
             Action::PreviewStream(Some((room, user))) => {
-                if self.state.stream_card.as_ref().is_some_and(|card| card.room == room && card.user == user) {
+                if self
+                    .state
+                    .stream_card
+                    .as_ref()
+                    .is_some_and(|card| card.room == room && card.user == user)
+                {
                     return vec![];
                 }
                 self.state.stream_card = Some(StreamCard {
@@ -3102,7 +3285,9 @@ impl Application {
                 if self.state.preview {
                     return vec![];
                 }
-                vec![Effect::Backend(Command::Discord(DiscordCommand::StreamPreview { room, user }))]
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::StreamPreview { room, user },
+                ))]
             }
             Action::DropServer { id, target, drop } => {
                 let taken: Vec<&str> = self
@@ -3741,6 +3926,31 @@ impl Application {
                 }
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
+            // The one playing is the one asked for last, which the state
+            // has from then; it goes when its channel closes.
+            Event::VoiceMessage(Some(_)) => {}
+            Event::VoiceMessage(None) => self.keep_voice_position(),
+            Event::SavedMessages(result) => self.saved_listed(result),
+            Event::Bookmarks { before, result } => self.bookmarks_came(before, result),
+            Event::MessageSaved(saved) => self.message_saved(saved),
+            Event::MessageUnsaved { message } => self.message_unsaved(&message),
+            Event::SaveDone {
+                reminder,
+                removed,
+                result,
+                ..
+            } => self.save_done(reminder, removed, result),
+            Event::VoiceRecordingFailed(recording) => {
+                if self
+                    .state
+                    .voice_recording
+                    .as_ref()
+                    .is_some_and(|shown| Arc::ptr_eq(&shown.recording, &recording))
+                {
+                    self.state.voice_recording = None;
+                    self.state.notice = Some("Failed to start recording".into());
+                }
+            }
             Event::Video(video) => {
                 self.state.video = video.filter(|video| {
                     self.state.selected.as_ref() == Some(&video.room)
@@ -4152,6 +4362,18 @@ impl Application {
                     self.state.mention_groups = groups;
                 }
             }
+            #[cfg(feature = "discord")]
+            Event::Commands { room, index } => self.commands_listed(room, index),
+            #[cfg(feature = "discord")]
+            Event::CommandsChanged { server } => self.state.slash.forget_server(&server),
+            #[cfg(feature = "discord")]
+            Event::Suggestions { nonce, answer } => self.state.slash.suggested(&nonce, answer),
+            #[cfg(feature = "discord")]
+            Event::Modal { room, modal } => self.modal_opened(room, modal),
+            #[cfg(feature = "discord")]
+            Event::ModalAnswered { nonce, taken } => self.modal_answered(&nonce, taken),
+            #[cfg(not(feature = "discord"))]
+            Event::ModalAnswered { .. } | Event::CommandsChanged { .. } => {}
             Event::MemberMatches { room, members, .. } => {
                 if self.state.selected.as_ref() == Some(&room) {
                     for member in members {

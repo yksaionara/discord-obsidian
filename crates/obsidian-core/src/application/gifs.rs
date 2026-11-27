@@ -363,6 +363,7 @@ impl Application {
         let options = chat::SendOptions {
             quiet_reply,
             silent: false,
+            tts: false,
         };
         effects.extend(self.jump_to_present());
         effects.push(Effect::Backend(Command::Send {

@@ -756,6 +756,7 @@ mod tests {
                 spoiler: false,
                 video: false,
                 url: None,
+                voice: None,
             })
             .collect();
         let row = message_row(
@@ -815,6 +816,7 @@ mod tests {
                 spoiler: false,
                 video: false,
                 url: None,
+                voice: None,
             }
         };
         let one = found_row(
@@ -871,6 +873,7 @@ mod tests {
             spoiler: false,
             video: false,
             url: None,
+            voice: None,
         };
         let message = ChatMessage {
             attachments: vec![

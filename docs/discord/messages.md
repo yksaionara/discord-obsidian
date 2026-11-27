@@ -572,6 +572,95 @@ its desktop client does:
   The picture downloads to disk as it comes, so a full-size GIF of tens of
   megabytes takes no memory, and the thumbnail plays from its file.
 
+## Voice messages
+
+A message is a voice message when Discord flags it `IS_VOICE_MESSAGE` (1 <<
+13). Its audio attachment carries `duration_secs` and `waveform`, base64 of up
+to 256 levels from 0 to 255, and shows as Discord's player rather than a file
+card: a round play button, the waveform's bars, the time, the speed and the
+volume, in a pill that turns the accent colour while it plays.
+
+- The waveform is as wide as Discord draws it: 40 px for half a second or
+  less, 294 px from 45 seconds, and in between in proportion, a 2 px bar
+  every 6 px, 22 px tall at the loudest. Fewer levels than bars are drawn
+  between, and more are averaged down.
+- Before it's played, the time is its length. Playing, it counts down, the
+  bars heard so far light up, and a click or a drag on the waveform moves
+  it. Paused, the bars heard stay bright; at the end it waits at the start.
+- The speed steps through 1X, 1.5X, 2X and .75X, keeping the voice's pitch
+  (WSOLA), and stays for the next voice message, as muting does. Its volume
+  button mutes.
+- Where one stopped is kept, so it plays on from there. One plays at a time,
+  and it stops when its channel or thread closes.
+- `voice_message.rs` downloads the Ogg file whole, decodes it on a thread of
+  its own, and plays it to the speakers chosen in Voice & Video. A file that
+  isn't Ogg doesn't play. The window follows the player's clock only while
+  it plays.
+- As in Discord, a voice message can't be edited, notifies as "Sent a voice
+  message", is quoted in replies as "Click to see voice message", and its
+  menu has Save File. It forwards only where voice messages may be sent: to
+  any DM, or a channel where the account has Send Voice Messages, or the
+  dialog says "Voice messages are disabled in this channel."
+
+The composer's + has Record Voice Message, after Create Poll, in a DM or
+where the account has Send Voice Messages (1 << 46), unless a message is
+being edited or files wait to go. It records the microphone chosen in Voice &
+Video, and a bar takes the composer's place:
+
+- While recording: a stop button, the latest levels as bars, and a red dot
+  with the time. It stops by itself at Discord's longest, 1199.5 seconds, and
+  the time blinks from 1169.5 seconds.
+- Stopped: the play button, its waveform and its length, which play and seek
+  as a sent one does.
+- Delete throws it away; Send, or Enter, sends it, stopping it first. Opening
+  another channel throws it away. A recording shorter than half a second
+  isn't kept, and a microphone that won't open says "Failed to start
+  recording".
+
+`voice_message/record.rs` reads the microphone in mono at 48 kHz, encodes 20
+ms frames as Opus at 32 kb/s with the libopus in libwebrtc, and writes them
+into Ogg pages (RFC 3533 and 7845) in a temporary file as they're made, a
+second to a page. Every 100 ms it keeps a level, the loudest 20 ms's
+decibels from -100 to 0 mapped to 0 to 255, and the waveform it sends is those
+averaged down to 256. It sends as Discord's client does: the file uploaded as
+`voice-message.ogg`, then a message with no content, the flag, and the
+attachment's `duration_secs` and `waveform`. It shows as it sends, as any
+message, and the file goes once it's sent or the failed message is dropped.
+
+## Bookmarks and reminders
+
+Discord's messages saved for later (`saved.rs`): a bookmark, or a reminder
+once it has a time it's due, for this account alone. As Discord's client
+does, Discord Obsidian asks for the reminders and the ids of the bookmarked
+messages once Discord connects (`GET /users/@me/saved-messages?bookmark_ids=true`),
+and for the bookmarks themselves 25 at a time, the latest saved first, when
+the inbox's Bookmarks tab first opens (`GET
+/users/@me/saved-messages/bookmarks?limit=25&before=`, the last one's
+`saved_at`), and Show more asks for the next. SAVED_MESSAGE_CREATE and
+SAVED_MESSAGE_DELETE keep both up to date, from this device or another.
+
+A Discord message's menu, after Pin, has Bookmark Message, or Remove Bookmark,
+and Create Reminder, whose submenu offers Discord's times: in 30m, in 1h, in
+4h, Tomorrow at 9:00am (Today at 9:00 AM before 9), and Monday at 9:00am,
+the coming Monday or this one before 9, in local time. A message with a
+reminder shows Edit Reminder instead, and no bookmark, as Discord keeps one or
+the other; its submenu says when it's due ("Reminder due in 3 hours", or "3
+hours ago") and has Mark Complete above the times. Saving is `PUT
+/users/@me/saved-messages/{channel}/{message}` with `{due_at, source:
+"context_menu"}`, `due_at` null for a bookmark; removing one, or marking a
+reminder complete, is `DELETE` on the same. Each says so as Discord's toasts
+do: "Bookmark added. For your eyes only.", "Reminder added.", "Bookmark
+removed." or "Reminder removed.". Past Discord's client's limits, 500
+bookmarks and 50 reminders, it says "You've reached the limit for bookmarks
+(500 total). To add more, please delete a few messages." (or reminders) and
+asks nothing.
+
+The inbox's Bookmarks lists them with who wrote each, where, what it says
+and when it was sent, and Reminders with when each is due ("Due in 2 hours",
+"Due 5 minutes ago", red once overdue), soonest first. A line jumps to its
+message; its button removes the bookmark or marks the reminder complete. One
+Discord no longer sends says "A message you bookmarked could not be found."
+
 ## Jumping to a message
 
 A reply's quote, a pin, a search result and the bar over the "New" divider
@@ -633,7 +722,8 @@ message added notifies nobody of either.
 Messages forward as Discord's client allows: those written, by a person or
 an app's command, with no poll, call or activity, and none of the flags it
 doesn't forward, such as an ephemeral answer; forwards and voice messages
-forward again. In a server, the account needs Read Message History in the
+forward again, a voice message only [where voice messages may
+go](#voice-messages). In a server, the account needs Read Message History in the
 channel, and the server mustn't list `FORWARDING_DISABLED` among its
 features. Targets are the DMs, group DMs, channels and threads this account
 may send in, but not forums, whose posts start with a title, nor Matrix
@@ -691,10 +781,171 @@ interaction failed." in the channel. Only someone who may send in the
 channel can press, as in Discord. A forwarded copy's buttons don't press,
 and neither do disabled ones.
 
-The app and flags are kept only on messages with a button that presses, in
-one boxed `MessageApp`, so other messages carry 8 bytes more. Menus show
-what they pick but don't open yet, and the modals an app may answer with
-(INTERACTION_MODAL_CREATE) open in Discord.
+An app's select menu shows what it picks by default, or its placeholder
+("Make a selection" without one), and opens a list below it, or above it
+near the window's bottom:
+
+- A text select lists its options, each with its emoji and description. A
+  user, role, mentionable or channel select lists the channel's members, the
+  server's roles (highest first), both, or the server's channels of the
+  types it names (`channel_types`), with a search over them; at most 50 show
+  at once.
+- A menu of one (`max_values` 1) tells its app as soon as a line is picked,
+  and closes. A menu of several shows a box by each line, picks up to
+  `max_values`, and tells its app when it closes, by a click outside it or
+  Escape, if what's picked changed and is at least `min_values`.
+- Choosing sends what a button's press does, with `data: {component_type,
+  custom_id, values}`: the menu's own type (3, 5, 6, 7 or 8) and the option
+  values, or the ids. The menu then shows the labels chosen, and picks them
+  when it opens again, until the message's next version comes, as Discord's
+  client shows a choice until the app answers.
+- A disabled menu, one on a forwarded copy, and one in a channel this
+  account can't send in, show faded and don't open.
+
+The app and flags are kept only on messages with a button that presses or a
+menu that opens, in one boxed `MessageApp`, so other messages carry 8 bytes
+more.
+
+## Apps' modals
+
+An app may answer a slash command or a button with a form,
+INTERACTION_MODAL_CREATE, which opens over the window as Discord's does
+(`modal.rs`, `application/modal.rs`, `ModalDialog` in `ui/dialogs.slint`):
+the app's icon and the form's title, then "This form will be submitted to
+App. Do not share passwords or other sensitive information.", its fields,
+and Cancel and Submit. A form names the nonce of the interaction that
+opened it, which finds the room it belongs to; one for a channel open on
+screen shows too. A new form replaces one already open, and Escape or a
+click outside closes it.
+
+It shows what Discord's forms hold: text inputs of one line or several
+(style 2), each in an action row labelled by itself or under a label
+(type 18) with its description, text displays (type 10) as Markdown,
+select menus (type 3) that open their options under them, radio groups
+(type 21), checkbox groups (type 22) and checkboxes (type 23). A required
+field's label has a red asterisk. A file upload or a user, role, mentionable
+or channel menu says it can't be filled in yet, and a required one keeps the
+form from going. Fields start with what the app gave them: a text input's
+value, the options marked `default`, a checkbox's default.
+
+Submit checks the fields first, with Discord's words under each: "This field
+is required.", "Must be between 3 and 40 in length." (a text input's length
+defaults to 0 to 4000), "Select at least 2" and "Select at most 3". Then it
+goes as Discord's client sends it: `POST /interactions` with type 5, the
+form's `application_id`, `channel_id`, `guild_id` in a server, the
+session's `session_id`, a snowflake `nonce`, and `data` of the form's `id`
+and `custom_id` and its `components` in their places: an action row with
+its text input's `custom_id` and `value`, a label with its component, a
+text display as `{type: 10}`, a select menu or a checkbox group with its
+`values`, a radio group with its `value`, a checkbox with `value` true or
+false. While it goes, Submit says "Submitting..." and the fields can't
+change. INTERACTION_SUCCESS closes the form; INTERACTION_FAILURE, a refused
+request, or no answer within 10 s, as Discord's client waits, leaves it
+open with "Something went wrong. Try again." over the fields.
+
+
+## Slash commands
+
+Typing `/` at the start of a Discord composer lists the commands the
+channel offers, as Discord's composer does (`app_commands.rs`,
+`application/slash.rs`). The first `/` in a server or DM asks Discord for
+two indexes at once, as Discord's client does: the server's
+(`GET /guilds/{id}/application-command-index`), or for a DM the channel's
+(`/channels/{id}/application-command-index`), and the apps installed on
+the account (`/users/@me/application-command-index`). A 202 means Discord
+is still building one; Discord Obsidian asks again 5 s later, three times
+in all, as Discord's client does. The indexes are kept for each server or
+DM while Discord Obsidian runs, and a server's are asked for again after
+GUILD_APPLICATION_COMMAND_INDEX_UPDATE says its apps changed. A command
+whose `default_member_permissions` the account lacks in the channel stays
+out of the list, as in Discord; administrators see them all. Permission
+overrides an app's commands have per role or channel aren't read yet.
+
+The list holds each app's commands under its name, then Discord's own:
+`/shrug`, `/tableflip`, `/unflip`, `/tts` (servers only), `/me` and
+`/spoiler`. Each row shows the app's icon, `/name`, the options' names,
+required ones first, the description and the app's name. The names follow
+what's typed after `/`; the arrow keys move through them, eight showing at
+a time, and Enter, Tab or a click writes the command in the composer. Escape
+closes the list until the draft changes. While the indexes load, Discord's
+own commands show, or "Loading commands...".
+
+A command written shows a bar over the composer: its icon and name with
+any subcommands, each option as a chip (optional ones with `?`, the one
+being typed highlighted, those typed in filled), and the current option's
+description and what it takes. The composer holds the command as text,
+`/name subcommand option:value`, as Discord's composer does before it
+turns `name:` into a pill: text after the name fills the first required
+option, and an option with choices lists those matching what's typed,
+which Enter or a click writes in. A True or False option offers both.
+
+An option whose app suggests values (`autocomplete`) asks it as it's
+typed, as Discord's client does: `POST /interactions` with type 4, the
+`application_id`, `guild_id` in a server, `channel_id`, `session_id`, a
+snowflake `nonce` and `data` as a command's but without `attachments`, the
+option being typed carrying its text so far as `value` with
+`focused: true`, and the other options that hold a valid value. Choosing
+the command asks with nothing typed, so its first suggestions show at
+once. Asks go at most every 500 ms; one that a later one replaces before
+it goes is dropped. The answer comes on the gateway as
+APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE, `{nonce, choices}`, and the
+list shows its choices, by `name_localized` or `name`, under "OPTIONS", or
+"OPTIONS MATCHING" what's typed; "Loading options..." shows meanwhile, and
+"Loading options failed" after INTERACTION_FAILURE or a refused ask.
+Answers are kept by what was typed, so typing back to a text shows its
+suggestions without asking again; they're kept for one option of one
+command at a time, with the other options' values, at most 100 texts. A
+value chosen, or typed and followed by a space, is done with, so nothing is
+asked and Enter runs the command. Text naming one of the suggestions last
+shown for its option sends that suggestion's value, as Discord's client
+does; other text goes as typed.
+
+Enter runs it as Discord's client does: `POST /interactions` with type 2,
+the `application_id`, `guild_id` in a server, `channel_id`, the session's
+`session_id`, a snowflake `nonce`, `analytics_location: "slash_ui"` and
+`data` of the command's `id`, `version`, untranslated `name`, `type: 1`,
+its `options` (nested in their subcommand and group), the command as the
+index gave it as `application_command`, and `attachments: []`. Values are
+checked first, with Discord's rules: a required option missing, a number
+outside its range or not whole, text too long or short, a choice that isn't
+one, and True or False. A mention written with `@` goes as the person's or
+role's id, `@everyone` as the server's. An attachment option says it can't
+be filled yet. The composer empties at once; the app's answer comes as a
+message, headed as Discord heads it, "Name used /command", from
+`interaction_metadata`. INTERACTION_FAILURE, or a request Discord refuses,
+says "This interaction failed." A `/word` no app offers goes as text, as in
+Discord, and one typed before the indexes came waits for them.
+
+Discord's own commands change the message and send it: `/shrug` appends
+a shrug, `/tableflip` and `/unflip` their faces, `/me` writes it in
+italics, `/spoiler` hides it and `/tts` sends it with `tts: true`.
+
+Not yet: Discord's `/nick`, `/thread`, `/kick`, `/ban`, `/timeout`, `/msg`
+and `/gif`.
+
+## The Apps menu
+
+A message's menu in a Discord channel has Apps after Pin message, and a
+person's menu in an open Discord channel or DM has it after Change
+nickname, as Discord's do (`apps_menu.rs`, `application/slash.rs`). Its
+submenu lists the apps' message commands or user commands, the index's
+types 3 and 2, which `/` doesn't offer: the same indexes, asked for the
+first time a menu or `/` needs them, filtered by the member's permissions
+as the slash commands are. It says "Loading..." until they come, then
+lists each command with its app's icon and a send arrow, by app and then
+by name, or "No Commands Available". A command chosen runs as Discord's
+client runs it from the menu: `POST /interactions` with type 2,
+`analytics_location: "slash_ui"`, and `data` of the command's `id`,
+`version`, untranslated `name`, its own `type`, `options: []`,
+`application_command`, `attachments: []` and `target_id`, the message's
+or the person's id. The app answers as it does a slash command, with a
+modal or a message, headed "Name used Bookmark", without the slash a slash
+command's has: its `interaction_metadata` has `command_type` 2 or 3, and
+`target_user` or `target_message_id`.
+
+Discord nests the commands in a submenu per app and puts a search field
+and Frequently Used Commands over them; Discord Obsidian lists them in one
+submenu, as Discord's search lists its matches.
 
 ## Notification settings
 

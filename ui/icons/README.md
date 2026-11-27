@@ -64,7 +64,7 @@ glyphs such as check, x and chevrons.
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
   the speaker of volume-2, volume-2-bold and volume-x; community, gamepad,
   id-filled, music, plus, trophy, tv and verified; app-window and monitor, for
-  the share dialog's tabs.
+  the share dialog's tabs; bookmark and bookmark-filled, for bookmarks.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
 LICENSE (ISC): calendar, check, check-check, chevron-down, chevron-left, chevron-right,

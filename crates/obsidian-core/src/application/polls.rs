@@ -146,6 +146,23 @@ impl Application {
         })
     }
 
+    /// Whether a voice message can be recorded in the open conversation, as
+    /// Discord's client offers "Record Voice Message": a Discord DM or
+    /// channel this account may write in, and in a server, send voice
+    /// messages; not while editing or with files waiting to go.
+    pub fn can_record_voice_messages(&self) -> bool {
+        self.state.conversation_that(|_| true).is_some_and(|room| {
+            room.network == Network::Discord
+                && self.state.discord_online
+                && !self.state.preview
+                && self.state.forum().is_none()
+                && self.state.can_write_in(&room.id)
+                && !self.state.editing()
+                && self.state.staged().is_empty()
+                && (room.direct || self.may(&room.id, Permission::SendVoiceMessages))
+        })
+    }
+
     /// Open the "Create a Poll" dialog for the open conversation.
     pub(super) fn open_poll_draft(&mut self) -> Vec<Effect> {
         if self.can_create_polls()

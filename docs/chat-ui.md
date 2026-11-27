@@ -372,10 +372,12 @@ Alt+Left and Alt+Right do, and as the mouse's back and forward side buttons
 do anywhere over the window (outside settings), up to 50 of them and past any
 that are gone, and
 Inbox and Help before the window's buttons. Help opens Discord's support site.
-Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
-conversations with unread messages, muted ones only for a mention, and
-Mentions, those that mention this account, each with its count; Discord's own
-Mentions tab lists the messages themselves. A row opens its conversation, and
+Inbox opens a popout with Discord's tabs: Unreads, the channels and
+conversations with unread messages, muted ones only for a mention;
+Mentions, those that mention this account, each with its count (Discord's
+own Mentions tab lists the messages themselves); and Bookmarks and
+Reminders, the messages [saved for later](discord/messages.md#bookmarks-and-reminders).
+A row opens its conversation, or a saved one jumps to its message, and
 clicking outside or Escape closes it. Its rows exist only while it shows.
 Pressing on it and
 moving moves the window, a double click maximizes it, and close does what

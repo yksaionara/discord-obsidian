@@ -50,7 +50,8 @@ mod tray;
 mod twemoji;
 #[cfg(feature = "desktop")]
 mod ui;
-#[cfg(feature = "desktop")]
+// For Go Live's share dialog, which only Discord has.
+#[cfg(all(feature = "desktop", feature = "discord"))]
 mod window_icon;
 #[cfg(feature = "desktop")]
 mod zoom;

@@ -40,15 +40,15 @@ import { Theme, Tip, TipPerson, BadgeTip, ReactionHover, StreamHover, Middle, Po
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "obsidian/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
-import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
+import { ActionButton, IconButton, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, MenuRows, DeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, GameBar, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareDialog, LiveMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow, WatchedStream } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
-import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, SendingIndicator, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls, Logged } from "messages.slint";
+import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar, CommandRow, CommandChip, CommandBar, CommandList, CommandOptions } from "composer.slint";
+import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, SendingIndicator, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoiceRecorder, VoiceRecorderBar, SelectMenus, SelectMenuPopup, Polls, Logged } from "messages.slint";
 import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
-import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
+import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog, ModalRow, ModalChoice, ModalDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
 import { BoostPicture, BoostPrompt, EngagementPrompt, ServerProfilePrompt, ServerSettingsPrompt, ServerSettingsScreen } from "server_settings.slint";
@@ -69,11 +69,11 @@ export { Autoscroll } from "scrollview.slint";
 export { PersonRow, CallLink, ShareScreen } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer } from "controls.slint";
-export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, EarlierRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { StagedFile, MentionRow, CommandRow, CommandChip, CommandBar } from "composer.slint";
+export { EmojiCell, EmojiRow, EmojiSection, EmojiCard, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, EarlierRow, VideoPlayer, VoicePlayer, VoiceCell, VoiceRecorder, SelectLine, SelectMenus, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
-export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
+export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft, ModalRow, ModalChoice } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 
@@ -587,6 +587,17 @@ export component ObsidianWindow inherits Window {
     }
     callback mention-chosen(int);
     callback mention-dismissed;
+    // Slash commands for the `/` word being typed, or the choices of the
+    // option being typed, eight at a time; the highlighted one is chosen.
+    in property <[CommandRow]> command-rows;
+    in property <int> command-row-index;
+    in property <string> command-note;
+    // The command written and its options, over the composer.
+    in property <CommandBar> command-bar;
+    in property <[CommandChip]> command-chips;
+    callback command-moved(int);
+    callback command-chosen(int);
+    callback command-dismissed;
     // Emoji for the `:name` being typed, the chosen one highlighted.
     in property <[EmojiCell]> emoji-suggestions;
     in property <string> emoji-suggestion-query;
@@ -987,6 +998,10 @@ export component ObsidianWindow inherits Window {
     /// that tab's rows, made only while it shows.
     in-out property <bool> inbox-open;
     in-out property <int> inbox-tab;
+    /// The inbox's bookmarks: earlier ones follow, or a page is on its way.
+    in property <bool> bookmarks-more;
+    in property <bool> bookmarks-loading;
+    callback load-bookmarks;
     in property <[InboxRow]> inbox-rows;
     /// The inbox opened or changed tab.
     callback inbox-opened;
@@ -1068,7 +1083,24 @@ export component ObsidianWindow inherits Window {
     // Making a poll; see PollDialog.
     /// Polls can be made in the open conversation.
     in property <bool> can-create-polls;
+    /// A voice message can be recorded in the open conversation.
+    in property <bool> can-record-voice;
+    callback record-voice-message;
     in property <bool> poll-open;
+    // A form an app opened; see ModalDialog.
+    in property <bool> modal-open;
+    in property <string> modal-title;
+    in property <string> modal-app;
+    in property <string> modal-app-icon;
+    in property <string> modal-app-initial;
+    in property <[ModalRow]> modal-rows;
+    in property <string> modal-error;
+    in property <bool> modal-sending;
+    callback modal-text(int, string);
+    callback modal-pick(int, int);
+    callback modal-menu(int);
+    callback submit-modal;
+    callback close-modal;
     in-out property <string> poll-question;
     in property <string> poll-question-count;
     in property <[PollAnswerDraft]> poll-answers;
@@ -1210,10 +1242,25 @@ export component ObsidianWindow inherits Window {
     in-out property <int> animate;
     in-out property <bool> unmute-on-join;
     in-out property <bool> deafen-on-join;
-    in-out property <bool> level-voice: true;
+    // Discord's voice settings; see VoiceSettings.
+    in-out property <int> input-profile: 2;
     in-out property <int> noise-suppression;
-    in-out property <int> noise-strength;
-    in-out property <bool> dereverb;
+    in-out property <bool> echo-cancellation: true;
+    in-out property <bool> gain-control: true;
+    in-out property <bool> auto-sensitivity: true;
+    in-out property <bool> voice-activity: true;
+    in-out property <bool> bypass-processing: true;
+    in-out property <bool> device-suggestions: true;
+    in-out property <bool> silence-warning: true;
+    in-out property <bool> switch-warning: true;
+    in-out property <int> attenuation: 0;
+    in-out property <bool> attenuate-self;
+    in-out property <bool> attenuate-others: true;
+    in-out property <bool> quality-of-service;
+    /// The advanced voice settings are open.
+    in-out property <bool> voice-advanced;
+    /// Discord's Audio Device Suggestions: a new audio device, named.
+    in-out property <string> device-notice;
     in-out property <int> sensitivity: -60;
     /// The Discord microphone as its voice gate hears it, in dBFS, and whether
     /// the gate is open, refreshed by gate-meter-tick while voice settings
@@ -1286,6 +1333,12 @@ export component ObsidianWindow inherits Window {
     in property <[ThemeCard]> themes;
     in property <string> theme-id;
     callback choose-theme(string);
+    /// Discord's Default Themes and Color Themes, and its "Sync with
+    /// computer", which follows the system's mode.
+    in property <[ThemeCard]> default-themes;
+    in property <[ThemeCard]> colour-themes;
+    in property <bool> theme-sync;
+    callback sync-theme();
     /// Appearance's theme editor; see AppearanceSettings. Leaving Appearance
     /// or settings cancels it.
     in property <bool> theme-editor;
@@ -1578,7 +1631,7 @@ export component ObsidianWindow inherits Window {
         || root.switcher-open || root.mfa-open || root.add-friend-open || root.invite-open
         || root.join-open || root.event-open || root.gift-open || root.oauth-open
         || root.channel-open || root.move-sync-open || root.leave-open || root.person-open
-        || root.status-open || root.poll-open || root.new-dm-open || root.reactions-open
+        || root.status-open || root.poll-open || root.modal-open || root.new-dm-open || root.reactions-open
         || root.forward-open || root.leaving-link != "" || root.switch-prompt != ""
         || root.confirm-delete != "" || root.incoming-open;
     // The channel has no composer here: a call, a forum, a message request, the
@@ -1790,7 +1843,8 @@ export component ObsidianWindow inherits Window {
     }
 
     property <bool> is-editing: root.compose-label == "Editing your message";
-    property <color> voice-color: root.voice-tone == 1 ? Theme.live : root.voice-tone == 2 ? Theme.danger : Theme.accent;
+    // Discord's: green connected, red disconnected, yellow while connecting.
+    property <color> voice-color: root.voice-tone == 1 ? Theme.live : root.voice-tone == 2 ? Theme.danger : Theme.loud;
 
     // Discord Obsidian joins calls muted and hearing; these preferences deafen, or turn the
     // microphone on, once connected.
@@ -2088,6 +2142,10 @@ export component ObsidianWindow inherits Window {
                     text: "Create Poll"; icon: @image-url("icons/chart-bar.svg");
                     clicked => { root.open-poll(); plus-menu.close(); }
                 }
+                if root.can-record-voice: MenuItem {
+                    text: "Record Voice Message"; icon: @image-url("icons/mic.svg");
+                    clicked => { root.record-voice-message(); plus-menu.close(); }
+                }
             }
         }
     }
@@ -2142,6 +2200,9 @@ export component ObsidianWindow inherits Window {
         root.menu-media = media;
         root.menu-video = video;
         root.menu-link = media >= 0 ? root.attachment-link(message.item, media) : root.link-at(root.anchor-x, root.anchor-y);
+        root.message-apps-open = false;
+        root.open-message-apps(message.item);
+        root.prepare-saved(message.item);
         message-menu.show();
     }
     property <bool> picker-open: emoji-picker.is-open;
@@ -2309,6 +2370,27 @@ export component ObsidianWindow inherits Window {
     }
     // A message's actions, from its hover bar's "More" button or a right click.
     property <bool> menu-can-react: root.menu-message.can-react && root.composer-enabled;
+    // The Apps submenu of a message's menu in a Discord channel: its apps'
+    // message commands, a note while they load, or that there are none.
+    in property <bool> menu-apps-shown;
+    in property <[MenuRow]> menu-apps;
+    property <bool> message-apps-open;
+    /// A message's menu is opening: the window shows its Apps.
+    callback open-message-apps(string);
+    // A Discord message's bookmark and reminder in its menu, as
+    // MessageMenu's `saved` says, and the reminder's submenu: its times,
+    // and with one set, when it's due and Mark Complete.
+    in property <int> menu-saved;
+    in property <[MenuRow]> menu-reminder-rows;
+    property <int> message-side;
+    /// A message's menu is opening: the window says how it's saved.
+    callback prepare-saved(string);
+    callback bookmark(string);
+    callback unsave(string);
+    /// A row of a message's reminder submenu, by its id, for an item.
+    callback choose-reminder(string, string);
+    /// An app's command chosen from an Apps menu, by its row's id.
+    callback run-app-command(string);
     call-link-menu := PopupWindow {
         width: 320px; height: call-link-content.content-height;
         x: max(8px, min(root.width - self.width - 8px, root.anchor-x));
@@ -2365,16 +2447,67 @@ export component ObsidianWindow inherits Window {
         }
     }
     // From a button, the menu opens left of it, level with its top, or right of
-    // it when there isn't room.
+    // it when there isn't room. In a Discord channel the popup has room for
+    // the Apps submenu beside it, on its right, or on its left near the
+    // window's right edge; the submenu lines up with its row and moves up to
+    // stay in the window.
     message-menu := PopupWindow {
-        width: 224px; height: menu-content.content-height;
-        x: root.anchor-pointer ? max(8px, min(root.width - self.width - 8px, root.anchor-x))
-            : root.anchor-x - self.width - 8px >= 8px ? root.anchor-x - self.width - 8px
-            : max(8px, min(root.width - self.width - 8px, root.anchor-x + root.anchor-width + 8px));
-        y: !root.anchor-pointer ? max(8px, min(root.height - self.height - 8px, root.anchor-y))
-            : root.anchor-y + 4px + self.height <= root.height - 8px ? root.anchor-y : max(8px, root.anchor-y - self.height - 4px);
+        property <length> menu-width: 224px;
+        property <length> apps-width: 240px;
+        property <length> apps-room: root.menu-apps-shown || root.menu-saved > 0 ? 4px + self.apps-width : 0px;
+        property <bool> reminder-side: root.message-side == 1;
+        property <[MenuRow]> side-rows: self.reminder-side ? root.menu-reminder-rows : root.menu-apps;
+        property <length> menu-height: menu-content.content-height;
+        property <length> menu-x: root.anchor-pointer ? max(8px, min(root.width - self.menu-width - 8px, root.anchor-x))
+            : root.anchor-x - self.menu-width - 8px >= 8px ? root.anchor-x - self.menu-width - 8px
+            : max(8px, min(root.width - self.menu-width - 8px, root.anchor-x + root.anchor-width + 8px));
+        property <bool> apps-left: self.apps-room > 0 && self.menu-x + self.menu-width + self.apps-room > root.width - 8px;
+        // Rows of 32px, 2px apart, in 6px of padding.
+        property <length> apps-height: min(root.height - 16px, max(1, self.side-rows.length) * 34px + 10px);
+        property <length> apps-top: max(0px, min(menu-content.apps-y, root.height - 8px - self.y - self.apps-height));
+        property <int> apps-current: -1;
+        width: self.menu-width + self.apps-room;
+        height: root.message-apps-open ? max(self.menu-height, self.apps-top + self.apps-height) : self.menu-height;
+        x: self.menu-x - (self.apps-left ? self.apps-room : 0px);
+        y: !root.anchor-pointer ? max(8px, min(root.height - self.menu-height - 8px, root.anchor-y))
+            : root.anchor-y + 4px + self.menu-height <= root.height - 8px ? root.anchor-y : max(8px, root.anchor-y - self.menu-height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
+        // A click in the room kept for the submenu closes the menu, as one
+        // outside it does.
+        TouchArea { clicked => { message-menu.close(); } }
+        if root.message-apps-open && (message-menu.reminder-side || root.menu-apps-shown): Rectangle {
+            x: message-menu.apps-left ? 0px : message-menu.menu-width + 4px; y: message-menu.apps-top;
+            width: message-menu.apps-width; height: message-menu.apps-height;
+            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+            clip: true;
+            TouchArea { }
+            Flickable {
+                content-height: apps-rows.preferred-height;
+                apps-rows := MenuRows {
+                    width: message-menu.apps-width;
+                    rows: message-menu.side-rows; current: message-menu.apps-current;
+                    hovered(index) => { message-menu.apps-current = index; }
+                    clicked(index) => {
+                        if !message-menu.side-rows[index].disabled {
+                            if message-menu.reminder-side {
+                                root.choose-reminder(root.menu-message.item, message-menu.side-rows[index].id);
+                            } else {
+                                root.run-app-command(message-menu.side-rows[index].id);
+                            }
+                            message-menu.close();
+                        }
+                    }
+                }
+            }
+        }
         menu-content := MessageMenu {
+            x: message-menu.apps-left ? message-menu.apps-room : 0px; y: 0px;
+            width: message-menu.menu-width; height: self.content-height;
+            apps-shown: root.menu-apps-shown; apps-open <=> root.message-apps-open;
+            saved: root.menu-saved; side <=> root.message-side;
+            bookmark(item) => { root.bookmark(item); message-menu.close(); }
+            unsave(item) => { root.unsave(item); message-menu.close(); }
             menu-message: root.menu-message; selection: root.menu-selection; menu-can-react: root.menu-can-react; menu-reactions: root.menu-reactions;
             can-start-thread: root.can-start-threads && !root.menu-aside;
             start-thread(item) => { root.new-thread(item, "message"); message-menu.close(); }
@@ -3069,6 +3202,7 @@ export component ObsidianWindow inherits Window {
                         }
                         if root.graphics-notice != "": Banner { text <=> root.graphics-notice; dismissed => { root.graphics-notice = ""; } }
                         if root.notice != "": Banner { text: root.notice; dismissed => { root.dismiss-notice(); } }
+                        if root.device-notice != "": Banner { text <=> root.device-notice; dismissed => { root.device-notice = ""; } }
                         // Voice channel: a stage of participants, or an invitation to join.
                         // A DM's call shows the same above its messages.
                         if root.voice-panel || root.call-shown: Rectangle {
@@ -3653,11 +3787,11 @@ export component ObsidianWindow inherits Window {
                                             IconButton {
                                                 // Discord's is a plain 18px plus, not a circled one.
                                                 icon: ClientStyle.enabled ? @image-url("icons/plus.svg") : @image-url("icons/circle-plus.svg");
-                                                label: root.can-start-threads || root.can-create-polls ? "More options" : "Attach files";
+                                                label: root.can-start-threads || root.can-create-polls || root.can-record-voice ? "More options" : "Attach files";
                                                 glyph: ClientStyle.enabled ? 27px : 22px;
-                                                enabled: root.can-attach || root.can-start-threads || root.can-create-polls;
+                                                enabled: root.can-attach || root.can-start-threads || root.can-create-polls || root.can-record-voice;
                                                 clicked => {
-                                                    if root.can-start-threads || root.can-create-polls {
+                                                    if root.can-start-threads || root.can-create-polls || root.can-record-voice {
                                                         root.menu-x = self.absolute-position.x;
                                                         root.menu-y = self.absolute-position.y;
                                                         plus-menu.show();
@@ -3673,21 +3807,25 @@ export component ObsidianWindow inherits Window {
                                             placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
-                                            suggesting: !root.suggesting-aside && (root.mentions.length > 0 || root.emoji-suggestions.length > 0);
+                                            suggesting: !root.suggesting-aside && (root.command-rows.length > 0 || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
                                             caret(text, offset) => { root.composer-caret(text, offset); }
                                             suggestion-moved(step) => {
-                                                if root.mentions.length > 0 {
+                                                if root.command-rows.length > 0 {
+                                                    root.command-moved(step);
+                                                } else if root.mentions.length > 0 {
                                                     root.mention-index = Math.mod(root.mention-index + step + root.mentions.length, root.mentions.length);
                                                 } else {
                                                     root.emoji-suggestion-index = Math.mod(root.emoji-suggestion-index + step + root.emoji-suggestions.length, root.emoji-suggestions.length);
                                                 }
                                             }
                                             suggestion-chosen => {
-                                                if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
+                                                if root.command-rows.length > 0 { root.command-chosen(root.command-row-index); }
+                                                else if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
                                                 else { root.emoji-suggestion-chosen(root.emoji-suggestion-index); }
                                             }
                                             suggestion-dismissed => {
-                                                if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
+                                                if root.command-rows.length > 0 { root.command-dismissed(); }
+                                                else if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
                                             }
                                             up-from-empty => { root.edit-last(); }
                                             up-to-messages => { root.browse-messages(); }
@@ -3743,6 +3881,14 @@ export component ObsidianWindow inherits Window {
                                             }
                                         }
                                     }
+                                }
+                                // A voice message being recorded takes the composer's place.
+                                if VoiceRecorder.active: Rectangle {
+                                    width: parent.width; height: parent.height;
+                                    border-radius: parent.border-radius;
+                                    background: parent.background;
+                                    TouchArea { }
+                                    VoiceRecorderBar { width: parent.width; height: parent.height; }
                                 }
                             }
                             // A hint under the field when there is one; otherwise as much
@@ -4040,6 +4186,21 @@ export component ObsidianWindow inherits Window {
         mentions: root.mentions; mention-index: root.mention-index;
         mention-chosen(index) => { root.mention-chosen(index); }
     }
+    // The command written and its options, in the same place, and the
+    // commands or choices over it; see CommandOptions and CommandList.
+    if root.command-bar.shown && root.composer-enabled && !root.suggesting-aside: CommandOptions {
+        x: composer-box.absolute-position.x;
+        width: composer-box.width;
+        y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
+        bar: root.command-bar; chips: root.command-chips;
+    }
+    if (root.command-rows.length > 0 || root.command-note != "") && root.composer-enabled && !root.suggesting-aside: CommandList {
+        x: composer-box.absolute-position.x;
+        width: composer-box.width;
+        y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px - (root.command-bar.shown ? 78px : 0px);
+        rows: root.command-rows; row-index: root.command-row-index; note: root.command-note;
+        row-chosen(index) => { root.command-chosen(index); }
+    }
     // Emoji suggestions, in the same place; see EmojiSuggestions.
     if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside: EmojiSuggestions {
         x: composer-box.absolute-position.x;
@@ -4074,6 +4235,8 @@ export component ObsidianWindow inherits Window {
         }
         if root.settings-section == 7: AppearanceSettings {
             themes: root.themes; theme-id: root.theme-id;
+            default-themes: root.default-themes; colour-themes: root.colour-themes;
+            theme-sync: root.theme-sync; sync-theme => { root.sync-theme(); }
             editor: root.theme-editor; colours: root.theme-colours;
             theme-name <=> root.theme-name; theme-dark <=> root.theme-dark;
             editing-saved: root.theme-editing-saved; starts: root.theme-starts; start-index: root.theme-start;
@@ -4101,8 +4264,15 @@ export component ObsidianWindow inherits Window {
             speakers: root.speakers; speaker-index <=> root.speaker-index;
             cameras: root.cameras; camera-index <=> root.camera-index;
             camera-testing <=> root.camera-testing; camera-preview: root.camera-preview; camera-note: root.camera-note;
-            unmute-on-join <=> root.unmute-on-join; level-voice <=> root.level-voice;
-            noise-suppression <=> root.noise-suppression; noise-strength <=> root.noise-strength; dereverb <=> root.dereverb; discord: root.discord-linked;
+            unmute-on-join <=> root.unmute-on-join; input-profile <=> root.input-profile;
+            noise-suppression <=> root.noise-suppression; discord: root.discord-linked;
+            echo-cancellation <=> root.echo-cancellation; gain-control <=> root.gain-control;
+            auto-sensitivity <=> root.auto-sensitivity; voice-activity <=> root.voice-activity;
+            bypass-processing <=> root.bypass-processing; device-suggestions <=> root.device-suggestions;
+            silence-warning <=> root.silence-warning; switch-warning <=> root.switch-warning;
+            attenuation <=> root.attenuation; attenuate-self <=> root.attenuate-self;
+            attenuate-others <=> root.attenuate-others; quality-of-service <=> root.quality-of-service;
+            advanced-open <=> root.voice-advanced;
             sensitivity <=> root.sensitivity; gate-level: root.gate-level; gate-sending: root.gate-sending; gate-meter-note: root.gate-meter-note;
             mic-testing <=> root.mic-testing;
             input-mode <=> root.input-mode; talk-key: root.talk-key; talk-recording <=> root.talk-recording;
@@ -4469,6 +4639,8 @@ export component ObsidianWindow inherits Window {
         }
     }
     // An image shown large over everything; see ImageViewer.
+    // An app's select menu, open over the window.
+    if SelectMenus.is-open: SelectMenuPopup { x: 0px; y: 0px; width: root.width; height: root.height; }
     if root.viewer-open: ImageViewer {
         y: root.title-height; height: root.height - root.title-height;
         viewer-image: root.viewer-image; viewer-frames: root.viewer-frames; viewer-delays: root.viewer-delays;
@@ -4629,6 +4801,18 @@ export component ObsidianWindow inherits Window {
         set-multiselect(on) => { root.poll-multiselect-set(on); }
         post => { root.post-poll(); }
         close => { root.close-poll(); }
+    }
+    // A form an app opened; see ModalDialog.
+    modal-motion := PopupMotion { open: root.modal-open; }
+    if modal-motion.shown: ModalDialog {
+        motion: modal-motion.amount;
+        title: root.modal-title; app: root.modal-app; app-icon: root.modal-app-icon; app-initial: root.modal-app-initial;
+        rows: root.modal-rows; error: root.modal-error; sending: root.modal-sending;
+        text-edited(index, text) => { root.modal-text(index, text); }
+        picked(index, option) => { root.modal-pick(index, option); }
+        menu(index) => { root.modal-menu(index); }
+        submit => { root.submit-modal(); }
+        close => { root.close-modal(); }
     }
     // Starting a DM; see NewDmDialog.
     new-dm-motion := PopupMotion { open: root.new-dm-open; }
@@ -4948,11 +5132,18 @@ export component ObsidianWindow inherits Window {
         height: min(560px, root.height - root.title-height - 16px);
         rows: root.inbox-rows;
         tab <=> root.inbox-tab;
+        more: root.bookmarks-more; loading: root.bookmarks-loading;
         changed-tab => { root.inbox-opened(); }
         open(id) => {
             root.inbox-open = false;
             root.switch-to(id);
         }
+        jump(room, item) => {
+            root.inbox-open = false;
+            root.jump-in-room(room, item);
+        }
+        unsave(item) => { root.unsave(item); }
+        load-more => { root.load-bookmarks(); }
         close => { root.inbox-open = false; }
     }
     if root.title-height > 0 && ClientStyle.enabled: WindowBar {

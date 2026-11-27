@@ -861,7 +861,8 @@ fn a_reply_mentions_its_author_unless_switched_off() {
         options,
         crate::chat::SendOptions {
             quiet_reply: true,
-            silent: false
+            silent: false,
+            tts: false,
         }
     );
 }
@@ -2708,6 +2709,7 @@ fn videos_play_in_the_open_room_until_it_closes() {
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
+        voice: None,
         video,
         url: None,
     };
@@ -2787,6 +2789,7 @@ fn the_viewer_steps_through_a_messages_images() {
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
+        voice: None,
         video: false,
         url: None,
     };
@@ -2868,6 +2871,7 @@ fn a_picture_with_an_address_is_copied_to_the_clipboard() {
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
+        voice: None,
         video: false,
         url: url.map(Into::into),
     };
@@ -3513,6 +3517,7 @@ fn discord_threads_show_beside_their_channel() {
                 placement: chat::Placement::Message,
                 gif: None,
                 spoiler: false,
+                voice: None,
                 video: false,
                 url: None,
             }],
@@ -3600,7 +3605,7 @@ fn discord_threads_show_beside_their_channel() {
         effects.as_slice(),
         [Effect::Backend(Command::Send { room, files, .. })]
             if room == "discord:10:30"
-                && matches!(files.as_slice(), [chat::OutgoingFile { path, spoiler: true }] if *path == picture)
+                && matches!(files.as_slice(), [chat::OutgoingFile { path, spoiler: true, .. }] if *path == picture)
     ));
     app.apply(Event::SendResult {
         room: "discord:10:30".into(),
@@ -5160,6 +5165,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             placement: crate::chat::Placement::Message,
             gif: None,
             spoiler: false,
+            voice: None,
             video: false,
             url: None,
         }],
@@ -9090,6 +9096,7 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             placement: crate::chat::Placement::Message,
             gif: Some(gif.clone()),
             spoiler: false,
+            voice: None,
             video: false,
             url: None,
         }],
@@ -10393,7 +10400,11 @@ fn going_idle_while_signed_out_tells_nobody() {
 fn open_pins_load_again_when_the_channel_pins_or_unpins() {
     let mut app = connected();
     let room = "discord:10:11".to_owned();
-    assert!(app.apply(Event::PinsChanged { room: room.clone() }).is_empty(), "none open");
+    assert!(
+        app.apply(Event::PinsChanged { room: room.clone() })
+            .is_empty(),
+        "none open"
+    );
     app.state.pins = Some(Pins {
         room: room.clone(),
         messages: Some(Ok(vec![])),
@@ -10402,8 +10413,16 @@ fn open_pins_load_again_when_the_channel_pins_or_unpins() {
         app.apply(Event::PinsChanged { room: room.clone() }).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::Pins { room: asked }))] if *asked == room
     ));
-    assert!(app.apply(Event::PinsChanged { room: "discord:10:12".into() }).is_empty());
-    assert!(app.state.pins.as_ref().unwrap().messages.is_some(), "kept until they come");
+    assert!(
+        app.apply(Event::PinsChanged {
+            room: "discord:10:12".into()
+        })
+        .is_empty()
+    );
+    assert!(
+        app.state.pins.as_ref().unwrap().messages.is_some(),
+        "kept until they come"
+    );
 }
 
 #[test]
@@ -10417,8 +10436,14 @@ fn the_window_coming_to_the_front_tells_discord_once_signed_in() {
     let mut app = Application::default();
     assert_eq!(foreground(&app.dispatch(Action::WindowFocused(true))), None);
     let mut app = connected();
-    assert_eq!(foreground(&app.dispatch(Action::WindowFocused(true))), Some(true));
-    assert_eq!(foreground(&app.dispatch(Action::WindowFocused(false))), Some(false));
+    assert_eq!(
+        foreground(&app.dispatch(Action::WindowFocused(true))),
+        Some(true)
+    );
+    assert_eq!(
+        foreground(&app.dispatch(Action::WindowFocused(false))),
+        Some(false)
+    );
 }
 
 #[test]
@@ -10493,7 +10518,15 @@ mod ownership;
 #[cfg(feature = "discord")]
 mod people;
 #[cfg(feature = "discord")]
+mod saved;
+#[cfg(feature = "discord")]
+mod select_menus;
+#[cfg(feature = "discord")]
 mod server_settings;
+#[cfg(feature = "discord")]
+mod slash;
+#[cfg(feature = "discord")]
+mod voice_messages;
 
 #[test]
 fn a_video_call_joins_then_turns_the_camera_on_once_connected_and_forgets_a_failed_join() {

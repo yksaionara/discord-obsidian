@@ -59,6 +59,8 @@ pub enum MenuChoice {
     ServerNickname,
     /// Give them roles or take them away, in a submenu of the server's.
     Roles,
+    /// The apps' user commands, in a submenu; see `slash.rs`.
+    Apps,
     Timeout,
     RemoveTimeout,
     Kick,
@@ -870,6 +872,9 @@ impl Application {
         self.state.forwarding = None;
         self.state.viewer = None;
         self.state.video = None;
+        // A recording goes with its channel, as does an open menu.
+        self.state.voice_recording = None;
+        self.state.select = None;
         self.state.profile = None;
         self.state.room_ready = self.state.preview || voice_room;
         self.state.loading_history = false;
@@ -995,6 +1000,9 @@ impl Application {
         self.state.forwarding = None;
         self.state.viewer = None;
         self.state.video = None;
+        // A recording goes with its channel, as does an open menu.
+        self.state.voice_recording = None;
+        self.state.select = None;
         self.state.room_ready = false;
         self.state.loading_history = false;
         self.state.history_start = false;
