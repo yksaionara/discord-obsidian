@@ -1,11 +1,9 @@
-- New: Voice settings laid out like Discord's: Input Profile (Voice Isolation, Studio, Custom), Automatically Adjust Input Sensitivity, Noise Suppression (DeepFilterNet, Standard, None), Echo Cancellation, and gain control that evens out friends who are too loud or too quiet. Show Advanced Voice Settings has Discord's extra options, including Global Attenuation and Quality of Service.
-- New: Discord's themes: Light, Ash, Dark and Onyx (pure black), 21 colour themes, and Sync with computer. The old themes are under More Themes.
-- New: slash commands, app pop-ups and the Apps menu, apps' select menus, voice messages, and bookmarks and reminders.
-- New: the voice panel shows Discord's words: RTC Connecting, Voice Connected, Video Connected.
-- Fixed: Go Live no longer gets stuck on starting. It connects right away, and stops with an error if it can't go live within 35 seconds.
-- Changed: Go Live goes up to 1440p and 360 fps, and the frame rate menu no longer gets cut off.
-- Fixed: Go Live keeps going when you turn your monitor off, change resolution, or a game in full screen switches the screen's mode, so sharing Valorant works.
-- New: watch several streams at once, each with its own mute button.
-- Fixed: quitting, Alt+F4 and Task Manager's End task take you out of the call right away.
-- Fixed: the Update button shows up in every window, and updates are found within about a minute.
-- New: Default at the top of the microphone and speaker lists, which follows your Windows default device.
+- New: the call bar is Discord's. The microphone and camera have carets that open their menus: switch your mic, speakers, input profile or camera, change volumes, see your mic level and deafen, all from the call. "..." has Invite to Voice and Grid View.
+- New: right-click a stream for Discord's stream menu: Stop Watching, Mute, Stream Volume and Stream Attenuation, which lowers streams while people talk.
+- New: someone's right-click menu in a call has Discord's User Volume slider and Discord's wording.
+- Fixed: the "not detecting any input from your mic" warning no longer shows for people who just aren't talking. It now follows Discord's rule.
+- Fixed: voices are no longer louder than on Discord. The mic processing now runs in Discord's order.
+- Changed: zooming into a stream with the wheel is smooth and slower, like Discord.
+- Changed: your screen no longer goes to sleep while you stream or watch a stream.
+- Changed: a message you send shows dimmed until it's sent, like Discord, and turns red if it fails.
+- New: the input sensitivity bar shows the dB value over its handle.
