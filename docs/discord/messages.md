@@ -840,11 +840,17 @@ It shows what Discord's forms hold: text inputs of one line or several
 (style 2), each in an action row labelled by itself or under a label
 (type 18) with its description, text displays (type 10) as Markdown,
 select menus (type 3) that open their options under them, radio groups
-(type 21), checkbox groups (type 22) and checkboxes (type 23). A required
-field's label has a red asterisk. A file upload or a user, role, mentionable
-or channel menu says it can't be filled in yet, and a required one keeps the
-form from going. Fields start with what the app gave them: a text input's
-value, the options marked `default`, a checkbox's default.
+(type 21), checkbox groups (type 22) and checkboxes (type 23), user, role,
+mentionable and channel menus (types 5 to 8) and file uploads (type 19). A
+required field's label has a red asterisk. A user, role, mentionable or
+channel menu lists the server's people, roles or channels as a message's
+select menu does, up to 50, channels of the kinds it names; Discord's has a
+search over them, which Discord Obsidian's doesn't yet. A file upload has
+Choose Files and names the files picked. A component Discord Obsidian
+doesn't know says it can't be filled in, and a required one keeps the form
+from going. Fields start with what the app gave them: a text input's value,
+the options marked `default`, a menu's `default_values`, a checkbox's
+default.
 
 Submit checks the fields first, with Discord's words under each: "This field
 is required.", "Must be between 3 and 40 in length." (a text input's length
@@ -856,7 +862,11 @@ and `custom_id` and its `components` in their places: an action row with
 its text input's `custom_id` and `value`, a label with its component, a
 text display as `{type: 10}`, a select menu or a checkbox group with its
 `values`, a radio group with its `value`, a checkbox with `value` true or
-false. While it goes, Submit says "Submitting..." and the fields can't
+false, a user, role, mentionable or channel menu with its ids as `values`,
+and a file upload with its files' places among the form's as `values`; the
+files upload first, as a message's do, and go in `data.attachments` by
+those places, `{id, filename, uploaded_filename}`, as Discord's client
+stages them (module 969508). While it goes, Submit says "Submitting..." and the fields can't
 change. INTERACTION_SUCCESS closes the form; INTERACTION_FAILURE, a refused
 request, or no answer within 10 s, as Discord's client waits, leaves it
 open with "Something went wrong. Try again." over the fields.
@@ -927,8 +937,16 @@ index gave it as `application_command`, and `attachments: []`. Values are
 checked first, with Discord's rules: a required option missing, a number
 outside its range or not whole, text too long or short, a choice that isn't
 one, and True or False. A mention written with `@` goes as the person's or
-role's id, `@everyone` as the server's. An attachment option says it can't
-be filled yet. The composer empties at once; the app's answer comes as a
+role's id, `@everyone` as the server's. A file option's bar has Choose
+File, which picks one file and writes its name in the option, spaces as
+underscores; Enter uploads it first, as a message's files go (`POST
+/channels/{id}/attachments`, then the signed `PUT`), and sends the option's
+value as the file's place among the command's files, with `data.attachments`
+of `{id, filename, uploaded_filename}` in that order, as Discord's client
+stages them (module 870801, web build 673764). A file option typed without
+a file picked says "Choose a file for image.", and the files are forgotten
+once the command goes. Each file is read whole before it uploads, as a
+message's are. The composer empties at once; the app's answer comes as a
 message, headed as Discord heads it, "Name used /command", from
 `interaction_metadata`. INTERACTION_FAILURE, or a request Discord refuses,
 says "This interaction failed." A `/word` no app offers goes as text, as in
@@ -961,9 +979,26 @@ modal or a message, headed "Name used Bookmark", without the slash a slash
 command's has: its `interaction_metadata` has `command_type` 2 or 3, and
 `target_user` or `target_message_id`.
 
-Discord nests the commands in a submenu per app and puts a search field
-and Frequently Used Commands over them; Discord Obsidian lists them in one
-submenu, as Discord's search lists its matches.
+As Discord's (module 173500 in web build 673764), the submenu starts with
+a "Search commands" field, then "Frequently Used Commands", with each
+command's app icon, then "Apps": each app's name and icon over its
+commands. Discord nests each app's commands in a submenu of its own;
+Discord Obsidian lists them under the app's name, in one submenu. Typing in the
+field lists up to 10 commands whose name or app match, those whose name
+starts with it first, or "No Commands Available"; the field keeps what's
+typed as the rows under it change.
+
+Frequently Used Commands ranks by Discord's counts,
+`FrecencyUserSettings.application_command_frecency` in the second settings
+protobuf: each command's uses, keyed by its id, or `id:server` for a
+server's own command run there, as Discord's client keys them. They come
+with the places' counts (one `GET /users/@me/settings-proto/2`) the first
+time an Apps menu or `/` asks for a room's commands, and again in
+USER_SETTINGS_PROTO_UPDATE when another client changes them. A command run
+here, from `/` or the menu, counts at once and again on top of counts that
+come later, as Discord's client counts until it saves its own; Discord
+Obsidian doesn't write them back. The list keeps up to 10 used lately,
+weighted by age as the places are.
 
 ## Notification settings
 

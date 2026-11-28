@@ -45,7 +45,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, Ga
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar, CommandRow, CommandChip, CommandBar, CommandList, CommandOptions } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoiceRecorder, VoiceRecorderBar, SelectMenus, SelectMenuPopup, Polls, Logged } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, StreamerModeSettings, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog, ModalRow, ModalChoice, ModalDialog } from "dialogs.slint";
@@ -1103,6 +1103,8 @@ export component ObsidianWindow inherits Window {
     callback modal-text(int, string);
     callback modal-pick(int, int);
     callback modal-menu(int);
+    /// A file field of the app's modal wants its files picked.
+    callback modal-files(int);
     callback submit-modal;
     callback close-modal;
     in-out property <string> poll-question;
@@ -2178,6 +2180,7 @@ export component ObsidianWindow inherits Window {
                 context-menu.close();
             }
             toggled(id) => { root.choose-menu(root.menu-target, root.menu-person, id); }
+            searched(text) => { root.search-apps(text); }
             close => { context-menu.close(); }
         }
     }
@@ -2461,6 +2464,19 @@ export component ObsidianWindow inherits Window {
     callback unsave(string);
     /// A row of a message's reminder submenu, by its id, for an item.
     callback choose-reminder(string, string);
+    // Discord's Streamer Mode: its settings, and its notice over the window.
+    in property <bool> streamer-enabled;
+    in property <bool> streamer-auto;
+    in property <bool> streamer-hide-personal;
+    in property <bool> streamer-hide-invites;
+    in property <bool> streamer-no-sounds;
+    in property <bool> streamer-no-notifications;
+    in property <bool> streamer-capture;
+    in property <bool> streamer-can-protect;
+    in property <bool> streamer-notice;
+    /// A switch of its settings flipped; see StreamerModeSettings.
+    callback streamer-changed(int, bool);
+    callback dismiss-streamer-notice;
     // A server folder's Folder Settings, from its menu; see FolderDialog.
     in property <bool> folder-settings-open;
     in property <string> folder-name;
@@ -2490,6 +2506,10 @@ export component ObsidianWindow inherits Window {
     callback custom-reminder-time-pick(int);
     callback save-custom-reminder;
     callback close-custom-reminder;
+    /// The slash command's option being typed takes a file: pick one.
+    callback choose-command-file;
+    /// What an Apps menu's search field holds, as it's typed.
+    callback search-apps(string);
     /// An app's command chosen from an Apps menu, by its row's id.
     callback run-app-command(string);
     call-link-menu := PopupWindow {
@@ -2604,6 +2624,7 @@ export component ObsidianWindow inherits Window {
                 apps-rows := MenuRows {
                     width: message-menu.apps-width;
                     rows: message-menu.side-rows; current: message-menu.apps-current;
+                    searched(text) => { root.search-apps(text); }
                     hovered(index) => { message-menu.apps-current = index; }
                     clicked(index) => {
                         if !message-menu.side-rows[index].disabled {
@@ -3301,6 +3322,35 @@ export component ObsidianWindow inherits Window {
                     spacing: 0px;
                     VerticalLayout {
                         spacing: 0px; horizontal-stretch: 1;
+                        // As Discord's notice: "Streamer Mode is enabled." with Disable.
+                        if root.streamer-notice: Rectangle {
+                            min-height: streamer-content.preferred-height; background: #593695; vertical-stretch: 0;
+                            accessible-role: groupbox; accessible-label: "Streamer Mode is enabled.";
+                            streamer-content := HorizontalLayout {
+                                padding-left: 16px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 12px;
+                                alignment: center;
+                                Text {
+                                    text: "Streamer Mode is enabled."; color: #ffffff; font-size: 14px; font-weight: 500;
+                                    vertical-alignment: center;
+                                }
+                                Middle {
+                                    Rectangle {
+                                        height: 24px; width: disable-text.preferred-width + 20px; border-radius: 4px;
+                                        border-width: 1px; border-color: #ffffff;
+                                        background: disable-touch.has-hover ? #ffffff26 : transparent;
+                                        accessible-role: button; accessible-label: "Disable";
+                                        accessible-action-default => { root.streamer-changed(0, false); }
+                                        disable-text := Text { text: "Disable"; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                        disable-touch := TouchArea { mouse-cursor: pointer; clicked => { root.streamer-changed(0, false); } }
+                                    }
+                                }
+                            }
+                            IconButton {
+                                x: parent.width - self.width - 8px; size: 24px; glyph: 16px; tint: #ffffff;
+                                icon: @image-url("icons/x.svg"); label: "Dismiss";
+                                clicked => { root.dismiss-streamer-notice(); }
+                            }
+                        }
                         if root.preview: Rectangle {
                             min-height: preview-content.preferred-height; background: Theme.raised; vertical-stretch: 0;
                             preview-content := HorizontalLayout {
@@ -4312,6 +4362,7 @@ export component ObsidianWindow inherits Window {
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
         bar: root.command-bar; chips: root.command-chips;
+        choose-file => { root.choose-command-file(); }
     }
     if (root.command-rows.length > 0 || root.command-note != "") && root.composer-enabled && !root.suggesting-aside: CommandList {
         x: composer-box.absolute-position.x;
@@ -4458,6 +4509,13 @@ export component ObsidianWindow inherits Window {
         }
         if root.settings-section == 42: GtaCountdown {
             tick => { return root.gta-tick(); }
+        }
+        if root.settings-section == 10: StreamerModeSettings {
+            enabled: root.streamer-enabled; auto: root.streamer-auto;
+            hide-personal: root.streamer-hide-personal; hide-invites: root.streamer-hide-invites;
+            no-sounds: root.streamer-no-sounds; no-notifications: root.streamer-no-notifications;
+            capture: root.streamer-capture; can-protect: root.streamer-can-protect;
+            changed(index, on) => { root.streamer-changed(index, on); }
         }
         if root.settings-section == 8: GameActivitySettings {
             game-mode <=> root.game-mode; gaming: root.gaming;
@@ -4930,6 +4988,7 @@ export component ObsidianWindow inherits Window {
         text-edited(index, text) => { root.modal-text(index, text); }
         picked(index, option) => { root.modal-pick(index, option); }
         menu(index) => { root.modal-menu(index); }
+        files(index) => { root.modal-files(index); }
         submit => { root.submit-modal(); }
         close => { root.close-modal(); }
     }

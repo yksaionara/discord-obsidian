@@ -565,10 +565,13 @@ pub(super) fn profile_data(
                 relation => friend_offer(relation),
             }
         },
+        // Streamer Mode hides connected accounts and notes, as Discord's
+        // "Hide my personal information" does.
         connections: ModelRc::new(VecModel::from(
             profile
                 .connections
                 .iter()
+                .filter(|_| !super::streamer_mode::hiding().personal)
                 .map(|connection| ProfileConnectionRow {
                     kind: connection.kind.as_str().into(),
                     name: connection.name.as_str().into(),
@@ -580,8 +583,14 @@ pub(super) fn profile_data(
         )),
         mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
         mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
-        note_text: profile.note.as_str().into(),
-        note_editable: !profile.id.starts_with('@') && state.relation(&profile.id) != Relation::Me,
+        note_text: if super::streamer_mode::hiding().personal {
+            SharedString::default()
+        } else {
+            profile.note.as_str().into()
+        },
+        note_editable: !profile.id.starts_with('@')
+            && state.relation(&profile.id) != Relation::Me
+            && !super::streamer_mode::hiding().personal,
         can_message: state
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message),

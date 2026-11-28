@@ -2581,6 +2581,8 @@ pub enum DiscordCommand {
         application: String,
         data: serde_json::Value,
         nonce: String,
+        /// The files its file fields hold, in their order.
+        files: Vec<PathBuf>,
     },
     /// Runs an app's slash command in a Discord room, with the interaction's
     /// `data`; the app answers in the room, and a failure shows as the
@@ -2589,6 +2591,8 @@ pub enum DiscordCommand {
         room: String,
         application: String,
         data: serde_json::Value,
+        /// The files its file options carry, in their order.
+        files: Vec<PathBuf>,
     },
     /// Accept a Discord message request, or ignore it.
     AnswerRequest {
@@ -3812,6 +3816,10 @@ pub enum Event {
     /// The Discord servers and channels the account used, by id, as fetched
     /// or as another client counted them; or why they couldn't be fetched.
     PlacesUsed(Result<Vec<(String, PlaceUses)>, String>),
+    /// The apps' commands the Discord account used, by Discord's client's
+    /// key for each, as its clients counted them; with the places, after
+    /// [`DiscordCommand::PlacesUsed`], or when another client changed them.
+    CommandsUsed(Vec<(String, PlaceUses)>),
     /// The account's favourite emoji and the emoji it uses, as fetched or as
     /// another client changed them.
     DiscordEmojis(DiscordEmojis),

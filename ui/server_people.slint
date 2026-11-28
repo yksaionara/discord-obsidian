@@ -75,6 +75,8 @@ export struct InviteRow {
 /// What Invites shows.
 export struct InvitesPrompt {
     rows: [InviteRow],
+    /// Streamer Mode hides the codes.
+    hide-codes: bool,
     /// The second the rows' countdowns count from. Rows change in place, so
     /// this is what makes the prompt differ and their ticks start again.
     counted: int,
@@ -359,7 +361,7 @@ export component InvitesSection inherits VerticalLayout {
                         }
                     }
                 }
-                Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 3; text: invite.code; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
+                Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 3; text: root.page.hide-codes ? "Hidden" : invite.code; color: root.page.hide-codes ? Theme.muted : Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
                 Text { preferred-width: 0px; min-width: 0px; horizontal-stretch: 1; text: invite.uses; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; }
                 Countdown {
                     preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; color: Theme.text; font-size: 14px; vertical-alignment: center;

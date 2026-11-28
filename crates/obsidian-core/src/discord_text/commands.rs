@@ -815,6 +815,11 @@ pub fn live(
         let _ = events.send(Event::PlacesUsed(Ok(places)));
         return;
     }
+    if let Ok(Live::CommandsUsed(commands)) = &event {
+        let commands = account::places_used(commands.clone());
+        let _ = events.send(Event::CommandsUsed(commands));
+        return;
+    }
     if let Ok(Live::Emojis(emojis)) = &event {
         let _ = events.send(Event::DiscordEmojis(account::emojis(emojis.clone())));
         return;

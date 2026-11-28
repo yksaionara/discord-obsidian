@@ -575,17 +575,35 @@ impl Invocation<'_> {
             return Err(format!("Fill in the required option {}.", option.name));
         }
         let mut options = Vec::new();
+        // A file's value is its place among the files the command carries,
+        // as Discord's client numbers them in `attachments`.
+        let mut files = 0;
         for (option, text) in &self.given {
             if text.is_empty() {
                 continue;
             }
+            let value = if option.kind == kind::ATTACHMENT {
+                files += 1;
+                json!(files - 1)
+            } else {
+                value(option, text, guild, suggested(&option.name))?
+            };
             options.push(json!({
                 "type": option.kind,
                 "name": option.untranslated,
-                "value": value(option, text, guild, suggested(&option.name))?,
+                "value": value,
             }));
         }
         Ok(self.nest(options))
+    }
+
+    /// The names of the file options given, in the order their files go.
+    pub fn file_options(&self) -> Vec<&str> {
+        self.given
+            .iter()
+            .filter(|(option, text)| option.kind == kind::ATTACHMENT && !text.is_empty())
+            .map(|(option, _)| option.name.as_str())
+            .collect()
     }
 
     /// `options` inside the subcommand and group chosen.
@@ -851,10 +869,8 @@ fn value(
                 .map(|id| json!(id))
                 .ok_or_else(invalid)
         }
-        kind::ATTACHMENT => Err(format!(
-            "{} takes a file, which Discord Obsidian can't attach to commands yet.",
-            option.name
-        )),
+        // Its file goes as the command's attachment; see `wire_options_with`.
+        kind::ATTACHMENT => Ok(json!(0)),
         _ => Err(invalid()),
     }
 }

@@ -305,11 +305,13 @@ pub(super) fn live_events(
             let proto = data["settings"]["proto"].as_str().unwrap_or_default();
             let favorites = crate::gifs::read_favorites(proto).map(Live::FavoriteGifs);
             let places = crate::frecency::read_places(proto).map(Live::PlacesUsed);
+            let commands = crate::frecency::read_commands(proto).map(Live::CommandsUsed);
             let sounds = crate::soundboard::read_favorites(proto).map(Live::FavoriteSounds);
             let emojis = crate::frecency::read_emojis(proto).map(Live::Emojis);
             favorites
                 .into_iter()
                 .chain(places)
+                .chain(commands)
                 .chain(sounds)
                 .chain(emojis)
                 .collect()

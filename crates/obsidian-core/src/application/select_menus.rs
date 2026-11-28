@@ -221,6 +221,34 @@ impl Application {
         }
     }
 
+    /// The people, roles or channels of `room` a menu of `kind` offers, as
+    /// a message's select menu lists them, `picked` marked.
+    pub(super) fn entity_choices(
+        &self,
+        room: &str,
+        kind: SelectKind,
+        channel_types: &[u64],
+        picked: &[String],
+    ) -> Vec<SelectChoice> {
+        let open = OpenSelect {
+            room: room.to_owned(),
+            item: String::new(),
+            menu: Arc::new(SelectMenu {
+                kind,
+                custom_id: String::new(),
+                options: Vec::new(),
+                defaults: Vec::new(),
+                channel_types: channel_types.to_vec(),
+                min: 0,
+                max: 1,
+            }),
+            picked: picked.to_vec(),
+            opened_with: Vec::new(),
+            query: String::new(),
+        };
+        self.select_choices_of(&open, false)
+    }
+
     fn select_choices_of(&self, open: &OpenSelect, searched: bool) -> Vec<SelectChoice> {
         let query = if searched {
             open.query.trim().to_lowercase()

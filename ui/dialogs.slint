@@ -1041,7 +1041,7 @@ export struct ModalChoice { label: string, description: string, chosen: bool }
 export struct ModalRow {
     // 0 a line of text, 1 a paragraph, 2 a select menu, 3 a radio group,
     // 4 a checkbox group, 5 a checkbox, 6 text it shows, 7 a field Discord
-    // Obsidian can't fill in.
+    // Obsidian can't fill in, 8 files to upload, `value` naming them.
     kind: int,
     label: string, description: string, required: bool,
     placeholder: string, value: string,
@@ -1104,6 +1104,8 @@ export component ModalDialog inherits Rectangle {
     callback text-edited(int, string);
     callback picked(int, int);
     callback menu(int);
+    /// A file field's Choose Files, by its place.
+    callback files(int);
     callback submit;
     callback close;
     in property <float> motion: 1;
@@ -1217,6 +1219,19 @@ export component ModalDialog inherits Rectangle {
                             if row.kind == 7: Text {
                                 text: "Discord Obsidian can't fill in this field yet.";
                                 color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                            }
+                            if row.kind == 8: HorizontalLayout {
+                                spacing: 10px; alignment: start;
+                                ActionButton {
+                                    small: true; text: "Choose Files"; icon: @image-url("icons/file.svg");
+                                    enabled: !root.sending;
+                                    clicked => { root.files(index); }
+                                }
+                                Text {
+                                    text: row.value != "" ? row.value : "No files chosen";
+                                    color: row.value != "" ? Theme.text : Theme.muted; font-size: 14px;
+                                    vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                                }
                             }
                             if row.problem != "": Text { text: row.problem; color: Theme.danger; font-size: 13px; wrap: word-wrap; }
                         }

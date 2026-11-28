@@ -44,12 +44,13 @@ pub(super) fn command(
             application,
             data,
             nonce,
+            files,
         }) => {
             if channels.submitting.len() >= super::channels::KEPT_PRESSES {
                 channels.submitting.pop_front();
             }
             channels.submitting.push_back(nonce.clone());
-            submit(room, application, data, nonce, discord, events);
+            submit(room, application, data, nonce, files, discord, events);
             None
         }
         Command::Discord(DiscordCommand::Suggest {
@@ -77,8 +78,9 @@ pub(super) fn command(
             room,
             application,
             data,
+            files,
         }) => {
-            run(room, application, data, discord, done, events);
+            run(room, application, data, files, discord, done, events);
             None
         }
         other => Some(other),
@@ -229,6 +231,7 @@ fn submit(
     application: String,
     data: serde_json::Value,
     nonce: String,
+    files: Vec<std::path::PathBuf>,
     discord: Result<&Discord, &str>,
     events: &UnboundedSender<Event>,
 ) {
@@ -243,10 +246,28 @@ fn submit(
     let guild = (guild != obsidian_discord::ready::PRIVATE).then(|| guild.to_owned());
     let (discord, events, channel) = (discord.clone(), events.clone(), channel.to_owned());
     tokio::spawn(async move {
-        if let Err(error) = discord
-            .submit_modal(guild.as_deref(), &channel, &application, data, &nonce)
-            .await
-        {
+        let submitted = if files.is_empty() {
+            discord
+                .submit_modal(guild.as_deref(), &channel, &application, data, &nonce)
+                .await
+        } else {
+            match read_files(&files).await {
+                Ok(read) => {
+                    discord
+                        .submit_modal_with_files(
+                            guild.as_deref(),
+                            &channel,
+                            &application,
+                            data,
+                            &nonce,
+                            read,
+                        )
+                        .await
+                }
+                Err(error) => Err(error),
+            }
+        };
+        if let Err(error) = submitted {
             tracing::debug!(%error, "could not submit an app's modal");
             let _ = events.send(failed(nonce));
             return;
@@ -261,6 +282,7 @@ fn run(
     room: String,
     application: String,
     data: serde_json::Value,
+    files: Vec<std::path::PathBuf>,
     discord: Result<&Discord, &str>,
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
@@ -273,9 +295,26 @@ fn run(
     let guild = (guild != obsidian_discord::ready::PRIVATE).then(|| guild.to_owned());
     let (discord, done, channel) = (discord.clone(), done.clone(), channel.to_owned());
     tokio::spawn(async move {
-        let ran = discord
-            .run_command(guild.as_deref(), &channel, &application, data)
-            .await;
+        let ran = if files.is_empty() {
+            discord
+                .run_command(guild.as_deref(), &channel, &application, data)
+                .await
+        } else {
+            match read_files(&files).await {
+                Ok(read) => {
+                    discord
+                        .run_command_with_files(
+                            guild.as_deref(),
+                            &channel,
+                            &application,
+                            data,
+                            read,
+                        )
+                        .await
+                }
+                Err(error) => Err(error),
+            }
+        };
         let _ = done.send(match ran {
             Ok(nonce) => Done::Pressed { room, nonce },
             Err(error) => Done::Failed {
@@ -284,4 +323,21 @@ fn run(
             },
         });
     });
+}
+
+/// Files picked for a command or a form, each read whole by name, as a
+/// message's are before they upload.
+async fn read_files(files: &[std::path::PathBuf]) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    let mut read = Vec::with_capacity(files.len());
+    for path in files {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "file".into());
+        let bytes = tokio::fs::read(path)
+            .await
+            .map_err(|error| anyhow::anyhow!("couldn't read {name}: {error}"))?;
+        read.push((name, bytes));
+    }
+    Ok(read)
 }

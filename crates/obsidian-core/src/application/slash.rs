@@ -7,6 +7,8 @@ use obsidian_discord::app_commands::{self, BuiltIn, Choice, CommandIndex, Comman
 
 use crate::chat::Suggested;
 
+use std::path::PathBuf;
+
 use super::*;
 
 /// How many commands the list holds; the window shows some at a time.
@@ -39,7 +41,19 @@ pub struct Slash {
     last_suggested: HashMap<(String, String), Vec<Choice>>,
     /// What the selected room's composer shows above it.
     pub shown: Option<Shown>,
+    /// The apps' commands this account used, by Discord's client's key for
+    /// each, as its clients counted them, with this session's uses added;
+    /// Frequently Used Commands ranks them.
+    used: HashMap<String, chat::PlaceUses>,
+    /// This session's uses, added again to the counts when they come.
+    used_here: Vec<(String, u64)>,
+    /// The files picked for file options, by room and option name.
+    files: HashMap<(String, String), PathBuf>,
 }
+
+/// The most commands Discord's Apps menu lists under Frequently Used
+/// Commands, and as matches of its search.
+pub const MENU_COMMANDS_SHOWN: usize = 10;
 
 /// An app's suggestions for one option of one command in one room, with
 /// the other options as typed, by the text typed for it.
@@ -104,6 +118,8 @@ pub struct OptionsBar {
     /// Instead of choices: the app's suggestions are on their way, or
     /// didn't come.
     pub note: Option<String>,
+    /// The option being typed takes a file, which a file picker chooses.
+    pub takes_file: bool,
 }
 
 /// What an Apps menu lists: nothing yet while the room's commands load,
@@ -120,6 +136,18 @@ pub struct MenuCommand {
     pub name: String,
     pub app: String,
     pub icon: Option<String>,
+}
+
+/// An Apps menu as Discord's client lays it out: with nothing searched,
+/// Frequently Used Commands, then each app with its commands; searched, the
+/// commands whose name or app match.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AppsLayout {
+    pub frequent: Vec<MenuCommand>,
+    /// Each app's name and icon, and its commands, in the menu's order.
+    pub apps: Vec<(String, Option<String>, Vec<MenuCommand>)>,
+    /// What matched the search, while there is one.
+    pub found: Option<Vec<MenuCommand>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -387,7 +415,19 @@ impl Application {
                 return Some(vec![]);
             }
         };
+        let mut files = Vec::new();
+        for option in invocation.file_options() {
+            match slash.files.get(&(room.to_owned(), option.to_owned())) {
+                Some(path) => files.push(path.clone()),
+                None => {
+                    self.state.notice = Some(format!("Choose a file for {option}."));
+                    return Some(vec![]);
+                }
+            }
+        }
         let application = command.application_id.clone();
+        let (command_id, command_guild) = (command.id.clone(), command.guild_id.clone());
+        self.command_used(room, &command_id, command_guild.as_deref());
         self.state.notice = None;
         self.state.drafts.remove(room);
         self.state.slash.picked.remove(room);
@@ -395,6 +435,7 @@ impl Application {
             .slash
             .last_suggested
             .retain(|(known, _), _| known != room);
+        self.state.slash.files.retain(|(known, _), _| known != room);
         self.state.slash.suggestions = None;
         self.state.slash.made_from = None;
         Some(vec![
@@ -406,6 +447,7 @@ impl Application {
                 room: room.to_owned(),
                 application,
                 data,
+                files,
             })),
         ])
     }
@@ -459,9 +501,130 @@ impl Application {
         )
     }
 
+    /// The Apps menu of `kind` in `room` laid out as Discord's is, for a
+    /// search; none while its commands load.
+    pub fn apps_layout(&self, room: &str, kind: u64, query: &str) -> Option<AppsLayout> {
+        let AppsMenu::Commands(commands) = self.apps_menu(room, kind) else {
+            return None;
+        };
+        let query = query.trim().to_lowercase();
+        if !query.is_empty() {
+            let mut found: Vec<MenuCommand> = commands
+                .into_iter()
+                .filter(|command| {
+                    command.name.to_lowercase().contains(&query)
+                        || command.app.to_lowercase().contains(&query)
+                })
+                .collect();
+            // Names starting with what's typed first, as a search ranks them.
+            found.sort_by_key(|command| !command.name.to_lowercase().starts_with(&query));
+            found.truncate(MENU_COMMANDS_SHOWN);
+            return Some(AppsLayout {
+                found: Some(found),
+                ..AppsLayout::default()
+            });
+        }
+        let guild = discord::parse_room(room)
+            .map(|(guild, _)| guild)
+            .filter(|guild| *guild != discord::DM_GUILD);
+        let index = self.state.slash.indexes.get(room);
+        let now = crate::clock::now_ms();
+        let mut frequent: Vec<(u32, MenuCommand)> = commands
+            .iter()
+            .filter_map(|command| {
+                let known = index?.menu.iter().find(|known| known.id == command.id)?;
+                let key = command_key(&known.id, known.guild_id.as_deref(), guild);
+                let uses = self.state.slash.used.get(&key)?;
+                let score = super::place_search::frecency(uses, now);
+                (score > 0).then(|| (score, command.clone()))
+            })
+            .collect();
+        frequent.sort_by(|a, b| b.0.cmp(&a.0));
+        frequent.truncate(MENU_COMMANDS_SHOWN);
+        let mut apps: Vec<(String, Option<String>, Vec<MenuCommand>)> = Vec::new();
+        for command in commands {
+            match apps.last_mut() {
+                Some((app, _, listed)) if *app == command.app => listed.push(command),
+                _ => apps.push((command.app.clone(), command.icon.clone(), vec![command])),
+            }
+        }
+        Some(AppsLayout {
+            frequent: frequent.into_iter().map(|(_, command)| command).collect(),
+            apps,
+            found: None,
+        })
+    }
+
+    /// The apps' commands used, as Discord's clients counted them, with this
+    /// session's added again.
+    pub(super) fn commands_used(&mut self, used: Vec<(String, chat::PlaceUses)>) {
+        let slash = &mut self.state.slash;
+        slash.used = used.into_iter().collect();
+        for (key, at) in &slash.used_here {
+            super::place_search::track(&mut slash.used, key, *at);
+        }
+    }
+
+    /// Counts a command run in `room`, for Frequently Used.
+    fn command_used(&mut self, room: &str, id: &str, guild_id: Option<&str>) {
+        let guild = discord::parse_room(room)
+            .map(|(guild, _)| guild)
+            .filter(|guild| *guild != discord::DM_GUILD);
+        let key = command_key(id, guild_id, guild);
+        let now = crate::clock::now_ms();
+        let slash = &mut self.state.slash;
+        slash.used_here.push((key.clone(), now));
+        super::place_search::track(&mut slash.used, &key, now);
+    }
+
+    /// A file picked for the option being typed in the selected room's
+    /// command: it goes with the command, and the composer names it, as
+    /// Discord's shows the file in the option. Returns the composer's text.
+    pub fn attach_command_file(&mut self, path: PathBuf) -> Option<String> {
+        let room = self.state.selected.clone()?;
+        let draft = self.state.drafts.get(&room).cloned().unwrap_or_default();
+        let index = self.state.slash.indexes.get(&room).cloned()?;
+        let picked = self.state.slash.picked.get(&room).map(String::as_str);
+        let command = app_commands::find(&index.commands, &draft, picked)?;
+        let invocation = app_commands::read(command, &draft);
+        let option = invocation
+            .current()
+            .filter(|option| option.kind == app_commands::kind::ATTACHMENT)?;
+        let name = path
+            .file_name()?
+            .to_string_lossy()
+            .replace(char::is_whitespace, "_");
+        let typed = invocation
+            .given
+            .last()
+            .filter(|(known, _)| known.name == option.name)
+            .map_or("", |(_, value)| value.as_str());
+        let (_, text) = inserts(
+            &draft,
+            &option.name,
+            typed,
+            std::iter::once(name.as_str()),
+            false,
+        )
+        .into_iter()
+        .next()?;
+        self.state
+            .slash
+            .files
+            .insert((room.clone(), option.name.clone()), path);
+        Some(text)
+    }
+
     /// Asks for a room's commands, as an Apps menu opening does, unless
     /// they came or are on their way.
     pub(super) fn load_commands(&mut self, room: String) -> Vec<Effect> {
+        // Frequently Used ranks by the counts the places' come with.
+        let mut effects = self.ask_places_used();
+        effects.extend(self.load_room_commands(room));
+        effects
+    }
+
+    fn load_room_commands(&mut self, room: String) -> Vec<Effect> {
         let slash = &mut self.state.slash;
         if Network::of(&room) != Network::Discord
             || slash.indexes.contains_key(&room)
@@ -491,13 +654,26 @@ impl Application {
         else {
             return vec![];
         };
+        let (application, data) = (command.application_id.clone(), command.target_data(target));
+        let (id, guild_id) = (command.id.clone(), command.guild_id.clone());
+        self.command_used(room, &id, guild_id.as_deref());
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::RunCommand {
                 room: room.to_owned(),
-                application: command.application_id.clone(),
-                data: command.target_data(target),
+                application,
+                data,
+                files: Vec::new(),
             },
         ))]
+    }
+}
+
+/// Discord's client's key for a command's uses: its id, and the server's
+/// with it for a command of one server's own run there.
+fn command_key(id: &str, command_guild: Option<&str>, guild: Option<&str>) -> String {
+    match (command_guild, guild) {
+        (Some(_), Some(guild)) => format!("{id}:{guild}"),
+        _ => id.to_owned(),
     }
 }
 
@@ -542,6 +718,7 @@ fn shown(
             choices: Vec::new(),
             choices_heading: String::new(),
             note: None,
+            takes_file: false,
         }));
     }
     let index = index?;
@@ -607,6 +784,7 @@ fn shown(
         choices_heading: choices_heading(typed),
         choices,
         note: None,
+        takes_file: current.is_some_and(|option| option.kind == app_commands::kind::ATTACHMENT),
     }))
 }
 

@@ -55,6 +55,9 @@
 - **Game Mode** (Settings → Game activity, on by default). While a game
   runs, only calls, mentions and DMs make a sound or a notification, GIFs and
   animations pause, and the app hands memory back to Windows for your game.
+- **Streamer Mode** (Settings → Streamer Mode), as Discord's: it hides your
+  personal details and invite links and keeps sounds and notifications quiet,
+  and turns itself on while OBS or XSplit runs.
 - **Desktop notifications on Windows**, held back by Focus Assist and
   full-screen games, and clicking one opens the conversation.
 - **Go Live at 1080p 144 and 240 fps.** Sharing a 1568×1080 screen on an

@@ -446,6 +446,9 @@ pub enum Live {
     /// The servers and channels this account used, as another client counted
     /// them; see [`crate::frecency`].
     PlacesUsed(Vec<(String, crate::frecency::Uses)>),
+    /// The apps' commands this account used, as its clients counted them;
+    /// see [`crate::frecency::read_commands`].
+    CommandsUsed(Vec<(String, crate::frecency::Uses)>),
     /// The account's favourite emoji and the emoji it uses, as another
     /// client changed them; see [`crate::frecency::Emojis`].
     Emojis(crate::frecency::Emojis),
@@ -2267,6 +2270,28 @@ impl Discord {
         Ok(nonce)
     }
 
+    /// Runs a slash command that carries files, given as their names and
+    /// contents: they upload first, as a message's do, and go in `data`'s
+    /// `attachments` by their place, `{id, filename, uploaded_filename}`, as
+    /// Discord's client stages them. Uploads the command didn't take are
+    /// thrown away.
+    pub async fn run_command_with_files(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        application: &str,
+        mut data: Value,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<String> {
+        let uploads = self.upload(channel, files).await?;
+        data["attachments"] = attachments(&uploads);
+        let ran = self.run_command(guild, channel, application, data).await;
+        if ran.is_err() {
+            self.discard(&uploads).await;
+        }
+        ran
+    }
+
     /// Asks an app for suggestions for the option being typed
     /// (`POST /interactions`, type 4), with the `data`
     /// [`crate::app_commands::Invocation::suggestion_request`] made and a
@@ -2308,6 +2333,30 @@ impl Discord {
     /// [`crate::modal::Modal::data`] made and a `nonce` from
     /// [`crate::message::nonce`], as Discord's client does.
     /// [`Live::Interaction`] says whether the app took it.
+    /// Submits a form whose file fields hold files, given as their names
+    /// and contents: they upload first and go in `data`'s `attachments` by
+    /// their place, as Discord's client stages them; uploads the form didn't
+    /// take are thrown away.
+    pub async fn submit_modal_with_files(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        application: &str,
+        mut data: Value,
+        nonce: &str,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<()> {
+        let uploads = self.upload(channel, files).await?;
+        data["attachments"] = attachments(&uploads);
+        let submitted = self
+            .submit_modal(guild, channel, application, data, nonce)
+            .await;
+        if submitted.is_err() {
+            self.discard(&uploads).await;
+        }
+        submitted
+    }
+
     pub async fn submit_modal(
         &self,
         guild: Option<&str>,
@@ -2411,8 +2460,22 @@ impl Discord {
     /// The servers and channels this account used, by id, as Discord's
     /// clients counted them; see [`crate::frecency`].
     pub async fn places_used(&self) -> Result<Vec<(String, crate::frecency::Uses)>> {
+        Ok(self.places_and_commands_used().await?.0)
+    }
+
+    /// The places and the apps' commands this account used, which the same
+    /// settings hold: one request for both.
+    pub async fn places_and_commands_used(
+        &self,
+    ) -> Result<(
+        Vec<(String, crate::frecency::Uses)>,
+        Vec<(String, crate::frecency::Uses)>,
+    )> {
         let settings = self.api.frecency_settings().await?;
-        Ok(crate::frecency::read_places(&settings).unwrap_or_default())
+        Ok((
+            crate::frecency::read_places(&settings).unwrap_or_default(),
+            crate::frecency::read_commands(&settings).unwrap_or_default(),
+        ))
     }
 
     /// Keeps `favorites` as the account's favourite GIFs, in place of the old.
@@ -3834,4 +3897,22 @@ fn overwrite_body(overwrite: &ready::Overwrite) -> Value {
         "allow": overwrite.allow.to_string(),
         "deny": overwrite.deny.to_string(),
     })
+}
+
+/// Uploads as an interaction's `attachments`: each by its place, as Discord's
+/// client stages them.
+fn attachments(uploads: &[crate::api::Upload]) -> Value {
+    Value::Array(
+        uploads
+            .iter()
+            .enumerate()
+            .map(|(index, upload)| {
+                json!({
+                    "id": index.to_string(),
+                    "filename": upload.filename,
+                    "uploaded_filename": upload.uploaded_filename,
+                })
+            })
+            .collect(),
+    )
 }

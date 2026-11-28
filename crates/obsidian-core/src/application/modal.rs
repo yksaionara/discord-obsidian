@@ -1,7 +1,9 @@
 //! Apps' modals: the form an app opens in answer to a slash command or a
 //! button, filled in and submitted as in Discord's client.
 
-use obsidian_discord::modal::{Answer, Field, Modal};
+use obsidian_discord::modal::{self as modal_kinds, Answer, Field, Modal};
+
+use std::path::PathBuf;
 
 use super::*;
 
@@ -63,9 +65,51 @@ impl Application {
             form.modal.items.get(index).map(|item| &item.field),
             form.answers.get_mut(index),
         ) {
-            (Some(Field::Choice { options, max, .. }), Some(Answer::Chosen(chosen))) => {
-                let Some(value) = options.get(option).map(|option| option.value.clone()) else {
+            (
+                Some(Field::Choice {
+                    kind,
+                    options,
+                    max,
+                    channel_types,
+                    ..
+                }),
+                Some(Answer::Chosen(chosen)),
+            ) => {
+                let value = if let Some(kind) = entity_kind(*kind) {
+                    let room = form.room.clone();
+                    let (types, picked) = (channel_types.clone(), chosen.clone());
+                    let listed = self.entity_choices(&room, kind, &types, &picked);
+                    let Some(value) = listed.get(option).map(|choice| choice.value.clone()) else {
+                        return vec![];
+                    };
+                    // The borrow of the form went with the listing.
+                    let Some(form) = &mut self.state.modal else {
+                        return vec![];
+                    };
+                    let (Some(Answer::Chosen(chosen)), max) = (
+                        form.answers.get_mut(index),
+                        match form.modal.items.get(index).map(|item| &item.field) {
+                            Some(Field::Choice { max, .. }) => *max,
+                            _ => 1,
+                        },
+                    ) else {
+                        return vec![];
+                    };
+                    if max <= 1 {
+                        *chosen = vec![value];
+                        form.open = None;
+                    } else if let Some(at) = chosen.iter().position(|known| *known == value) {
+                        chosen.remove(at);
+                    } else if chosen.len() < max {
+                        chosen.push(value);
+                    }
+                    form.problems[index] = None;
                     return vec![];
+                } else {
+                    let Some(value) = options.get(option).map(|option| option.value.clone()) else {
+                        return vec![];
+                    };
+                    value
                 };
                 if *max <= 1 {
                     *chosen = vec![value];
@@ -83,6 +127,43 @@ impl Application {
             }
             (Some(Field::Checkbox { .. }), Some(Answer::Checked(checked))) => *checked = !*checked,
             _ => {}
+        }
+        vec![]
+    }
+
+    /// The people, roles or channels a user, role, mentionable or channel
+    /// menu of the form offers, by its field; none for another field.
+    pub fn modal_entities(&self, index: usize) -> Vec<SelectChoice> {
+        let Some(form) = &self.state.modal else {
+            return vec![];
+        };
+        match (
+            form.modal.items.get(index).map(|item| &item.field),
+            form.answers.get(index),
+        ) {
+            (
+                Some(Field::Choice {
+                    kind,
+                    channel_types,
+                    ..
+                }),
+                Some(Answer::Chosen(chosen)),
+            ) => match entity_kind(*kind) {
+                Some(kind) => self.entity_choices(&form.room, kind, channel_types, chosen),
+                None => vec![],
+            },
+            _ => vec![],
+        }
+    }
+
+    /// Files picked for a file field, in place of those it held.
+    pub(super) fn modal_files(&mut self, index: usize, files: Vec<PathBuf>) -> Vec<Effect> {
+        if let Some(form) = &mut self.state.modal
+            && form.sending.is_none()
+            && let Some(answer @ Answer::Files(_)) = form.answers.get_mut(index)
+        {
+            *answer = Answer::Files(files);
+            form.problems[index] = None;
         }
         vec![]
     }
@@ -117,6 +198,7 @@ impl Application {
                 application: form.modal.app_id.clone(),
                 data: form.modal.data(&form.answers),
                 nonce,
+                files: form.modal.files(&form.answers),
             },
         ))]
     }
@@ -142,4 +224,16 @@ impl Application {
             form.error = Some(FAILED.into());
         }
     }
+}
+
+/// What a user, role, mentionable or channel menu picks from, by Discord's
+/// number; none for another field.
+fn entity_kind(kind: u64) -> Option<chat::SelectKind> {
+    Some(match kind {
+        modal_kinds::USER_SELECT => chat::SelectKind::User,
+        modal_kinds::ROLE_SELECT => chat::SelectKind::Role,
+        modal_kinds::MENTIONABLE_SELECT => chat::SelectKind::Mentionable,
+        modal_kinds::CHANNEL_SELECT => chat::SelectKind::Channel,
+        _ => return None,
+    })
 }

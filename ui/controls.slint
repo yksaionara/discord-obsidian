@@ -1133,6 +1133,8 @@ export component MenuRows inherits VerticalLayout {
     in-out property <int> slider-value: 100;
     /// It moved, and whether it was the last of a drag.
     callback slid(int, bool);
+    /// A search row's text changed; see the rows below.
+    callback searched(string);
     callback hovered(int);
     callback clicked(int);
     /// A row became the current one: which, how far down the window, and
@@ -1155,7 +1157,23 @@ export component MenuRows inherits VerticalLayout {
                 committed(volume) => { root.slid(volume, true); }
             }
         }
-        if row.id != "user-volume": MenuItem {
+        // A row whose id is "menu-search" is a search field, its text the
+        // placeholder, as Discord's Apps menu has over its commands; one
+        // whose id is "menu-heading" is a group's label.
+        if row.id == "menu-search": HorizontalLayout {
+            padding-left: 2px; padding-right: 2px; padding-bottom: 2px;
+            TextField {
+                placeholder: row.text; label: row.text; text-size: 14px; min-height: 32px; pad: 8px;
+                trailing-icon: @image-url("icons/search.svg");
+                edited(text) => { root.searched(text); }
+            }
+        }
+        if row.id == "menu-heading": Text {
+            height: 24px; text: row.text; color: Theme.muted; font-size: 12px; font-weight: 700;
+            vertical-alignment: center; overflow: elide;
+            accessible-role: text;
+        }
+        if row.id != "user-volume" && row.id != "menu-search" && row.id != "menu-heading": MenuItem {
             text: row.text; subtitle: row.subtitle; icon: row.icon; danger: row.danger;
             checkbox: row.checkbox; checked: row.checked; disabled: row.disabled; plain: row.plain;
             picture: row.picture; initial: row.initial; trailing: row.trailing;
@@ -1215,6 +1233,8 @@ export component ContextMenu inherits Rectangle {
     callback chose(string);
     callback toggled(string);
     callback close;
+    /// A submenu's search row's text changed.
+    callback searched(string);
     property <int> current: -1;
     // The submenu: whether it's open, how far down, and its current choice,
     // -1 while the keys move through the menu.
@@ -1349,6 +1369,7 @@ export component ContextMenu inherits Rectangle {
             sub := MenuRows {
                 width: root.submenu-width;
                 rows: root.subrows; current: root.sub-current;
+                searched(text) => { root.searched(text); }
                 hovered(index) => { root.sub-current = index; }
                 clicked(index) => { root.pick(root.subrows[index]); }
                 lit(index, y, height) => {

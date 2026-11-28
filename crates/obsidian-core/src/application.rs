@@ -114,7 +114,10 @@ pub use server_settings::{
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
 #[cfg(feature = "discord")]
-pub use slash::{AppsMenu, CommandRow, MenuCommand, OptionChip, OptionsBar, Shown as SlashShown};
+pub use slash::{
+    AppsLayout, AppsMenu, CommandRow, MENU_COMMANDS_SHOWN, MenuCommand, OptionChip, OptionsBar,
+    Shown as SlashShown,
+};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
     default_thread_name,
@@ -1519,6 +1522,8 @@ pub enum Action {
     ModalPick(usize, usize),
     /// A select menu of the app's modal was opened or closed.
     ModalMenu(Option<usize>),
+    /// Files picked for a file field of the app's modal, by its place.
+    ModalFiles(usize, Vec<PathBuf>),
     SubmitModal,
     CloseModal,
     /// Open the dialog for starting a DM, look for people in it, start one, or close it.
@@ -3083,6 +3088,8 @@ impl Application {
             #[cfg(feature = "discord")]
             Action::ModalMenu(index) => self.modal_menu(index),
             #[cfg(feature = "discord")]
+            Action::ModalFiles(index, files) => self.modal_files(index, files),
+            #[cfg(feature = "discord")]
             Action::SubmitModal => self.submit_modal(),
             #[cfg(feature = "discord")]
             Action::CloseModal => self.close_modal(),
@@ -3095,6 +3102,7 @@ impl Application {
             | Action::ModalText(..)
             | Action::ModalPick(..)
             | Action::ModalMenu(_)
+            | Action::ModalFiles(..)
             | Action::SubmitModal
             | Action::CloseModal => vec![],
             Action::SetDraft(body) => self.set_draft(body),
@@ -4118,6 +4126,7 @@ impl Application {
             Event::FavoriteGifs(result) => return self.favorite_gifs_came(result),
             Event::KeptFavoriteGifs(favorites) => self.kept_favorite_gifs_came(favorites),
             Event::PlacesUsed(result) => self.state.places_used.came(result),
+            Event::CommandsUsed(used) => self.commands_used(used),
             Event::DiscordEmojis(emojis) => {
                 let (known, now) = (&mut self.state.discord_emojis, crate::clock::now_ms());
                 if let Some(favorites) = emojis.favorites {

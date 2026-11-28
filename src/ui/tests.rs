@@ -9376,5 +9376,22 @@ fn review_reminder_snapshots() {
     )));
     window.set_folder_settings_open(true);
     save("folder-settings.png");
+    // Streamer Mode's page, with Discord's defaults and Streamer Mode on.
+    window.set_folder_settings_open(false);
+    window.set_discord_linked(true);
+    window.set_streamer_enabled(true);
+    window.set_streamer_auto(true);
+    window.set_streamer_hide_personal(true);
+    window.set_streamer_hide_invites(true);
+    window.set_streamer_no_sounds(true);
+    window.set_streamer_no_notifications(true);
+    window.set_streamer_can_protect(true);
+    window.set_settings_section(10);
+    window.set_settings_open(true);
+    save("streamer-mode.png");
+    window.set_settings_open(false);
+    window.set_workspace(true);
+    window.set_streamer_notice(true);
+    save("streamer-notice.png");
     window.hide().unwrap();
 }

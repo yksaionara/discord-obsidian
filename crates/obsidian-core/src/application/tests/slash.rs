@@ -136,6 +136,7 @@ fn enter_runs_the_command_and_clears_the_composer() {
             room,
             application,
             data,
+            ..
         })) if room == ROOM => Some((application.clone(), data.clone())),
         _ => None,
     });
@@ -384,6 +385,7 @@ fn an_apps_modal_is_filled_in_checked_and_sent() {
                 application,
                 data,
                 nonce,
+                ..
             })) if room == ROOM && application == "100" => Some((nonce.clone(), data.clone())),
             _ => None,
         })
@@ -447,9 +449,13 @@ fn an_apps_menu_lists_the_menu_commands_and_runs_one_on_its_target() {
         AppsMenu::Loading
     );
     let effects = app.dispatch(Action::LoadCommands(ROOM.into()));
+    // With the counts Frequently Used Commands ranks by, as the places'.
     assert!(matches!(
         effects.as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::Commands { room }))] if room == ROOM
+        [
+            Effect::Backend(Command::Discord(DiscordCommand::PlacesUsed)),
+            Effect::Backend(Command::Discord(DiscordCommand::Commands { room })),
+        ] if room == ROOM
     ));
     // Opening it again while they load doesn't ask again.
     assert!(app.dispatch(Action::LoadCommands(ROOM.into())).is_empty());
@@ -467,6 +473,37 @@ fn an_apps_menu_lists_the_menu_commands_and_runs_one_on_its_target() {
         .collect();
     assert_eq!(names, [("Archive", "Save"), ("Helper", "Translate")]);
     assert!(commands[0].icon.is_some());
+    // Laid out as Discord's: each app with its commands, and a search over
+    // commands and apps alike.
+    let layout = app
+        .apps_layout(ROOM, app_commands_kind::MESSAGE, "")
+        .unwrap();
+    assert!(layout.frequent.is_empty() && layout.found.is_none());
+    let apps: Vec<_> = layout
+        .apps
+        .iter()
+        .map(|(app, _, commands)| (app.as_str(), commands.len()))
+        .collect();
+    assert_eq!(apps, [("Archive", 1), ("Helper", 1)]);
+    let found = app
+        .apps_layout(ROOM, app_commands_kind::MESSAGE, "help")
+        .unwrap()
+        .found
+        .unwrap();
+    assert_eq!(found[0].name, "Translate", "found by its app's name");
+    // Discord's counts, by command id, rank Frequently Used.
+    app.apply(Event::CommandsUsed(vec![(
+        "6".into(),
+        chat::PlaceUses {
+            total: 3,
+            recent: vec![crate::clock::now_ms()],
+        },
+    )]));
+    let layout = app
+        .apps_layout(ROOM, app_commands_kind::MESSAGE, "")
+        .unwrap();
+    assert_eq!(layout.frequent.len(), 1);
+    assert_eq!(layout.frequent[0].name, "Save");
     let AppsMenu::Commands(user) = app.apps_menu(ROOM, app_commands_kind::USER) else {
         panic!("the commands came");
     };
@@ -485,6 +522,7 @@ fn an_apps_menu_lists_the_menu_commands_and_runs_one_on_its_target() {
             room,
             application,
             data,
+            ..
         })),
     ] = effects.as_slice()
     else {
@@ -494,10 +532,122 @@ fn an_apps_menu_lists_the_menu_commands_and_runs_one_on_its_target() {
     assert_eq!(application, "100");
     assert_eq!(data["type"], 3);
     assert_eq!(data["target_id"], "123");
+    // Running it counts for Frequently Used, as Discord's client counts it.
+    let layout = app
+        .apps_layout(ROOM, app_commands_kind::MESSAGE, "")
+        .unwrap();
+    assert!(
+        layout
+            .frequent
+            .iter()
+            .any(|command| command.name == "Translate")
+    );
     // A person's menu in the channel has Apps; a Matrix person's doesn't.
     assert!(app.person_choices("42").contains(&MenuChoice::Apps));
     assert!(
         !app.person_choices("@bob:example.org")
             .contains(&MenuChoice::Apps)
     );
+}
+
+#[test]
+fn a_file_option_takes_a_picked_file_which_goes_with_the_command() {
+    let mut app = writing();
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::Commands {
+        room: ROOM.into(),
+        index: Ok(Arc::new(CommandIndex::parse(&serde_json::json!({
+            "applications": [{"id": "100", "name": "Helper", "icon": null}],
+            "application_commands": [
+                {"id": "3", "type": 1, "application_id": "100", "version": "9",
+                 "name": "upscale", "description": "Upscale a picture",
+                 "options": [
+                    {"type": 11, "name": "image", "description": "The picture", "required": true},
+                    {"type": 4, "name": "times", "description": "How much"},
+                 ]},
+            ],
+        })))),
+    });
+    app.dispatch(Action::SetDraft("/upscale image:".into()));
+    let Some(SlashShown::Options(bar)) = &app.state.slash.shown else {
+        panic!("the options show");
+    };
+    assert!(bar.takes_file, "Choose File shows for a file option");
+    // Typed without a file picked, it says so.
+    app.dispatch(Action::SetDraft("/upscale image:cat.png".into()));
+    assert!(app.dispatch(Action::Send).is_empty());
+    assert_eq!(
+        app.state.notice.as_deref(),
+        Some("Choose a file for image.")
+    );
+    app.dispatch(Action::SetDraft("/upscale image:".into()));
+    let text = app
+        .attach_command_file("/home/me/my cat.png".into())
+        .expect("the composer names the file");
+    assert_eq!(text, "/upscale image:my_cat.png ");
+    app.dispatch(Action::SetDraft(format!("{text}times:2")));
+    let effects = app.dispatch(Action::Send);
+    let Some((data, files)) = effects.iter().find_map(|effect| match effect {
+        Effect::Backend(Command::Discord(DiscordCommand::RunCommand { data, files, .. })) => {
+            Some((data.clone(), files.clone()))
+        }
+        _ => None,
+    }) else {
+        panic!("the command runs: {:?}", app.state.notice);
+    };
+    assert_eq!(files, [std::path::PathBuf::from("/home/me/my cat.png")]);
+    // The file's value is its place among the files, as Discord's client sends it.
+    assert_eq!(data["options"][0]["type"], 11);
+    assert_eq!(data["options"][0]["value"], 0);
+    assert_eq!(data["options"][1]["value"], 2);
+}
+
+#[test]
+fn a_modals_channel_menu_lists_the_servers_channels_and_its_files_go_with_it() {
+    use obsidian_discord::modal::Answer;
+    let mut app = writing();
+    app.apply(Event::Modal {
+        room: ROOM.into(),
+        modal: obsidian_discord::modal::Modal::parse(&serde_json::json!({
+            "id": "901", "nonce": "78", "channel_id": "11", "custom_id": "report",
+            "application": {"id": "100", "name": "Helper"},
+            "components": [
+                {"type": 18, "label": "Where", "component": {"type": 8, "custom_id": "where"}},
+                {"type": 18, "label": "Screenshot", "component": {"type": 19, "custom_id": "shot"}},
+            ],
+        }))
+        .unwrap(),
+    });
+    let listed = app.modal_entities(0);
+    assert!(
+        listed.iter().any(|choice| choice.label == "general"),
+        "{listed:?}"
+    );
+    let at = listed
+        .iter()
+        .position(|choice| choice.label == "general")
+        .unwrap();
+    app.dispatch(Action::ModalPick(0, at));
+    app.dispatch(Action::ModalFiles(1, vec!["/tmp/shot.png".into()]));
+    let form = app.state.modal.as_ref().unwrap();
+    assert_eq!(form.answers[0], Answer::Chosen(vec!["11".into()]));
+    let (data, files) = app
+        .dispatch(Action::SubmitModal)
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::SubmitModal {
+                data, files, ..
+            })) => Some((data.clone(), files.clone())),
+            _ => None,
+        })
+        .expect("it goes");
+    assert_eq!(
+        data["components"][0]["component"]["values"],
+        serde_json::json!(["11"])
+    );
+    assert_eq!(
+        data["components"][1]["component"]["values"],
+        serde_json::json!([0])
+    );
+    assert_eq!(files, [std::path::PathBuf::from("/tmp/shot.png")]);
 }

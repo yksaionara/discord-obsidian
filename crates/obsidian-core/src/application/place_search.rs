@@ -93,7 +93,7 @@ impl PlacesUsed {
 }
 
 /// Adds a use of `id` at `at`, keeping the latest [`SAMPLES`].
-fn track(uses: &mut HashMap<String, PlaceUses>, id: &str, at: u64) {
+pub(super) fn track(uses: &mut HashMap<String, PlaceUses>, id: &str, at: u64) {
     let place = uses.entry(id.to_owned()).or_default();
     place.total += 1;
     let after = place.recent.partition_point(|used| *used <= at);
@@ -129,7 +129,7 @@ fn emoji_weight(days: i64) -> u32 {
 
 /// A place's frecency: its uses in all, scaled by how recent the latest were;
 /// none for a place not used lately.
-fn frecency(uses: &PlaceUses, now: u64) -> u32 {
+pub(super) fn frecency(uses: &PlaceUses, now: u64) -> u32 {
     frecency_by(weight, uses, now)
 }
 

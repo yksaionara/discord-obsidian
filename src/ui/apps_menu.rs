@@ -1,9 +1,11 @@
 //! The Apps submenu of a message's and a person's menu, as Discord's has it:
 //! the apps' message or user commands in the room, which run on the message
 //! or the person. It opens with the menu, says so while the room's commands
-//! load, and fills in when they come.
+//! load, and fills in when they come. As Discord's, a search field heads it,
+//! then Frequently Used Commands and each app's commands under its name; a
+//! search lists the commands whose name or app match.
 
-use obsidian_core::application::{AppsMenu, MESSAGE_COMMANDS, USER_COMMANDS};
+use obsidian_core::application::{AppsMenu, MESSAGE_COMMANDS, MenuCommand, USER_COMMANDS};
 
 use super::*;
 
@@ -18,37 +20,115 @@ pub(super) struct OpenApps {
     target: String,
     rows: ModelRc<MenuRow>,
     loading: bool,
+    /// What its search field holds.
+    query: String,
 }
 
-/// The rows of the Apps submenu of `kind` in `room`, and whether they wait
-/// for the room's commands.
-pub(super) fn rows(adapter: &Adapter, room: &str, kind: u64) -> (Vec<MenuRow>, bool) {
+/// The id of the search field's row, and of a group's label; see MenuRows.
+const SEARCH: &str = "menu-search";
+const HEADING: &str = "menu-heading";
+
+/// The rows of the Apps submenu of `kind` in `room`, for what its search
+/// holds, and whether they wait for the room's commands. The search field
+/// heads them, but while they load or there are none to search.
+pub(super) fn rows(adapter: &Adapter, room: &str, kind: u64, query: &str) -> (Vec<MenuRow>, bool) {
     let note = |text: &str| MenuRow {
         text: text.into(),
         disabled: true,
         plain: true,
         ..Default::default()
     };
+    let heading = |text: &str| MenuRow {
+        id: HEADING.into(),
+        text: text.into(),
+        disabled: true,
+        plain: true,
+        ..Default::default()
+    };
+    let command = |command: MenuCommand, icon: bool| MenuRow {
+        id: format!("{APP_COMMAND}{}", command.id).into(),
+        text: command.name.into(),
+        initial: if icon {
+            initial(&command.app)
+        } else {
+            SharedString::default()
+        },
+        picture: if icon {
+            command.icon.unwrap_or_default().into()
+        } else {
+            SharedString::default()
+        },
+        plain: !icon,
+        trailing: adapter.icons.send.clone(),
+        ..Default::default()
+    };
+    let searching = !query.trim().is_empty();
     match adapter.app.apps_menu(room, kind) {
         AppsMenu::Loading => (vec![note("Loading...")], true),
-        AppsMenu::Commands(commands) if commands.is_empty() => {
+        AppsMenu::Commands(commands) if commands.is_empty() && !searching => {
             (vec![note("No Commands Available")], false)
         }
-        AppsMenu::Commands(commands) => (
-            commands
-                .into_iter()
-                .map(|command| MenuRow {
-                    id: format!("{APP_COMMAND}{}", command.id).into(),
-                    text: command.name.into(),
-                    initial: initial(&command.app),
-                    picture: command.icon.unwrap_or_default().into(),
-                    trailing: adapter.icons.send.clone(),
-                    ..Default::default()
-                })
-                .collect(),
-            false,
-        ),
+        AppsMenu::Commands(_) => {
+            let layout = adapter
+                .app
+                .apps_layout(room, kind, query)
+                .unwrap_or_default();
+            let mut rows = vec![search_row()];
+            rows.extend(listed(layout, &note, &heading, &command));
+            (rows, false)
+        }
     }
+}
+
+/// The search field heading the menu, as Discord's: "Search commands".
+fn search_row() -> MenuRow {
+    MenuRow {
+        id: SEARCH.into(),
+        text: "Search commands".into(),
+        disabled: true,
+        plain: true,
+        ..Default::default()
+    }
+}
+
+/// The rows under the search field.
+fn listed(
+    layout: obsidian_core::application::AppsLayout,
+    note: &dyn Fn(&str) -> MenuRow,
+    heading: &dyn Fn(&str) -> MenuRow,
+    command: &dyn Fn(MenuCommand, bool) -> MenuRow,
+) -> Vec<MenuRow> {
+    if let Some(found) = layout.found {
+        if found.is_empty() {
+            return vec![note("No Commands Available")];
+        }
+        return found
+            .into_iter()
+            .map(|found| command(found, true))
+            .collect();
+    }
+    let mut rows = Vec::new();
+    if !layout.frequent.is_empty() {
+        rows.push(heading("Frequently Used Commands"));
+        rows.extend(
+            layout
+                .frequent
+                .into_iter()
+                .map(|found| command(found, true)),
+        );
+    }
+    rows.push(heading("Apps"));
+    for (app, icon, commands) in layout.apps {
+        rows.push(MenuRow {
+            text: app.as_str().into(),
+            initial: initial(&app),
+            picture: icon.unwrap_or_default().into(),
+            disabled: true,
+            ..Default::default()
+        });
+        rows.extend(commands.into_iter().map(|found| command(found, false)));
+    }
+    rows
 }
 
 /// The rows of a person's Apps, for their menu: the open Discord channel's
@@ -57,7 +137,7 @@ pub(super) fn person_rows(adapter: &Adapter, user: &str) -> Vec<MenuRow> {
     adapter
         .app
         .person_apps_room(user)
-        .map(|room| rows(adapter, room, USER_COMMANDS).0)
+        .map(|room| rows(adapter, room, USER_COMMANDS, "").0)
         .unwrap_or_default()
 }
 
@@ -69,7 +149,7 @@ impl Adapter {
             window.set_menu_apps_shown(false);
             return;
         };
-        let (rows, loading) = rows(self, &room, MESSAGE_COMMANDS);
+        let (rows, loading) = rows(self, &room, MESSAGE_COMMANDS, "");
         let rows = ModelRc::new(VecModel::from(rows));
         window.set_menu_apps(rows.clone());
         window.set_menu_apps_shown(true);
@@ -104,6 +184,7 @@ impl Adapter {
             target,
             rows,
             loading,
+            query: String::new(),
         });
         if loading {
             self.action(window, Action::LoadCommands(room));
@@ -115,7 +196,7 @@ impl Adapter {
         let Some(open) = self.apps.as_ref().filter(|open| open.loading) else {
             return;
         };
-        let (rows, loading) = rows(self, &open.room, open.kind);
+        let (rows, loading) = rows(self, &open.room, open.kind, &open.query);
         if loading {
             return;
         }
@@ -125,6 +206,31 @@ impl Adapter {
         if let Some(open) = &mut self.apps {
             open.loading = false;
         }
+    }
+
+    /// The Apps menu's search changed: the rows under its field follow,
+    /// and the field itself stays, keeping what's typed.
+    pub(super) fn search_apps(&mut self, query: &str) {
+        let Some(open) = self.apps.as_mut() else {
+            return;
+        };
+        open.query = query.to_owned();
+        let (room, kind, query) = (open.room.clone(), open.kind, open.query.clone());
+        let (rows, loading) = rows(self, &room, kind, &query);
+        let Some(open) = self.apps.as_ref() else {
+            return;
+        };
+        let Some(model) = open.rows.as_any().downcast_ref::<VecModel<MenuRow>>() else {
+            return;
+        };
+        if loading || model.row_data(0).is_none_or(|row| row.id != SEARCH) {
+            model.set_vec(rows);
+            return;
+        }
+        while model.row_count() > 1 {
+            model.remove(model.row_count() - 1);
+        }
+        model.extend(rows.into_iter().skip(1));
     }
 
     /// Runs the command whose row was chosen on what its menu is about.

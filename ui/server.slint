@@ -13,6 +13,8 @@ export struct InvitePrompt {
     detail: string,
     /// The link; empty while Discord makes it.
     link: string,
+    /// Streamer Mode hides it; Copy still copies it.
+    hidden: bool,
     /// How long the link lasts and how often it works, as said under it.
     note: string,
     making: bool,
@@ -64,7 +66,8 @@ export component InviteDialog inherits Rectangle {
                     HorizontalLayout {
                         padding-left: 12px; padding-right: 4px; spacing: 8px;
                         Text {
-                            text: root.prompt.making ? "Making a link..." : root.prompt.link;
+                            text: root.prompt.making ? "Making a link..."
+                                : root.prompt.hidden && root.prompt.link != "" ? "Hidden; Use copy button" : root.prompt.link;
                             color: root.prompt.making ? Theme.muted : Theme.text; font-size: 15px;
                             vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
                         }

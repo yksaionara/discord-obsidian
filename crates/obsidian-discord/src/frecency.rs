@@ -12,6 +12,11 @@ use crate::settings::{Field, fields, varint};
 
 const FAVORITE_EMOJIS: u64 = 5;
 const EMOJI_FRECENCY: u64 = 6;
+/// `FrecencyUserSettings.application_command_frecency`, an
+/// `ApplicationCommandFrecency` whose `application_commands` map a command's
+/// key to its uses.
+const APPLICATION_COMMAND_FRECENCY: u64 = 7;
+const APPLICATION_COMMANDS: u64 = 1;
 const GUILD_AND_CHANNEL_FRECENCY: u64 = 12;
 const EMOJI_REACTION_FRECENCY: u64 = 13;
 const GUILD_AND_CHANNELS: u64 = 1;
@@ -121,6 +126,38 @@ fn read_emoji_uses(frecency: &[u8]) -> Vec<(String, Uses)> {
     read
 }
 
+/// The apps' commands used, in base64 `FrecencyUserSettings`, as for
+/// [`read_places`]: each by Discord's client's key, the command's id, and
+/// `id:server` for one of a single server's own commands.
+pub fn read_commands(encoded: &str) -> Option<Vec<(String, Uses)>> {
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
+    let commands = fields(&data).find_map(|(number, value)| match value {
+        Field::Bytes(bytes) if number == APPLICATION_COMMAND_FRECENCY => Some(bytes),
+        _ => None,
+    })?;
+    let mut read = Vec::new();
+    for (number, value) in fields(commands) {
+        let (APPLICATION_COMMANDS, Field::Bytes(entry)) = (number, value) else {
+            continue;
+        };
+        let mut key = None;
+        let mut uses = Uses::default();
+        for (number, value) in fields(entry) {
+            match (number, value) {
+                (KEY, Field::Bytes(bytes)) => key = String::from_utf8(bytes.to_vec()).ok(),
+                (VALUE, Field::Bytes(item)) => uses = read_uses(item),
+                _ => {}
+            }
+        }
+        if let Some(key) = key.filter(|key| !key.is_empty()) {
+            read.push((key, uses));
+        }
+    }
+    Some(read)
+}
+
 /// The favourite and used emoji in base64 `FrecencyUserSettings`, as for
 /// [`read_places`]; `None` when it has none of them.
 pub fn read_emojis(encoded: &str) -> Option<Emojis> {
@@ -183,6 +220,33 @@ mod tests {
             )])
         );
         assert_eq!(read_places(""), None, "an update without them");
+    }
+
+    #[test]
+    fn reads_the_commands_used() {
+        let mut item = vec![(TOTAL_USES << 3) as u8, 2];
+        let mut packed = Vec::new();
+        crate::settings::put_varint(&mut packed, 1_700_000_000_000);
+        put_bytes(&mut item, RECENT_USES, &packed);
+        let mut entry = Vec::new();
+        put_bytes(&mut entry, KEY, b"1166:81384788765712384");
+        put_bytes(&mut entry, VALUE, &item);
+        let mut map = Vec::new();
+        put_bytes(&mut map, APPLICATION_COMMANDS, &entry);
+        let mut settings = Vec::new();
+        put_bytes(&mut settings, APPLICATION_COMMAND_FRECENCY, &map);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(settings);
+        assert_eq!(
+            read_commands(&encoded),
+            Some(vec![(
+                "1166:81384788765712384".into(),
+                Uses {
+                    total: 2,
+                    recent: vec![1_700_000_000_000],
+                }
+            )])
+        );
+        assert_eq!(read_commands(""), None);
     }
 
     #[test]

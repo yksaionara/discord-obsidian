@@ -1179,6 +1179,7 @@ fn invites_prompt(page: &InvitesPage, roles: &[ServerRole], may_create: bool) ->
         })
         .collect();
     let mut prompt = InvitesPrompt {
+        hide_codes: super::streamer_mode::hiding().invites,
         rows: ModelRc::new(VecModel::from(rows)),
         counted: i32::try_from(now % (1 << 30)).unwrap_or_default(),
         paused: page.paused(now),

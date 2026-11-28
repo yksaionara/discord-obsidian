@@ -329,11 +329,18 @@ pub(super) fn command(
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
                     let result = discord
-                        .places_used()
+                        .places_and_commands_used()
                         .await
-                        .map(places_used)
                         .map_err(|error| error.to_string());
-                    let _ = events.send(Event::PlacesUsed(result));
+                    match result {
+                        Ok((places, commands)) => {
+                            let _ = events.send(Event::PlacesUsed(Ok(places_used(places))));
+                            let _ = events.send(Event::CommandsUsed(places_used(commands)));
+                        }
+                        Err(why) => {
+                            let _ = events.send(Event::PlacesUsed(Err(why)));
+                        }
+                    }
                 });
             }
             Err(why) => {

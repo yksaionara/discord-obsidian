@@ -309,6 +309,8 @@ export struct CommandBar {
     picture-url: string, initial: string, tint: color, builtin: bool,
     // The option being typed and what it asks for.
     current-name: string, current-description: string,
+    // It takes a file, which Choose File picks.
+    takes-file: bool,
 }
 
 // An app's icon in the command list and bar, or Discord's mark for its own.
@@ -382,6 +384,8 @@ export component CommandList inherits SuggestionFrame {
 export component CommandOptions inherits SuggestionFrame {
     in property <CommandBar> bar;
     in property <[CommandChip]> chips;
+    /// The option being typed takes a file: pick one.
+    callback choose-file;
     height: layout.preferred-height;
     layout := VerticalLayout {
         padding: 10px; padding-left: 12px; spacing: 6px;
@@ -405,6 +409,10 @@ export component CommandOptions inherits SuggestionFrame {
             spacing: 6px;
             Text { text: root.bar.current-name; color: Theme.text; font-size: 13px; font-weight: 700; }
             Text { text: root.bar.current-description; color: Theme.secondary; font-size: 13px; overflow: elide; horizontal-stretch: 1; }
+            if root.bar.takes-file: ActionButton {
+                small: true; text: "Choose File"; icon: @image-url("icons/file.svg");
+                clicked => { root.choose-file(); }
+            }
         }
     }
 }

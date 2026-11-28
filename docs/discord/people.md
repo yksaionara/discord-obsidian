@@ -725,6 +725,34 @@ Discord the working set went from 81 MiB to 36 MiB on entering it. It ends
 when the game does, and Game activity says while it's on. It works whether or
 not the account shares the game.
 
+### Streamer Mode
+
+Discord's Streamer Mode (Settings → Streamer Mode, with a Discord account;
+`streamer_mode` in `layout.json`; `src/ui/streamer_mode.rs`) has Discord's
+switches, with the defaults its client's `StreamerModeStore` gives: off until
+turned on, and once on it hides personal information and invite links, and
+holds back sound effects and notifications, each unless turned off.
+
+- "Automatically enable Streamer Mode if OBS or XSplit are running", on
+  unless turned off, turns it on when one starts and off when the last one
+  stops, as Discord's desktop client does. The game detection's scan notices
+  them by executable name (`obs`, `obs32`, `obs64`, `XSplit.Core`,
+  `XSplitBroadcaster`, `game_detection/streamer_tools.rs`), so it works while
+  that scan runs, with the game shared, and no second scan runs.
+- While it's on, a purple bar over the window says "Streamer Mode is
+  enabled." with Disable, and its X hides it until Streamer Mode turns on
+  again.
+- Hiding personal information takes connected accounts and the note off
+  profiles, and the note can't be written there.
+- Hiding invite links shows an invite dialog's link as "Hidden; Use copy
+  button", and Copy still copies it, as in Discord; Server Settings →
+  Invites shows each code as "Hidden".
+- Sound effects stay silent, and desktop notifications don't show.
+- "Hide Discord Window from Screen Capture", off unless turned on, is offered
+  only on Windows, where it sets the window's display affinity to
+  `WDA_EXCLUDEFROMCAPTURE`, as Electron's content protection does for
+  Discord.
+
 Rich Presence comes first, then the custom games, Discord's list and Steam.
 A custom game is an executable and the name to show after Playing: a file
 name matches the executable in any folder, a full path only there, and

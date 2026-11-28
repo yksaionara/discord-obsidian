@@ -79,10 +79,32 @@ impl Adapter {
                             _ => 2,
                         };
                         row.required = *required && *min > 0;
-                        let picked: Vec<&str> = options
+                        // A user, role, mentionable or channel menu lists the
+                        // server's, as a message's select menu does.
+                        let entities = self.app.modal_entities(index);
+                        let listed: Vec<(String, String, String)> = if entities.is_empty() {
+                            options
+                                .iter()
+                                .map(|option| {
+                                    (
+                                        option.value.clone(),
+                                        option.label.clone(),
+                                        option.description.clone(),
+                                    )
+                                })
+                                .collect()
+                        } else {
+                            entities
+                                .into_iter()
+                                .map(|choice| {
+                                    (choice.value, choice.label, choice.description.unwrap_or_default())
+                                })
+                                .collect()
+                        };
+                        let picked: Vec<&str> = listed
                             .iter()
-                            .filter(|option| chosen(&option.value))
-                            .map(|option| option.label.as_str())
+                            .filter(|(value, ..)| chosen(value))
+                            .map(|(_, label, _)| label.as_str())
                             .collect();
                         row.value = picked.join(", ").into();
                         row.summary = if picked.is_empty() {
@@ -96,12 +118,12 @@ impl Adapter {
                         };
                         row.open = form.open == Some(index);
                         row.options = ModelRc::from(Rc::new(VecModel::from(
-                            options
+                            listed
                                 .iter()
-                                .map(|option| ModalChoice {
-                                    label: option.label.as_str().into(),
-                                    description: option.description.as_str().into(),
-                                    chosen: chosen(&option.value),
+                                .map(|(value, label, description)| ModalChoice {
+                                    label: label.as_str().into(),
+                                    description: description.as_str().into(),
+                                    chosen: chosen(value),
                                 })
                                 .collect::<Vec<_>>(),
                         )));
@@ -113,6 +135,20 @@ impl Adapter {
                     Field::Display { content } => {
                         row.kind = 6;
                         row.content = super::messages::styled(content);
+                    }
+                    Field::Files { required, min, .. } => {
+                        row.kind = 8;
+                        row.required = *required && *min > 0;
+                        row.value = match answer {
+                            Answer::Files(files) => files
+                                .iter()
+                                .filter_map(|file| file.file_name())
+                                .map(|name| name.to_string_lossy())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                                .into(),
+                            _ => SharedString::default(),
+                        };
                     }
                     Field::Unsupported { required, .. } => {
                         row.kind = 7;
@@ -142,6 +178,28 @@ pub(super) fn bind(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapter>>) {
     act!(on_modal_text(at, text) => Action::ModalText(index(at), text.into()));
     act!(on_modal_pick(at, option) => Action::ModalPick(index(at), index(option)));
     act!(on_modal_menu(at) => Action::ModalMenu(Some(index(at))));
+    // A file field picks its files, as many as it takes.
+    let state = adapter.clone();
+    window.on_modal_files(move |at| {
+        let weak = Rc::downgrade(&state);
+        let at = index(at);
+        state.borrow_mut().dialog(async move {
+            let files = rfd::AsyncFileDialog::new()
+                .set_title("Choose files")
+                .pick_files()
+                .await;
+            let (Some(files), Some(adapter)) = (files, weak.upgrade()) else {
+                return;
+            };
+            let window = adapter.borrow().window.upgrade();
+            if let Some(window) = window {
+                let paths = files.iter().map(|file| file.path().to_owned()).collect();
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::ModalFiles(at, paths));
+            }
+        });
+    });
     act!(on_submit_modal() => Action::SubmitModal);
     act!(on_close_modal() => Action::CloseModal);
 }

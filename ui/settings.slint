@@ -410,6 +410,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
+        { text: "Streamer Mode", icon: @image-url("icons/video.svg"), id: 10 },
         { text: "Add-ons", icon: @image-url("icons/puzzle.svg"), id: 9 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
@@ -434,7 +435,8 @@ export component SettingsScreen inherits Rectangle {
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
                 : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
-                : root.settings-section == 9 ? "Add-ons" : root.settings-section == 42 ? "Vice City" : "Game Activity";
+                : root.settings-section == 9 ? "Add-ons" : root.settings-section == 10 ? "Streamer Mode"
+                : root.settings-section == 42 ? "Vice City" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
@@ -1994,6 +1996,62 @@ export component GameActivitySettings inherits VerticalLayout {
         }
         if root.editing-game >= 0: ActionButton { text: "Cancel"; clicked => { root.editing-game = -1; root.executable-draft = ""; root.text-draft = ""; root.invalid-game = false; } }
         Rectangle { horizontal-stretch: 1; }
+    }
+}
+
+// Settings: Discord's Streamer Mode, laid out and worded as its page is.
+export component StreamerModeSettings inherits VerticalLayout {
+    in property <bool> enabled;
+    in property <bool> auto;
+    in property <bool> hide-personal;
+    in property <bool> hide-invites;
+    in property <bool> no-sounds;
+    in property <bool> no-notifications;
+    in property <bool> capture;
+    /// The system can keep the window out of screen captures.
+    in property <bool> can-protect;
+    /// A switch flipped: 0 Streamer Mode, 1 its automatic toggle, 2 to 6 what
+    /// it hides, in the order shown.
+    callback changed(int, bool);
+    spacing: 16px;
+    SettingsTitle { text: "Streamer Mode"; }
+    SettingsSwitch {
+        text: "Enable Streamer Mode";
+        description: "Streamer Mode hides your personal info so others watching your stream can’t see it.";
+        checked: root.enabled; controlled: true;
+        toggled(on) => { root.changed(0, on); }
+    }
+    SettingsSwitch {
+        text: "Automatically enable Streamer Mode if OBS or XSplit are running";
+        checked: root.auto; controlled: true;
+        toggled(on) => { root.changed(1, on); }
+    }
+    SettingsHeading { text: "IF STREAMER MODE IS ENABLED..."; }
+    SettingsSwitch {
+        text: "Hide my personal information, such as email, connected accounts, and notes";
+        checked: root.hide-personal; controlled: true;
+        toggled(on) => { root.changed(2, on); }
+    }
+    SettingsSwitch {
+        text: "Hide invite links to my Discord servers";
+        checked: root.hide-invites; controlled: true;
+        toggled(on) => { root.changed(3, on); }
+    }
+    SettingsSwitch {
+        text: "Disable all sound effects";
+        checked: root.no-sounds; controlled: true;
+        toggled(on) => { root.changed(4, on); }
+    }
+    SettingsSwitch {
+        text: "Disable notifications";
+        checked: root.no-notifications; controlled: true;
+        toggled(on) => { root.changed(5, on); }
+    }
+    if root.can-protect: SettingsSwitch {
+        text: "Hide Discord Window from Screen Capture";
+        description: "Hides most Discord windows from most screen capture software.";
+        checked: root.capture; controlled: true;
+        toggled(on) => { root.changed(6, on); }
     }
 }
 

@@ -11,12 +11,30 @@ mod kind {
     pub const ACTION_ROW: u64 = 1;
     pub const STRING_SELECT: u64 = 3;
     pub const TEXT_INPUT: u64 = 4;
+    pub const USER_SELECT: u64 = 5;
+    pub const ROLE_SELECT: u64 = 6;
+    pub const MENTIONABLE_SELECT: u64 = 7;
+    pub const CHANNEL_SELECT: u64 = 8;
     pub const TEXT_DISPLAY: u64 = 10;
     pub const LABEL: u64 = 18;
     pub const RADIO_GROUP: u64 = 21;
     pub const CHECKBOX_GROUP: u64 = 22;
     pub const CHECKBOX: u64 = 23;
+    pub const FILE_UPLOAD: u64 = 19;
 }
+
+/// Whether a field's kind picks the server's people, roles or channels,
+/// which its options don't list.
+pub fn picks_entities(kind: u64) -> bool {
+    matches!(
+        kind,
+        kind::USER_SELECT | kind::ROLE_SELECT | kind::MENTIONABLE_SELECT | kind::CHANNEL_SELECT
+    )
+}
+
+/// The kinds of a user, role, mentionable and channel menu, by Discord's
+/// number, for the code that lists what they pick.
+pub use kind::{CHANNEL_SELECT, MENTIONABLE_SELECT, ROLE_SELECT, USER_SELECT};
 
 /// A text input's most characters, when its app sets none, as Discord's
 /// client allows.
@@ -73,12 +91,25 @@ pub enum Field {
         max_length: usize,
     },
     /// A select menu, or a group of radio buttons or checkboxes: one of
-    /// its options, or between `min` and `max`.
+    /// its options, or between `min` and `max`. A user, role, mentionable
+    /// or channel menu lists no options: it picks the server's, by id.
     Choice {
         kind: u64,
         custom_id: String,
         options: Vec<ChoiceOption>,
         placeholder: String,
+        required: bool,
+        min: usize,
+        max: usize,
+        /// What a user, role, mentionable or channel menu picks as it
+        /// opens, by id.
+        defaults: Vec<String>,
+        /// The kinds of channel a channel menu offers; empty for any.
+        channel_types: Vec<u64>,
+    },
+    /// Files to upload, between `min` and `max`.
+    Files {
+        custom_id: String,
         required: bool,
         min: usize,
         max: usize,
@@ -116,6 +147,8 @@ pub enum Answer {
     /// The values of the options chosen.
     Chosen(Vec<String>),
     Checked(bool),
+    /// The files picked, in order.
+    Files(Vec<std::path::PathBuf>),
     None,
 }
 
@@ -151,6 +184,12 @@ impl Modal {
             .iter()
             .map(|item| match &item.field {
                 Field::Text { value, .. } => Answer::Text(value.clone()),
+                Field::Choice {
+                    kind,
+                    options,
+                    defaults,
+                    ..
+                } if picks_entities(*kind) => Answer::Chosen(defaults.clone()),
                 Field::Choice { options, .. } => Answer::Chosen(
                     options
                         .iter()
@@ -158,6 +197,7 @@ impl Modal {
                         .map(|option| option.value.clone())
                         .collect(),
                 ),
+                Field::Files { .. } => Answer::Files(Vec::new()),
                 Field::Checkbox { value, .. } => Answer::Checked(*value),
                 Field::Display { .. } | Field::Unsupported { .. } => Answer::None,
             })
@@ -217,6 +257,26 @@ impl Modal {
                             None
                         }
                     }
+                    (
+                        Field::Files {
+                            required, min, max, ..
+                        },
+                        answer,
+                    ) => {
+                        let count = match answer {
+                            Answer::Files(files) => files.len(),
+                            _ => 0,
+                        };
+                        if count == 0 {
+                            (*required && *min > 0).then(|| REQUIRED.to_owned())
+                        } else if count < *min {
+                            Some(format!("Select at least {min}"))
+                        } else if count > *max {
+                            Some(format!("Select at most {max}"))
+                        } else {
+                            None
+                        }
+                    }
                     (Field::Unsupported { required: true, .. }, _) => Some(
                         "Discord Obsidian can't fill in this field yet. Use Discord in a browser for this form."
                             .to_owned(),
@@ -229,14 +289,29 @@ impl Modal {
 
     /// The submission's `data`, as Discord's client sends it: each
     /// component in its place, with what it holds.
+    /// The files the form's file fields hold, in the order `data` numbers
+    /// them; they upload before it goes, into its `attachments`.
+    pub fn files(&self, answers: &[Answer]) -> Vec<std::path::PathBuf> {
+        answers
+            .iter()
+            .flat_map(|answer| match answer {
+                Answer::Files(files) => files.clone(),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
     pub fn data(&self, answers: &[Answer]) -> Value {
+        // A file field's values are its files' places among the form's, as
+        // Discord's client numbers them in `attachments`.
+        let mut files = 0;
         let components: Vec<Value> = self
             .items
             .iter()
             .enumerate()
             .map(|(index, item)| {
                 let answer = answers.get(index).unwrap_or(&Answer::None);
-                let field = field_value(&item.field, answer);
+                let field = field_value(&item.field, answer, &mut files);
                 match &item.wrap {
                     Wrap::Row => json!({"type": kind::ACTION_ROW, "components": [field]}),
                     Wrap::Label { .. } => json!({"type": kind::LABEL, "component": field}),
@@ -252,8 +327,21 @@ impl Modal {
     }
 }
 
-fn field_value(field: &Field, answer: &Answer) -> Value {
+fn field_value(field: &Field, answer: &Answer, files: &mut usize) -> Value {
     match (field, answer) {
+        (Field::Files { custom_id, .. }, answer) => {
+            let count = match answer {
+                Answer::Files(picked) => picked.len(),
+                _ => 0,
+            };
+            let values: Vec<usize> = (*files..*files + count).collect();
+            *files += count;
+            json!({
+                "type": kind::FILE_UPLOAD,
+                "custom_id": custom_id,
+                "values": if count == 0 { Value::Null } else { json!(values) },
+            })
+        }
         (Field::Text { custom_id, .. }, answer) => json!({
             "type": kind::TEXT_INPUT,
             "custom_id": custom_id,
@@ -377,9 +465,41 @@ fn field(value: &Value) -> Option<Field> {
                 },
                 options,
                 required,
+                defaults: Vec::new(),
+                channel_types: Vec::new(),
                 custom_id,
             }
         }
+        choice @ (kind::USER_SELECT
+        | kind::ROLE_SELECT
+        | kind::MENTIONABLE_SELECT
+        | kind::CHANNEL_SELECT) => Field::Choice {
+            kind: choice,
+            placeholder: text("placeholder"),
+            min: count("min_values").unwrap_or(1),
+            max: count("max_values").unwrap_or(1),
+            options: Vec::new(),
+            required: required.unwrap_or(true),
+            defaults: value["default_values"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|default| default["id"].as_str().map(str::to_owned))
+                .collect(),
+            channel_types: value["channel_types"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .collect(),
+            custom_id,
+        },
+        kind::FILE_UPLOAD => Field::Files {
+            required: required.unwrap_or(true),
+            min: count("min_values").unwrap_or(1),
+            max: count("max_values").unwrap_or(1),
+            custom_id,
+        },
         kind::CHECKBOX => Field::Checkbox {
             value: value["default"].as_bool().unwrap_or(false),
             custom_id,
@@ -484,6 +604,44 @@ mod tests {
                     {"type": 18, "component": {"type": 23, "custom_id": "contact", "value": true}},
                 ],
             })
+        );
+    }
+
+    #[test]
+    fn picks_people_roles_channels_and_files_as_discords_client_sends_them() {
+        let modal = Modal::parse(&json!({
+            "id": "901", "channel_id": "5", "custom_id": "assign",
+            "application": {"id": "100", "name": "Helper"},
+            "components": [
+                {"type": 18, "label": "Who", "component": {"type": 5, "custom_id": "who",
+                  "default_values": [{"id": "42", "type": "user"}]}},
+                {"type": 18, "label": "Where", "component": {"type": 8, "custom_id": "where",
+                  "channel_types": [0, 5], "required": false}},
+                {"type": 18, "label": "Screenshots", "component": {"type": 19, "custom_id": "shots",
+                  "min_values": 1, "max_values": 3}},
+            ],
+        }))
+        .unwrap();
+        let mut answers = modal.answers();
+        assert_eq!(answers[0], Answer::Chosen(vec!["42".into()]), "its default");
+        assert!(matches!(
+            &modal.items[1].field,
+            Field::Choice { kind: CHANNEL_SELECT, channel_types, .. } if *channel_types == [0, 5]
+        ));
+        let problems = modal.problems(&answers);
+        assert_eq!(problems[2].as_deref(), Some("This field is required."));
+        answers[2] = Answer::Files(vec!["a.png".into(), "b.png".into()]);
+        assert!(modal.problems(&answers).iter().all(Option::is_none));
+        assert_eq!(modal.files(&answers).len(), 2);
+        let data = modal.data(&answers);
+        assert_eq!(
+            data["components"][0]["component"],
+            json!({"type": 5, "custom_id": "who", "values": ["42"]})
+        );
+        // Files go by their places among the form's.
+        assert_eq!(
+            data["components"][2]["component"],
+            json!({"type": 19, "custom_id": "shots", "values": [0, 1]})
         );
     }
 }

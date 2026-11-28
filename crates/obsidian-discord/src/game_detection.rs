@@ -18,6 +18,7 @@ use tokio::sync::watch;
 mod catalog;
 pub mod custom_games;
 mod steam;
+pub mod streamer_tools;
 use catalog::{Catalog, GameInfo};
 
 const STEAM_INTERVAL: Duration = Duration::from_secs(60);
@@ -444,6 +445,12 @@ impl Detector {
         // runs: for Wine, the Windows program in its command line.
         let mut due = Vec::new();
         self.seen = system.processes().len();
+        streamer_tools::set(
+            system
+                .processes()
+                .values()
+                .any(|process| streamer_tools::is_tool(process.name())),
+        );
         for (pid, process) in system.processes() {
             if me
                 .as_ref()

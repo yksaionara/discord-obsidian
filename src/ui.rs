@@ -66,6 +66,7 @@ mod refresh;
 mod saved;
 mod server_settings;
 mod shell;
+mod streamer_mode;
 mod theme;
 mod tiles;
 mod title_bar;
@@ -226,6 +227,8 @@ pub fn run(
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
     adapter.borrow_mut().watch_shortcuts(&window);
+    #[cfg(feature = "discord")]
+    adapter.borrow().watch_streamer_tools();
     if !preview {
         adapter.borrow().show_whats_new(&window);
     }
@@ -1323,6 +1326,8 @@ struct Layout {
     reduce_motion: bool,
     /// Game Mode, while a game runs; on unless turned off.
     game_mode: Option<bool>,
+    /// Discord's Streamer Mode and what it hides.
+    streamer_mode: streamer_mode::StreamerMode,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -2170,6 +2175,8 @@ struct Adapter {
     video_quiet: Cell<u32>,
     /// Follows the voice message playing, while it plays.
     voice_timer: Rc<slint::Timer>,
+    /// Streamer Mode's notice over the window was dismissed while it's on.
+    streamer_notice_dismissed: bool,
     /// Fires when the next reminder comes due, and the time it's armed for.
     reminder_timer: slint::Timer,
     reminder_armed: Option<u64>,
@@ -2481,6 +2488,7 @@ impl Adapter {
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
                 voice_timer: Rc::new(slint::Timer::default()),
+                streamer_notice_dismissed: false,
                 reminder_timer: slint::Timer::default(),
                 reminder_armed: None,
                 recording_timer: Rc::new(slint::Timer::default()),
@@ -2667,6 +2675,7 @@ impl Adapter {
         self.watch_talk_key(window);
         self.watch_shortcuts(window);
         self.show_protocol(window);
+        self.show_streamer_mode(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds
         // them again.
@@ -2986,6 +2995,7 @@ impl Adapter {
                     }
                     // A reminder's notice shows even in front, as Discord's does.
                     if self.layout.notifications.unwrap_or(true)
+                        && !streamer_mode::hiding().notifications
                         && (!FOCUSED.get() || alert.reminder)
                     {
                         let style = crate::notify::Style {
@@ -3046,6 +3056,10 @@ impl Adapter {
     /// Plays one of Discord Obsidian's sounds as the person set them. While deafened, only
     /// deafening's own sounds play.
     fn sound(&self, sound: Sound) {
+        // Streamer Mode holds back every sound effect, as Discord's does.
+        if streamer_mode::hiding().sounds {
+            return;
+        }
         let voice = &self.app.state.voice;
         if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
             return;

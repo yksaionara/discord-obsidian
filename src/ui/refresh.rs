@@ -2021,6 +2021,7 @@ impl Adapter {
             title: format!("Invite friends to {}", invite.server).into(),
             detail: format!("They'll land in {place}.").into(),
             link: invite.link.as_deref().unwrap_or_default().into(),
+            hidden: super::streamer_mode::hiding().invites,
             note: if invite.link.is_some() {
                 format!("This link {lasts}{works}.").into()
             } else {
@@ -3463,6 +3464,7 @@ impl Adapter {
                         .map(|(_, description)| description.as_str())
                         .unwrap_or_default()
                         .into(),
+                    takes_file: bar.takes_file,
                 },
                 bar.options
                     .iter()

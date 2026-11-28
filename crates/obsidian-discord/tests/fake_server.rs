@@ -4829,6 +4829,49 @@ async fn chooses_in_an_apps_select_menu() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn runs_slash_commands_with_files() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("runs_slash_commands_with_files").await;
+    let index = discord.command_index(Some(&guild), &general).await.unwrap();
+    let application = index.apps[0].id.clone();
+    // A file option's value is its place among the files, as Discord's
+    // client sends it.
+    let data = serde_json::json!({
+        "name": "remind", "type": 1,
+        "options": [{"type": 11, "name": "image", "value": 0}],
+    });
+    discord
+        .run_command_with_files(
+            Some(&guild),
+            &general,
+            &application,
+            data,
+            vec![("cat.png".into(), b"not really a picture".to_vec())],
+        )
+        .await
+        .unwrap();
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    // The file uploaded first, as a message's does, and goes by its place.
+    let attachments = &sent[0]["data"]["attachments"];
+    assert_eq!(attachments[0]["id"], "0");
+    assert_eq!(attachments[0]["filename"], "cat.png");
+    assert!(
+        attachments[0]["uploaded_filename"]
+            .as_str()
+            .is_some_and(|name| name.ends_with("/cat.png"))
+    );
+    assert_eq!(sent[0]["data"]["options"][0]["value"], 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn runs_slash_commands() {
     use obsidian_discord::app_commands;
     let Fixture {

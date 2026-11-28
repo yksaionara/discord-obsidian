@@ -861,6 +861,35 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             }
         });
     }
+    #[cfg(feature = "discord")]
+    {
+        let adapter = adapter.clone();
+        window.on_search_apps(move |query| {
+            adapter.borrow_mut().search_apps(&query);
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_streamer_changed(move |index, on| {
+            if let Some(window) = weak.upgrade()
+                && let Some(switch) = super::streamer_mode::Switch::from_index(index)
+            {
+                adapter.borrow_mut().set_streamer_mode(&window, switch, on);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_dismiss_streamer_notice(move || {
+            if let Some(window) = weak.upgrade() {
+                let mut adapter = adapter.borrow_mut();
+                adapter.streamer_notice_dismissed = true;
+                adapter.show_streamer_mode(&window);
+            }
+        });
+    }
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
@@ -2101,6 +2130,35 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             });
         }
     };
+    // A slash command's file option takes one file, which the composer
+    // then names, as Discord's shows it in the option.
+    #[cfg(feature = "discord")]
+    {
+        let state = adapter.clone();
+        window.on_choose_command_file(move || {
+            let weak = Rc::downgrade(&state);
+            state.borrow_mut().dialog(async move {
+                let file = rfd::AsyncFileDialog::new()
+                    .set_title("Choose a file")
+                    .pick_file()
+                    .await;
+                let (Some(file), Some(adapter)) = (file, weak.upgrade()) else {
+                    return;
+                };
+                let window = adapter.borrow().window.upgrade();
+                let Some(window) = window else { return };
+                let text = adapter
+                    .borrow_mut()
+                    .app
+                    .attach_command_file(file.path().to_owned());
+                if let Some(text) = text {
+                    let caret = text.len();
+                    adapter.borrow_mut().set_composer_text(&window, false, text);
+                    place_composer_caret(&window, (false, caret));
+                }
+            });
+        });
+    }
     window.on_attach(pick(adapter.clone(), Action::Stage));
     window.on_aside_attach(pick(adapter.clone(), Action::StageAside));
     let state = adapter.clone();

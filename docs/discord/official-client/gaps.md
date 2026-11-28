@@ -81,13 +81,11 @@ sends 1–6, 8, 13, 18–22, 31, 37, 40 and 43 (`gateway.rs`). Of the rest:
 The rest of the way to the official client, by how often someone using
 Discord meets it. Each lands with its own doc section when it's done.
 
-1. Slash commands' attachment options, modals' file uploads and user, role
-   and channel menus, and the Apps menu's per-app submenus, search and
-   Frequently Used Commands.
+1. A search over a modal's user, role and channel menus, and the Apps
+   menu's per-app submenus (its commands list under each app's name).
 5. Forum tags as filters and sorting, and the gallery layout of forums and
    media channels.
 6. A server's onboarding questions and membership form when joining.
-7. Streamer Mode.
 8. Server privacy settings, and the server settings pages not done yet:
    Integrations and webhooks, Soundboard, AutoMod, Server Template,
    Community and Discovery.
