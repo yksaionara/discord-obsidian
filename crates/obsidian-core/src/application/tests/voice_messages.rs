@@ -254,6 +254,31 @@ fn speed_and_mute_carry_to_the_next_voice_message() {
 }
 
 #[test]
+fn the_volume_slider_sets_how_loud_voice_messages_play() {
+    let mut app = showing(vec![voice_message("d:5"), voice_message("d:6")]);
+    app.dispatch(Action::ToggleVoiceMessage {
+        item: "d:5".into(),
+        index: 0,
+    });
+    let clock = app.state.voice_message.as_ref().unwrap().clock.clone();
+    assert_eq!(clock.gain(), 1.0, "full until the slider moves");
+    app.dispatch(Action::VoiceMessageVolume(0.5));
+    let half = 0.5f32.powf(2.8);
+    assert_eq!(clock.gain(), half, "Discord's curve, travel to the power 2.8");
+    app.dispatch(Action::VoiceMessageVolume(0.0));
+    assert!(app.state.voice_muted, "the bottom of the slider mutes");
+    assert_eq!(clock.gain(), 0.0);
+    app.dispatch(Action::MuteVoiceMessages);
+    assert_eq!(clock.gain(), half, "unmuting brings back the level it had");
+    app.dispatch(Action::ToggleVoiceMessage {
+        item: "d:6".into(),
+        index: 0,
+    });
+    let next = &app.state.voice_message.as_ref().unwrap().clock;
+    assert_eq!(next.gain(), half, "the level stays for the next one");
+}
+
+#[test]
 fn a_voice_message_forwards_only_where_voice_messages_may_go() {
     let mut app = showing(vec![voice_message("d:5")]);
     app.dispatch(Action::StartForward("d:5".into()));

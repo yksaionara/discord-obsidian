@@ -413,12 +413,16 @@ export global VoicePlayer {
     /// The speed as Discord's button names it, such as "1X" or ".75X".
     in property <string> rate: "1X";
     in property <bool> muted;
+    /// How loud they play unmuted, from 0 to 1 as the volume slider stands.
+    in property <float> volume: 1;
     /// Plays an item's voice message, or pauses it.
     callback toggle(string, int);
     /// Moves an item's voice message this far through, from 0 to 1.
     callback seek(string, int, float);
     callback step-rate();
     callback mute();
+    /// Sets how loud they play, unmuting them; 0 mutes them.
+    callback change-volume(float);
 }
 
 /// The voice message being recorded, which takes the composer's place.
@@ -674,15 +678,74 @@ export component VoiceMessageView inherits HorizontalLayout {
                 }
               }
             }
-            VerticalLayout {
-              alignment: center;
-              IconButton {
-                size: 24px; glyph: 18px;
-                icon: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
-                label: VoicePlayer.muted ? "Unmute" : "Mute";
-                tint: root.playing ? #ffffff : Theme.secondary;
+            // Mute, with Discord's slider over it for how loud while the
+            // pointer is on either; the wheel turns it too.
+            Rectangle {
+              width: 24px;
+              sound := TouchArea {
+                property <bool> open: !root.preview && (self.has-hover || loudness.pressed);
+                property <length> rise: 104px;
+                property <float> shown: loudness.pressed ? loudness.dragged : VoicePlayer.muted ? 0 : VoicePlayer.volume;
+                y: (parent.height - 24px) / 2 - (self.open ? self.rise : 0px);
+                height: 24px + (self.open ? self.rise : 0px);
                 enabled: !root.preview;
-                clicked => { VoicePlayer.mute(); }
+                scroll-event(event) => {
+                    if event.delta-y == 0 { return reject; }
+                    VoicePlayer.change-volume(clamp(self.shown + (event.delta-y > 0 ? 0.05 : -0.05), 0, 1));
+                    return accept;
+                }
+                Rectangle {
+                    y: 0; x: (parent.width - self.width) / 2; width: 32px; height: sound.rise - 6px;
+                    visible: sound.open;
+                    border-radius: 8px; background: Theme.menu;
+                    border-width: 1px; border-color: Theme.menu-line;
+                    drop-shadow-blur: 8px; drop-shadow-color: #0000004d;
+                    accessible-role: slider;
+                    accessible-label: "Volume";
+                    accessible-value: round(sound.shown * 100) + "%";
+                    accessible-value-minimum: 0;
+                    accessible-value-maximum: 100;
+                    accessible-action-set-value(value) => { VoicePlayer.change-volume(clamp(value.to-float() / 100, 0, 1)); }
+                    track := Rectangle {
+                        x: (parent.width - self.width) / 2; y: 12px; width: 4px; height: parent.height - 24px;
+                        border-radius: 2px; background: Theme.field;
+                        Rectangle {
+                            y: parent.height * (1 - sound.shown); height: parent.height * sound.shown;
+                            border-radius: 2px; background: Theme.accent;
+                        }
+                        Rectangle {
+                            width: 12px; height: 12px; border-radius: 6px; background: Theme.text;
+                            x: (parent.width - self.width) / 2; y: parent.height * (1 - sound.shown) - self.height / 2;
+                        }
+                    }
+                    loudness := TouchArea {
+                        enabled: sound.open;
+                        mouse-cursor: MouseCursor.pointer;
+                        property <float> dragged;
+                        property <float> at: clamp(1 - (self.mouse-y - track.y) / track.height, 0, 1);
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                self.dragged = self.at;
+                                VoicePlayer.change-volume(self.at);
+                            }
+                        }
+                        moved => {
+                            if self.pressed {
+                                self.dragged = self.at;
+                                VoicePlayer.change-volume(self.at);
+                            }
+                        }
+                    }
+                }
+                IconButton {
+                    y: parent.height - 24px; height: 24px;
+                    size: 24px; glyph: 18px; tip-side: 2;
+                    icon: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                    label: VoicePlayer.muted ? "Unmute" : "Mute";
+                    tint: root.playing ? #ffffff : Theme.secondary;
+                    enabled: !root.preview;
+                    clicked => { VoicePlayer.mute(); }
+                }
               }
             }
         }

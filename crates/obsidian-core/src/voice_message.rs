@@ -123,6 +123,11 @@ impl VoiceClock {
             .store(rate.clamp(0.5, 2.0).to_bits(), Ordering::Relaxed);
     }
 
+    /// What its sound is multiplied by.
+    pub fn gain(&self) -> f32 {
+        f32::from_bits(self.gain.load(Ordering::Relaxed))
+    }
+
     pub fn set_gain(&self, gain: f32) {
         self.gain.store(gain.to_bits(), Ordering::Relaxed);
     }

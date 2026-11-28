@@ -735,6 +735,9 @@ pub struct AppState {
     pub voice_rate: f32,
     /// Voice messages play silently.
     pub voice_muted: bool,
+    /// How loud voice messages play unmuted, from 0 to 1 as their volume
+    /// slider stands; 0 for full. Muting keeps it.
+    pub voice_volume: f32,
     /// The voice message being recorded in the selected room, or stopped
     /// and waiting to be sent, which takes the composer's place.
     pub voice_recording: Option<chat::VoiceRecording>,
@@ -1660,6 +1663,9 @@ pub enum Action {
     SendVoiceRecording,
     /// Mute voice messages, or unmute them.
     MuteVoiceMessages,
+    /// Play voice messages this loud, from 0 to 1 as their volume slider
+    /// stands, unmuting them; 0 mutes them, keeping the level they had.
+    VoiceMessageVolume(f32),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -3163,6 +3169,7 @@ impl Application {
             Action::DiscardVoiceRecording => self.discard_voice_recording(),
             Action::SendVoiceRecording => self.send_voice_recording(),
             Action::MuteVoiceMessages => self.mute_voice_messages(),
+            Action::VoiceMessageVolume(volume) => self.turn_voice_messages(volume),
             Action::StepImage(step) => self.step_image(step),
             Action::CloseImage => {
                 self.state.viewer = None;

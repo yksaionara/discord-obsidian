@@ -588,8 +588,11 @@ volume, in a pill that turns the accent colour while it plays.
   bars heard so far light up, and a click or a drag on the waveform moves
   it. Paused, the bars heard stay bright; at the end it waits at the start.
 - The speed steps through 1X, 1.5X, 2X and .75X, keeping the voice's pitch
-  (WSOLA), and stays for the next voice message, as muting does. Its volume
-  button mutes.
+  (WSOLA), and stays for the next voice message, as the volume does. The
+  volume button mutes, and while the pointer is on it a slider opens above
+  it, as Discord's does; the wheel turns it too. Its bottom mutes, keeping
+  the level for unmuting, and the sound is its travel to the power 2.8, as
+  Discord's client sets its media players' volume.
 - Where one stopped is kept, so it plays on from there. One plays at a time,
   and it stops when its channel or thread closes.
 - `voice_message.rs` downloads the Ogg file whole, decodes it on a thread of

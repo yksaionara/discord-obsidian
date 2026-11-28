@@ -84,8 +84,6 @@ Discord meets it. Each lands with its own doc section when it's done.
 1. Slash commands' attachment options, modals' file uploads and user, role
    and channel menus, and the Apps menu's per-app submenus, search and
    Frequently Used Commands.
-2. A voice message's volume slider: its button mutes, where Discord's also
-   opens a slider.
 3. A reminder's Custom... time, which opens Discord's date and time picker,
    and the notice when a reminder comes due.
 4. Making, renaming and colouring server folders.

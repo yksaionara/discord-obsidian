@@ -3034,6 +3034,15 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                 .action(&window, Action::MuteVoiceMessages);
         }
     });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_change_volume(move |volume| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::VoiceMessageVolume(volume));
+        }
+    });
     // An app's select menu under its message.
     let menus = window.global::<SelectMenus>();
     let state = adapter.clone();

@@ -506,8 +506,23 @@ impl Application {
         }
     }
 
+    /// How loud voice messages play unmuted, as their slider stands.
+    pub(super) fn voice_volume(&self) -> f32 {
+        match self.state.voice_volume {
+            0.0 => 1.0,
+            volume => volume,
+        }
+    }
+
+    /// What a voice message's sound is multiplied by: the slider's travel
+    /// to the power 2.8, as Discord's client turns its media players'
+    /// sliders into an audio element's volume.
     fn voice_gain(&self) -> f32 {
-        if self.state.voice_muted { 0.0 } else { 1.0 }
+        if self.state.voice_muted {
+            0.0
+        } else {
+            self.voice_volume().powf(2.8)
+        }
     }
 
     pub(super) fn step_voice_rate(&mut self) -> Vec<Effect> {
@@ -521,6 +536,20 @@ impl Application {
 
     pub(super) fn mute_voice_messages(&mut self) -> Vec<Effect> {
         self.state.voice_muted = !self.state.voice_muted;
+        if let Some(current) = &self.state.voice_message {
+            current.clock.set_gain(self.voice_gain());
+        }
+        vec![]
+    }
+
+    /// Sets how loud voice messages play, as Discord's slider over their
+    /// volume button does; 0 mutes them, keeping the level for unmuting.
+    pub(super) fn turn_voice_messages(&mut self, volume: f32) -> Vec<Effect> {
+        let volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 1.0 };
+        self.state.voice_muted = volume == 0.0;
+        if volume > 0.0 {
+            self.state.voice_volume = volume;
+        }
         if let Some(current) = &self.state.voice_message {
             current.clock.set_gain(self.voice_gain());
         }

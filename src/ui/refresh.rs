@@ -4439,6 +4439,10 @@ impl Adapter {
         };
         player.set_rate(obsidian_core::voice_message::rate_label(rate).into());
         player.set_muted(state.voice_muted);
+        player.set_volume(match state.voice_volume {
+            0.0 => 1.0,
+            volume => volume,
+        });
         let Some(current) = &state.voice_message else {
             self.voice_timer.stop();
             player.set_item(SharedString::default());
