@@ -203,8 +203,6 @@ its token.
 
 In rough order. The browser covers these until then.
 
-- Sorting and filtering a forum's posts by tag, and the gallery layout of
-  forums and media channels.
 - A server's membership form and onboarding questions when joining by
   invite, and invite cards in messages.
 - A server's privacy settings: direct messages, message requests and

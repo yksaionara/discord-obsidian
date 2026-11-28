@@ -2175,6 +2175,8 @@ struct Adapter {
     video_quiet: Cell<u32>,
     /// Follows the voice message playing, while it plays.
     voice_timer: Rc<slint::Timer>,
+    /// The forum's tags that filter its posts, as last shown.
+    forum_filters_shown: Option<Vec<PostTagChoice>>,
     /// Streamer Mode's notice over the window was dismissed while it's on.
     streamer_notice_dismissed: bool,
     /// Fires when the next reminder comes due, and the time it's armed for.
@@ -2489,6 +2491,7 @@ impl Adapter {
                 video_quiet: Cell::new(0),
                 voice_timer: Rc::new(slint::Timer::default()),
                 streamer_notice_dismissed: false,
+                forum_filters_shown: None,
                 reminder_timer: slint::Timer::default(),
                 reminder_armed: None,
                 recording_timer: Rc::new(slint::Timer::default()),

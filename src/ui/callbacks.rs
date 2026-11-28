@@ -869,6 +869,42 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         });
     }
     {
+        use obsidian_core::application::ForumChange;
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_choose_forum(move |which, on| {
+            let change = match which {
+                0 => ForumChange::Sort { by_creation: on },
+                1 => ForumChange::Layout { gallery: on },
+                2 => ForumChange::Matching { all: on },
+                _ => ForumChange::Reset,
+            };
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::ChooseForum(change));
+            }
+        });
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_filter_post_tag(move |tag| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::ChooseForum(ForumChange::Tag(tag.into())));
+            }
+        });
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_clear_post_tags(move || {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::ChooseForum(ForumChange::ClearTags));
+            }
+        });
+    }
+    {
         let adapter = adapter.clone();
         let weak = window.as_weak();
         window.on_streamer_changed(move |index, on| {

@@ -9393,5 +9393,42 @@ fn review_reminder_snapshots() {
     window.set_workspace(true);
     window.set_streamer_notice(true);
     save("streamer-notice.png");
+    // A forum with Sort & View, its tags and the gallery.
+    window.set_streamer_notice(false);
+    window.set_room_selected(true);
+    window.set_room_forum(true);
+    let tag = |name: &str| PostTag {
+        name: name.into(),
+        ..Default::default()
+    };
+    let posts: Vec<PostRow> = (0..5)
+        .map(|index| PostRow {
+            room: format!("discord:10:{index}").into(),
+            name: format!("Post number {index}").into(),
+            replies: (index * 3).to_string().into(),
+            time: "2h ago".into(),
+            tags: ModelRc::new(VecModel::from(vec![tag("Bug")])),
+            ..Default::default()
+        })
+        .collect();
+    window.set_post_rows(ModelRc::new(VecModel::from(posts)));
+    window.set_posts_filter_tags(ModelRc::new(VecModel::from(vec![
+        PostTagChoice {
+            id: "1".into(),
+            tag: tag("Bug"),
+            chosen: true,
+        },
+        PostTagChoice {
+            id: "2".into(),
+            tag: tag("Idea"),
+            chosen: false,
+        },
+    ])));
+    window.set_posts_tags_chosen(true);
+    window.set_posts_searchable(true);
+    window.set_posts_gallery(true);
+    save("forum-gallery.png");
+    window.set_posts_gallery(false);
+    save("forum-list.png");
     window.hide().unwrap();
 }

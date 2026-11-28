@@ -18,6 +18,8 @@ const REQUIRE_TAG: u64 = 1 << 4;
 const PINNED: u64 = 1 << 1;
 /// Its `default_sort_order` that sorts posts by when they were made.
 const CREATION_DATE: u64 = 1;
+/// Its `default_forum_layout` that shows posts as a gallery.
+const GALLERY: u64 = 2;
 
 /// What a forum channel has that a text channel doesn't.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -31,6 +33,18 @@ pub struct Forum {
     pub by_creation: bool,
     /// The emoji a post without reactions offers to react with.
     pub reaction: Option<Emoji>,
+    /// Its posts show as a gallery of cards by default, rather than a list:
+    /// a media channel's always, a forum's as its `default_forum_layout`
+    /// says.
+    #[serde(default)]
+    pub gallery: bool,
+    /// A media channel, whose posts only show as a gallery.
+    #[serde(default)]
+    pub media: bool,
+    /// Filtering by several tags shows posts with all of them, rather than
+    /// any, as its `default_tag_setting` says.
+    #[serde(default)]
+    pub match_all: bool,
 }
 
 /// A tag a forum's posts may take.
@@ -80,6 +94,7 @@ pub fn parse(channel: &Value) -> Option<Box<Forum>> {
     if !matches!(channel["type"].as_u64(), Some(GUILD_FORUM | GUILD_MEDIA)) {
         return None;
     }
+    let media = channel["type"].as_u64() == Some(GUILD_MEDIA);
     let tags = channel["available_tags"]
         .as_array()
         .into_iter()
@@ -98,6 +113,9 @@ pub fn parse(channel: &Value) -> Option<Box<Forum>> {
         require_tag: channel["flags"].as_u64().unwrap_or_default() & REQUIRE_TAG != 0,
         by_creation: channel["default_sort_order"].as_u64() == Some(CREATION_DATE),
         reaction: Emoji::of_tag(&channel["default_reaction_emoji"]),
+        gallery: media || channel["default_forum_layout"].as_u64() == Some(GALLERY),
+        media,
+        match_all: channel["default_tag_setting"].as_str() == Some("match_all"),
     }))
 }
 
@@ -244,6 +262,12 @@ mod tests {
         assert!(!plain.require_tag && !plain.by_creation && plain.reaction.is_none());
         let media = parse(&json!({"id": "4", "type": 16, "flags": 16})).unwrap();
         assert!(media.require_tag);
+        assert!(media.media && media.gallery, "a media channel is a gallery");
+        assert!(!plain.gallery && !plain.match_all);
+        let gallery = parse(&json!({"id": "5", "type": 15, "default_forum_layout": 2,
+            "default_tag_setting": "match_all"}))
+        .unwrap();
+        assert!(gallery.gallery && gallery.match_all && !gallery.media);
     }
 
     #[test]

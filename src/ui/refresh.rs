@@ -1430,18 +1430,38 @@ impl Adapter {
         };
         window.set_posts_note(note.into());
         window.set_posts_empty(empty);
+        let shown = self.app.forum_shown(room, &info);
+        window.set_posts_by_creation(shown.by_creation);
+        window.set_posts_gallery(shown.gallery);
+        window.set_posts_media(info.media);
+        window.set_posts_match_all(shown.match_all);
+        window.set_posts_tags_chosen(!shown.tags.is_empty());
+        let filters: Vec<PostTagChoice> = info
+            .tags
+            .iter()
+            .map(|tag| PostTagChoice {
+                id: tag.id.as_str().into(),
+                tag: post_tag(&tag.name, tag.emoji.as_ref()),
+                chosen: shown.tags.contains(&tag.id),
+            })
+            .collect();
+        if self.forum_filters_shown.as_ref() != Some(&filters) {
+            window.set_posts_filter_tags(ModelRc::new(VecModel::from(filters.clone())));
+            self.forum_filters_shown = Some(filters);
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |now| now.as_millis() as u64);
         use std::hash::{Hash, Hasher};
         let mut hasher = std::hash::DefaultHasher::new();
-        (&posts, room, now / 60_000).hash(&mut hasher);
+        (&posts, room, now / 60_000, shown.by_creation).hash(&mut hasher);
         let shown = hasher.finish();
         if self.forum_shown == Some(shown) {
             return;
         }
         self.forum_shown = Some(shown);
-        let row = |post| post_row(post, &info, now);
+        let by_creation = self.app.forum_shown(room, &info).by_creation;
+        let row = |post| post_row(post, &info, by_creation, now);
         let rows: Vec<PostRow> = match &posts.found {
             Some(Some(Ok(found))) => found.iter().map(row).collect(),
             _ => {
@@ -5272,6 +5292,7 @@ fn post_tag(name: &str, emoji: Option<&obsidian_core::chat::ShownEmoji>) -> Post
 fn post_row(
     post: &obsidian_core::application::ForumPost,
     info: &obsidian_core::application::ForumInfo,
+    by_creation: bool,
     now: u64,
 ) -> PostRow {
     const TAGS: usize = 3;
@@ -5299,7 +5320,7 @@ fn post_row(
             .map(|emoji| (tag("", Some(emoji)), String::new())),
         None => None,
     };
-    let at = if info.by_creation {
+    let at = if by_creation {
         thread.created_ms
     } else {
         thread.active_ms

@@ -63,7 +63,9 @@ pub use channel_settings::{
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
 pub use folders::{DEFAULT_FOLDER_COLOR, FOLDER_NAME_LIMIT, FolderSettings};
-pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
+pub use forum::{
+    ForumChange, ForumChoice, ForumInfo, ForumPost, ForumPosts, ForumShown, ForumView,
+};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use join::JoinDialog;
@@ -708,6 +710,9 @@ pub struct AppState {
     pub threads: Option<ThreadList>,
     /// The Discord forum on screen.
     pub forum: Option<ForumView>,
+    /// How each forum shows its posts, as Sort & View and its tags chose,
+    /// by room id, while Discord Obsidian runs.
+    pub forum_choices: HashMap<String, forum::ForumChoice>,
     /// The "New Thread" form beside the open Discord channel.
     pub new_thread: Option<NewThread>,
     /// The form for a post in a Discord forum, kept while other rooms show.
@@ -1880,6 +1885,8 @@ pub enum Action {
     SearchPosts(String),
     /// The forum's list of posts scrolled near its end: load more of them.
     MorePosts,
+    /// Sort & View, or a tag, changed for the forum on screen.
+    ChooseForum(forum::ForumChange),
     /// Open the form for a post in the forum on screen.
     NewPost,
     /// Write the form's title or message.
@@ -3387,6 +3394,7 @@ impl Application {
             Action::SearchThreads(query) => self.search_threads(query),
             Action::MoreThreads => self.more_threads(),
             Action::SearchPosts(query) => self.search_posts(query),
+            Action::ChooseForum(change) => self.choose_forum(change),
             Action::MorePosts => self.more_posts(),
             Action::NewPost => {
                 self.open_new_post();

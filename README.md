@@ -148,7 +148,9 @@ does a better job? PLEASE tell me.
 ### Forums and polls
 
 Browse a forum's posts as cards, with their tags, first message, top reaction
-and thumbnail, search them, post in them, and read one beside the forum. Vote
+and thumbnail, as a list or a gallery, filter them by tag, sort them, search
+them, post in them, and read one beside the forum. Media channels show as a
+gallery. Vote
 in polls, watch the votes come in, make your own and end them early.
 
 <img src="docs/images/features/forum.webp" alt="A help forum's posts as cards; one opens beside the list with its replies, then closes.">
@@ -229,7 +231,6 @@ it in Folder Settings.
 
 ### Not there yet
 
-- Media channels.
 - Activities.
 - A server's form for new members, such as its rules, when you join. Discord Obsidian
   sends you to Discord in your browser to fill it in.

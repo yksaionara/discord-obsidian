@@ -446,6 +446,101 @@ component NewPostForm inherits Rectangle {
     }
 }
 
+// A post's card in Discord's gallery: its first picture on top, then its
+// tags, its title and its replies and reaction. Clicking opens it beside the
+// forum; with Shift, in its place.
+component GalleryCard inherits Rectangle {
+    in property <PostRow> entry;
+    callback open(bool);
+    property <bool> shift;
+    border-radius: 8px; border-width: 1px; clip: true;
+    background: pointer.has-hover ? Theme.raised : Theme.hover;
+    border-color: pointer.has-hover ? Theme.active : Theme.line;
+    accessible-role: button;
+    accessible-label: root.entry.name + (root.entry.new ? ", new" : "") + (root.entry.pinned ? ", pinned" : "")
+        + ", " + root.entry.replies + " replies, " + root.entry.time;
+    accessible-action-default => { root.open(false); }
+    pointer := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down { root.shift = event.modifiers.shift; }
+        }
+        clicked => { root.open(!root.shift); }
+    }
+    VerticalLayout {
+        Rectangle {
+            height: root.width * 0.6; background: Theme.raised; clip: true;
+            if root.entry.picture-url != "": StoredImage {
+                url: root.entry.picture-url; width: parent.width; height: parent.height; image-fit: cover;
+            }
+            if root.entry.picture-url == "": Image {
+                source: @image-url("icons/thread.svg"); width: 32px; height: 32px; colorize: Theme.faint;
+            }
+            if root.entry.spoiler: Rectangle {
+                background: Theme.raised;
+                Text { text: "SPOILER"; color: Theme.muted; font-size: 11px; font-weight: 800; }
+            }
+        }
+        VerticalLayout {
+            padding: 10px; spacing: 6px;
+            if root.entry.pinned || root.entry.tags.length > 0: HorizontalLayout {
+                spacing: 4px; height: 20px;
+                if root.entry.pinned: Middle {
+                    Image { source: @image-url("icons/pin.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
+                }
+                for tag in root.entry.tags: Middle { TagPill { tag: tag; } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text {
+                text: root.entry.name; font-size: 15px; font-weight: 700; wrap: word-wrap; max-height: 40px; overflow: elide;
+                color: root.entry.unread || root.entry.new ? Theme.text : Theme.secondary;
+            }
+            HorizontalLayout {
+                spacing: 6px; height: 20px;
+                if root.entry.has-reaction: Middle { PostEmoji { emoji: root.entry.reaction; size: 14px; } }
+                if root.entry.reaction-count != "": Middle {
+                    Text { text: root.entry.reaction-count; color: Theme.secondary; font-size: 13px; font-weight: 600; }
+                }
+                Middle {
+                    Image { source: @image-url("icons/message-circle.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
+                }
+                Middle { Text { text: root.entry.replies; color: Theme.muted; font-size: 13px; font-weight: 600; } }
+                Rectangle { horizontal-stretch: 1; }
+                Middle { Text { text: root.entry.time; color: Theme.muted; font-size: 12px; } }
+            }
+        }
+    }
+}
+
+// A choice in Sort & View, with a round mark by the one chosen.
+component SortChoice inherits Rectangle {
+    in property <string> text;
+    in property <bool> chosen;
+    callback picked;
+    height: 32px; border-radius: 4px;
+    background: touch.has-hover ? Theme.hover : transparent;
+    accessible-role: radio-button;
+    accessible-checked: root.chosen;
+    accessible-label: root.text;
+    accessible-action-default => { root.picked(); }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.picked(); } }
+    HorizontalLayout {
+        padding-left: 8px; padding-right: 8px; spacing: 8px;
+        Text { text: root.text; color: Theme.text; font-size: 14px; vertical-alignment: center; horizontal-stretch: 1; }
+        Middle {
+            Rectangle {
+                width: 16px; height: 16px; border-radius: 8px;
+                border-width: 2px; border-color: root.chosen ? Theme.accent : Theme.muted;
+                if root.chosen: Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.accent; }
+            }
+        }
+    }
+}
+
+component SortHeading inherits Text {
+    color: Theme.muted; font-size: 12px; font-weight: 700; height: 24px; vertical-alignment: center;
+}
+
 export component ForumPanel inherits Rectangle {
     in property <[PostRow]> rows;
     /// Said instead of the list: while it loads, or why it failed.
@@ -476,6 +571,22 @@ export component ForumPanel inherits Rectangle {
     in property <bool> posting;
     in property <string> post-error;
     in property <bool> leaving;
+    /// How the posts show, as Sort & View chose: by when they were made,
+    /// as a gallery (a media channel's only are), and several tags matched
+    /// all at once.
+    in property <bool> by-creation;
+    in property <bool> gallery;
+    in property <bool> media;
+    in property <bool> match-all;
+    /// The forum's tags, chosen ones filtering the posts.
+    in property <[PostTagChoice]> filter-tags;
+    /// Some of them filter the posts now.
+    in property <bool> tags-chosen;
+    /// Sort & View: 0 sort by when made, 1 gallery, 2 match all, each with
+    /// whether; 3 back to the forum's defaults.
+    callback choose(int, bool);
+    callback filter-tag(string);
+    callback clear-tags;
     callback search(string);
     callback open(string, bool);
     callback more-posts;
@@ -495,6 +606,31 @@ export component ForumPanel inherits Rectangle {
     accessible-label: "Posts";
     /// The list was scrolled by hand since it opened.
     property <bool> scrolled-by-hand;
+    /// The gallery's cards to a line, about 240px wide each.
+    property <int> columns: Math.max(1, Math.floor((root.width - 32px + 12px) / 252px));
+    // Sort & View's menu, under its button.
+    sort-menu := PopupWindow {
+        x: 16px; y: 100px; width: 220px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000066;
+            VerticalLayout {
+                padding: 8px; spacing: 2px;
+                SortHeading { text: "Sort by"; }
+                SortChoice { text: "Recently Active"; chosen: !root.by-creation; picked => { root.choose(0, false); sort-menu.close(); } }
+                SortChoice { text: "Date Posted"; chosen: root.by-creation; picked => { root.choose(0, true); sort-menu.close(); } }
+                if !root.media: SortHeading { text: "View as"; }
+                if !root.media: SortChoice { text: "List"; chosen: !root.gallery; picked => { root.choose(1, false); sort-menu.close(); } }
+                if !root.media: SortChoice { text: "Gallery"; chosen: root.gallery; picked => { root.choose(1, true); sort-menu.close(); } }
+                if root.filter-tags.length > 0: SortHeading { text: "Tag Matching"; }
+                if root.filter-tags.length > 0: SortChoice { text: "Match Some"; chosen: !root.match-all; picked => { root.choose(2, false); sort-menu.close(); } }
+                if root.filter-tags.length > 0: SortChoice { text: "Match All"; chosen: root.match-all; picked => { root.choose(2, true); sort-menu.close(); } }
+                Rectangle { height: 9px; Rectangle { height: 1px; background: Theme.line; } }
+                SortChoice { text: "Reset to default"; chosen: false; picked => { root.choose(3, false); sort-menu.close(); } }
+            }
+        }
+    }
     if root.composing: NewPostForm {
         title <=> root.post-title; body <=> root.post-body;
         chosen-tags: root.chosen-tags; tag-choices: root.tag-choices;
@@ -534,6 +670,40 @@ export component ForumPanel inherits Rectangle {
                 clicked => { root.new-post(); }
             }
         }
+        // Sort & View, and the tags that filter the posts, as Discord's.
+        if root.note == "" || root.filter-tags.length > 0: HorizontalLayout {
+            padding-left: 16px; padding-right: 16px; padding-bottom: 8px; spacing: 8px; height: 40px;
+            sort-button := ActionButton {
+                small: true; ghost: true; icon: @image-url("icons/arrow-up-down.svg");
+                text: root.media ? "Sort" : "Sort & View";
+                clicked => { sort-menu.show(); }
+            }
+            if root.filter-tags.length > 0: Flickable {
+                horizontal-stretch: 1; height: 28px;
+                content-width: tags-row.preferred-width;
+                tags-row := HorizontalLayout {
+                    spacing: 6px; alignment: start;
+                    for choice in root.filter-tags: Rectangle {
+                        height: 28px; border-radius: 14px; width: tag-chip.preferred-width;
+                        background: choice.chosen ? Theme.accent-soft : tag-touch.has-hover ? Theme.hover : Theme.raised;
+                        border-width: 1px; border-color: choice.chosen ? Theme.accent : Theme.line;
+                        accessible-role: checkbox; accessible-checked: choice.chosen;
+                        accessible-label: "Filter by tag, " + choice.tag.name;
+                        accessible-action-default => { root.filter-tag(choice.id); }
+                        tag-chip := HorizontalLayout {
+                            padding-left: 10px; padding-right: 10px; spacing: 4px;
+                            if choice.tag.emoji != "" || choice.tag.emoji-url != "": PostEmoji { emoji: choice.tag; size: 14px; }
+                            Middle { Text { text: choice.tag.name; color: Theme.text; font-size: 13px; font-weight: 600; } }
+                        }
+                        tag-touch := TouchArea { mouse-cursor: pointer; clicked => { root.filter-tag(choice.id); } }
+                    }
+                }
+            }
+            if root.tags-chosen: ActionButton {
+                small: true; ghost: true; text: "Clear"; clicked => { root.clear-tags(); }
+            }
+            if root.filter-tags.length == 0: Rectangle { horizontal-stretch: 1; }
+        }
         if root.note != "": VerticalLayout {
             padding: 24px; vertical-stretch: 1; alignment: center;
             Text { text: root.note; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
@@ -546,7 +716,7 @@ export component ForumPanel inherits Rectangle {
                 color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center;
             }
         }
-        if root.note == "" && !root.empty: Rectangle {
+        if root.note == "" && !root.empty && !root.gallery: Rectangle {
             vertical-stretch: 1;
             ListView {
                 width: parent.width; height: parent.height;
@@ -564,6 +734,34 @@ export component ForumPanel inherits Rectangle {
                 for row[index] in root.rows: PostCard {
                     entry: row; first: index == 0;
                     open(beside) => { root.open(row.room, beside); }
+                }
+            }
+        }
+        // The gallery: a line of cards for each of its rows, so it makes
+        // only the lines on screen, as the list does.
+        if root.note == "" && !root.empty && root.gallery: Rectangle {
+            vertical-stretch: 1;
+            ListView {
+                width: parent.width; height: parent.height;
+                scrolled => { root.scrolled-by-hand = true; }
+                changed content-y => {
+                    if root.scrolled-by-hand && root.more && !root.loading
+                        && -self.content-y + self.visible-height >= self.content-height - 200px {
+                        root.more-posts();
+                    }
+                }
+                for line in Math.ceil(root.rows.length / root.columns): HorizontalLayout {
+                    padding-left: 16px; padding-right: 16px; padding-top: 8px; spacing: 12px;
+                    alignment: start;
+                    for column in root.columns: Rectangle {
+                        property <int> at: line * root.columns + column;
+                        width: (root.width - 32px - (root.columns - 1) * 12px) / root.columns;
+                        height: self.width * 0.6 + 104px;
+                        if self.at < root.rows.length: GalleryCard {
+                            entry: root.rows[parent.at];
+                            open(beside) => { root.open(root.rows[parent.at].room, beside); }
+                        }
+                    }
                 }
             }
         }

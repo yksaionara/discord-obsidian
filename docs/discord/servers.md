@@ -558,8 +558,8 @@ ordinary message in it.
 A forum (type 15) lists among the text channels, by its position, with its
 own icon, and shows its posts in place of messages, as Discord's client
 does (`application/forum.rs`, `ForumPanel`). A media channel (type 16) has
-a forum's fields and is one here, with a forum's icon and its list of
-cards, where Discord's client shows a gallery. Its posts are public threads
+a forum's fields and is one here, with a forum's icon, shown only as a
+gallery, as Discord's client shows it. Its posts are public threads
 whose parent is the forum, so everything above holds for them: posts the
 account is in list under the forum in the sidebar, the active ones come
 with THREAD_LIST_SYNC once the server is subscribed (with `threads`, but
@@ -597,6 +597,25 @@ messages are kept only while the forum shows. Opening the forum marks it
 read, which acknowledges its newest message, as Discord's client does; a
 forum's newest message is its newest post, so a post made since makes it
 unread (THREAD_CREATE with `newly_created`).
+
+Under the search, Discord's "Sort & View" ("Sort" in a media channel) opens
+its menu (module 745431, web build 673764): Sort by Recently Active or Date
+Posted, View as List or Gallery (not in a media channel), Tag Matching's
+Match Some or Match All when the forum has tags, and Reset to default, which
+goes back to the forum's own `default_sort_order`, `default_forum_layout`
+and `default_tag_setting`. Beside it, the forum's tags show as pills that
+filter the posts, and Clear while any does: a post shows with any of the
+tags chosen, or with Match All all of them. The choices are kept for each
+forum while Discord Obsidian runs. Filtering goes over the posts already
+listed, active and older, and a search's; Discord's client asks the server
+for archived posts with the tags instead.
+
+The gallery lays the cards out about 240px wide, as many to a line as fit,
+each with its first picture on top, then its tags, its title, its top
+reaction, its replies and when it was last active. Each line of cards is a
+row of the list, so only the lines on screen are made, as with the list.
+The picture is the card's 144px thumbnail, drawn larger, so the gallery
+fetches and keeps nothing more than the list.
 
 New Post, beside the search, opens the form for a post in place of the
 list, as Discord's client opens it at the top of a forum

@@ -2465,6 +2465,16 @@ export component ObsidianWindow inherits Window {
     /// A row of a message's reminder submenu, by its id, for an item.
     callback choose-reminder(string, string);
     // Discord's Streamer Mode: its settings, and its notice over the window.
+    // How the forum on screen shows its posts; see ForumPanel.
+    in property <bool> posts-by-creation;
+    in property <bool> posts-gallery;
+    in property <bool> posts-media;
+    in property <bool> posts-match-all;
+    in property <[PostTagChoice]> posts-filter-tags;
+    in property <bool> posts-tags-chosen;
+    callback choose-forum(int, bool);
+    callback filter-post-tag(string);
+    callback clear-post-tags;
     in property <bool> streamer-enabled;
     in property <bool> streamer-auto;
     in property <bool> streamer-hide-personal;
@@ -3452,6 +3462,12 @@ export component ObsidianWindow inherits Window {
                             guidelines: root.post-guidelines; has-guidelines: root.post-has-guidelines;
                             staged: root.staged; can-attach: root.can-attach; can-mark-spoilers: root.can-mark-spoilers;
                             posting: root.posting; post-error: root.post-error; leaving: root.post-leaving;
+                            by-creation: root.posts-by-creation; gallery: root.posts-gallery; media: root.posts-media;
+                            match-all: root.posts-match-all; filter-tags: root.posts-filter-tags;
+                            tags-chosen: root.posts-tags-chosen;
+                            choose(which, on) => { root.choose-forum(which, on); }
+                            filter-tag(id) => { root.filter-post-tag(id); }
+                            clear-tags => { root.clear-post-tags(); }
                             search(text) => { root.search-posts(text); }
                             more-posts => { root.more-posts(); }
                             open(room, beside) => { root.open-listed-thread(room, beside); }

@@ -9574,6 +9574,36 @@ fn a_forum_shows_its_posts_as_discords_client_does() {
     assert_eq!(tags, ["Bug", "Idea"], "in the forum's order");
     assert!(shown.active[0].thread.pinned);
 
+    // Its tags filter the posts, any of them by default, all of them with
+    // Match All, as Discord's Sort & View has it.
+    let names = |app: &Application| -> Vec<String> {
+        let shown = app.forum_posts().unwrap();
+        shown
+            .active
+            .iter()
+            .map(|post| post.thread.name.clone())
+            .collect()
+    };
+    app.dispatch(Action::ChooseForum(ForumChange::Tag("7".into())));
+    assert_eq!(names(&app), ["Joined", "Newest"]);
+    app.dispatch(Action::ChooseForum(ForumChange::Tag("8".into())));
+    assert_eq!(names(&app), ["Joined", "Newest"], "some: either tag");
+    app.dispatch(Action::ChooseForum(ForumChange::Matching { all: true }));
+    assert_eq!(names(&app), ["Newest"], "all: both tags");
+    // Date Posted sorts by when they were made, the pinned post still first.
+    app.dispatch(Action::ChooseForum(ForumChange::ClearTags));
+    app.dispatch(Action::ChooseForum(ForumChange::Sort { by_creation: true }));
+    assert_eq!(names(&app), ["Welcome", "Newest", "Joined"]);
+    let info = app.forum_info(&ideas).unwrap();
+    assert!(!app.forum_shown(&ideas, &info).gallery, "a list by default");
+    app.dispatch(Action::ChooseForum(ForumChange::Layout { gallery: true }));
+    assert!(app.forum_shown(&ideas, &info).gallery);
+    // Reset to default goes back to the forum's own.
+    app.dispatch(Action::ChooseForum(ForumChange::Reset));
+    let reset = app.forum_shown(&ideas, &info);
+    assert!(!reset.gallery && !reset.by_creation && !reset.match_all);
+    assert_eq!(names(&app), ["Welcome", "Joined", "Newest"]);
+
     // Their first messages come; one Discord didn't answer for was deleted,
     // and nothing more is asked for.
     let starter = |text: &str| PostStarter {

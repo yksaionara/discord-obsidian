@@ -40,6 +40,20 @@ pub struct ForumView {
     read: u64,
 }
 
+/// How the forum on screen sorts, lays out and filters its posts, as Discord's
+/// Sort & View and its tags choose: each `None` follows the forum's default.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForumChoice {
+    /// Date Posted rather than Recently Active.
+    pub by_creation: Option<bool>,
+    /// Gallery rather than List.
+    pub gallery: Option<bool>,
+    /// Match All rather than Match Some.
+    pub match_all: Option<bool>,
+    /// The tags chosen to filter by, by id.
+    pub tags: Vec<String>,
+}
+
 /// A forum's posts as it shows them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ForumPosts {
@@ -75,6 +89,21 @@ pub struct ForumInfo {
     pub require_tag: bool,
     /// The emoji a post without reactions offers.
     pub reaction: Option<chat::ShownEmoji>,
+    /// Its posts show as a gallery by default; a media channel's only do.
+    pub gallery: bool,
+    pub media: bool,
+    /// Several tags filter for posts with all of them by default.
+    pub match_all: bool,
+}
+
+/// How the forum on screen shows now: its choices, or its defaults.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForumShown {
+    pub by_creation: bool,
+    pub gallery: bool,
+    pub match_all: bool,
+    /// The tags filtering, by id.
+    pub tags: Vec<String>,
 }
 
 impl ForumView {
@@ -262,20 +291,38 @@ impl Application {
             .chain(&sections.other)
             .map(post)
             .collect();
-        let order = |post: &ForumPost| match info.by_creation {
+        let shown = self.forum_shown(&forum.list.room, &info);
+        let order = |post: &ForumPost| match shown.by_creation {
             true => created(&post.thread),
             false => post.thread.last,
         };
+        // Tags chosen show the posts with some or all of them, as Discord's
+        // filter does.
+        let fits = |post: &ForumPost| {
+            let has = |tag: &String| post.thread.tags.contains(tag);
+            shown.tags.is_empty()
+                || if shown.match_all {
+                    shown.tags.iter().all(has)
+                } else {
+                    shown.tags.iter().any(has)
+                }
+        };
+        active.retain(fits);
         active.sort_by_key(|post| (!post.thread.pinned, std::cmp::Reverse(order(post))));
         let found = forum.list.search.as_ref().map(|search| {
-            search
-                .found
-                .as_ref()
-                .map(|found| found.clone().map(|found| found.iter().map(post).collect()))
+            search.found.as_ref().map(|found| {
+                found
+                    .clone()
+                    .map(|found| found.iter().map(post).filter(fits).collect())
+            })
         });
+        let mut older: Vec<_> = sections.older.iter().map(post).filter(fits).collect();
+        if shown.by_creation {
+            older.sort_by_key(|post| std::cmp::Reverse(created(&post.thread)));
+        }
         Some(ForumPosts {
             active,
-            older: sections.older.iter().map(post).collect(),
+            older,
             found,
         })
     }
@@ -294,10 +341,66 @@ impl Application {
                 by_creation: forum.by_creation,
                 require_tag: forum.require_tag,
                 reaction: forum.reaction.as_ref().map(discord::shown_emoji),
+                gallery: forum.gallery,
+                media: forum.media,
+                match_all: forum.match_all,
             });
         }
         let _ = room;
         None
+    }
+
+    /// How a forum, by room id, shows its posts now: as chosen, else as
+    /// it says by default. A media channel's only show as a gallery.
+    pub fn forum_shown(&self, room: &str, info: &ForumInfo) -> ForumShown {
+        let choice = self.state.forum_choices.get(room);
+        let pick =
+            |chosen: Option<Option<bool>>, default: bool| chosen.flatten().unwrap_or(default);
+        ForumShown {
+            by_creation: pick(choice.map(|choice| choice.by_creation), info.by_creation),
+            gallery: info.media || pick(choice.map(|choice| choice.gallery), info.gallery),
+            match_all: pick(choice.map(|choice| choice.match_all), info.match_all),
+            tags: choice
+                .map(|choice| {
+                    choice
+                        .tags
+                        .iter()
+                        .filter(|tag| info.tags.iter().any(|known| known.id == **tag))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Sort & View, or a tag, changed for the forum on screen, as Discord's
+    /// keeps it for each forum while it runs.
+    pub(super) fn choose_forum(&mut self, change: ForumChange) -> Vec<Effect> {
+        let Some(room) = self.state.forum().map(|forum| forum.list.room.clone()) else {
+            return vec![];
+        };
+        let choice = self.state.forum_choices.entry(room).or_default();
+        match change {
+            ForumChange::Sort { by_creation } => choice.by_creation = Some(by_creation),
+            ForumChange::Layout { gallery } => choice.gallery = Some(gallery),
+            ForumChange::Matching { all } => choice.match_all = Some(all),
+            ForumChange::Tag(tag) => {
+                if let Some(at) = choice.tags.iter().position(|known| *known == tag) {
+                    choice.tags.remove(at);
+                } else {
+                    choice.tags.push(tag);
+                }
+            }
+            ForumChange::ClearTags => choice.tags.clear(),
+            ForumChange::Reset => {
+                let tags = std::mem::take(&mut choice.tags);
+                *choice = ForumChoice {
+                    tags,
+                    ..ForumChoice::default()
+                };
+            }
+        }
+        vec![]
     }
 
     /// The last message read in a forum, by room id, as a snowflake.
@@ -311,6 +414,28 @@ impl Application {
         let _ = room;
         0
     }
+}
+
+/// What Sort & View, or the tags over a forum, change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ForumChange {
+    /// Recently Active, or Date Posted.
+    Sort {
+        by_creation: bool,
+    },
+    /// List, or Gallery.
+    Layout {
+        gallery: bool,
+    },
+    /// Match Some, or Match All.
+    Matching {
+        all: bool,
+    },
+    /// Filter by a tag, by id, or stop.
+    Tag(String),
+    ClearTags,
+    /// Reset to default: the forum's own sort, layout and matching.
+    Reset,
 }
 
 /// When a post was made, as a snowflake: its room id's.
