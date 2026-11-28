@@ -2799,6 +2799,14 @@ pub enum DiscordCommand {
         preview: Box<InvitePreview>,
         from_link: bool,
     },
+    /// Start a stage in the stage channel `room` with a topic, change a
+    /// live one's (`live`), or with none end it; a failure shows as the
+    /// room's error.
+    Stage {
+        room: String,
+        topic: Option<String>,
+        live: bool,
+    },
     /// List the Discord account's logged-in devices; [`Event::Devices`]
     /// follows.
     Devices,

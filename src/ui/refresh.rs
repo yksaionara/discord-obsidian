@@ -4015,6 +4015,15 @@ impl Adapter {
                 (false, _) => 3,
             });
         window.set_stage_call(stage);
+        // A stage moderator's Start, Edit and End Stage.
+        let room = voice
+            .room
+            .as_deref()
+            .filter(|_| voice.active() && stage > 0);
+        let topic = room.and_then(|room| self.app.stage_topic(room));
+        window.set_stage_moderator(room.is_some_and(|room| self.app.stage_moderator(room)));
+        window.set_stage_live(topic.is_some());
+        window.set_stage_topic(topic.unwrap_or_default().into());
         window.set_voice_error(voice.error.as_deref().unwrap_or_default().into());
         window.set_voice_warning(voice.warning.as_deref().unwrap_or_default().into());
         update_model(

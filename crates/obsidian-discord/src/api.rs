@@ -1820,6 +1820,39 @@ impl Api {
             .await
     }
 
+    /// Starts a stage in a stage channel, with its topic, as Discord's
+    /// client starts one: for the server's members (privacy 2), without
+    /// notifying them.
+    pub async fn start_stage(&self, channel: &str, topic: &str) -> Result<()> {
+        let body = json!({
+            "channel_id": channel,
+            "topic": topic,
+            "privacy_level": 2,
+            "send_start_notification": false,
+        });
+        self.json(with_json(
+            self.request(Method::POST, "/stage-instances"),
+            &body,
+        ))
+        .await
+        .map(drop)
+    }
+
+    /// Changes a live stage's topic.
+    pub async fn edit_stage(&self, channel: &str, topic: &str) -> Result<()> {
+        let path = format!("/stage-instances/{channel}");
+        let body = json!({ "topic": topic });
+        self.json(with_json(self.request(Method::PATCH, &path), &body))
+            .await
+            .map(drop)
+    }
+
+    /// Ends a live stage.
+    pub async fn end_stage(&self, channel: &str) -> Result<()> {
+        let path = format!("/stage-instances/{channel}");
+        self.empty(self.request(Method::DELETE, &path)).await
+    }
+
     /// The account's logged-in sessions, up to 50.
     pub async fn auth_sessions(&self) -> Result<Value> {
         self.json(self.request(Method::GET, "/auth/sessions")).await

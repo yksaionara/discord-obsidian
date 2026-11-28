@@ -2641,6 +2641,16 @@ impl Discord {
         self.api.modify_voice_state(guild, "@me", &body).await
     }
 
+    /// Starts a stage with a topic, changes a live one's (`live`), or with
+    /// none ends it.
+    pub async fn set_stage(&self, channel: &str, topic: Option<&str>, live: bool) -> Result<()> {
+        match topic {
+            Some(topic) if live => self.api.edit_stage(channel, topic).await,
+            Some(topic) => self.api.start_stage(channel, topic).await,
+            None => self.api.end_stage(channel).await,
+        }
+    }
+
     /// The account's logged-in devices, as Settings › Devices lists them.
     pub async fn devices(&self) -> Result<Vec<crate::sessions::Device>> {
         let value = self.api.auth_sessions().await?;

@@ -4882,6 +4882,22 @@ async fn asks_to_speak_on_a_stage_and_brings_people_up() {
         sent[3],
         serde_json::json!({"user": "@me", "channel_id": "60", "suppress": true})
     );
+    // A moderator starts the stage, changes its topic and ends it.
+    discord.set_stage("60", Some("Q&A"), false).await.unwrap();
+    discord
+        .set_stage("60", Some("Ask anything"), true)
+        .await
+        .unwrap();
+    discord.set_stage("60", None, true).await.unwrap();
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/stage-instances", "")).unwrap();
+    assert_eq!(sent[0]["method"], "POST");
+    assert_eq!(sent[0]["topic"], "Q&A");
+    assert_eq!(sent[0]["privacy_level"], 2);
+    assert_eq!(sent[0]["send_start_notification"], false);
+    assert_eq!(sent[1]["method"], "PATCH");
+    assert_eq!(sent[1]["topic"], "Ask anything");
+    assert_eq!(sent[2]["method"], "DELETE");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -1328,6 +1328,11 @@ export component CallControls inherits HorizontalLayout {
     /// for the audience.
     in property <int> stage;
     callback stage-action;
+    /// A stage moderator's buttons: Start Stage, or Edit Stage and End
+    /// Stage once it's live; each opens StageDialog of that kind.
+    in property <bool> stage-moderator;
+    in property <bool> stage-live;
+    callback stage-dialog(int);
     in property <bool> deafened;
     in property <bool> voice-ready;
     in property <bool> voice-leaving;
@@ -1399,6 +1404,21 @@ export component CallControls inherits HorizontalLayout {
             live: root.stage == 2;
             enabled: root.voice-ready;
             clicked => { root.stage-action(); }
+        }
+        if root.stage-moderator && !root.stage-live: BarButton {
+            icon: @image-url("icons/play.svg"); label: "Start Stage";
+            enabled: root.voice-ready;
+            clicked => { root.stage-dialog(1); }
+        }
+        if root.stage-moderator && root.stage-live: BarButton {
+            icon: @image-url("icons/pencil.svg"); label: "Edit Stage";
+            enabled: root.voice-ready;
+            clicked => { root.stage-dialog(2); }
+        }
+        if root.stage-moderator && root.stage-live: BarButton {
+            icon: @image-url("icons/circle-stop.svg"); label: "End Stage"; alert: true;
+            enabled: root.voice-ready;
+            clicked => { root.stage-dialog(3); }
         }
         if root.can-soundboard: BarButton {
             icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";

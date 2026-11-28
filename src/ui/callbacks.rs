@@ -865,6 +865,28 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             }
         });
     }
+    // A stage moderator's Start Stage or Edit Stage, with its topic, and End
+    // Stage, without one.
+    {
+        let set = |state: Rc<RefCell<Adapter>>,
+                   weak: slint::Weak<ObsidianWindow>,
+                   topic: Option<String>| {
+            let Some(window) = weak.upgrade() else { return };
+            let room = state.borrow().app.state.voice.room.clone();
+            if let Some(room) = room {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::SetStage { room, topic });
+            }
+        };
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window
+            .on_set_stage_topic(move |topic| set(state.clone(), weak.clone(), Some(topic.into())));
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_end_stage(move || set(state.clone(), weak.clone(), None));
+    }
     // A stage's button in the call bar, as the call's own menu offers it.
     {
         use obsidian_core::chat::MemberChange;

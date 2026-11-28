@@ -236,6 +236,10 @@
 // GET /auth/sessions lists Alice's devices, this one by READY's
 // auth_session_id_hash and a phone; POST /auth/sessions/logout logs them out
 // by hash, which /_control/logged-out-sessions lists.
+// POST /stage-instances starts a stage, PATCH and DELETE
+// /stage-instances/{channel} change its topic or end it, each sending
+// STAGE_INSTANCE_CREATE, UPDATE or DELETE; /_control/stage-instances lists
+// each request with its method.
 // PATCH /guilds/{id}/voice-states/{user or @me} changes a stage voice state
 // (suppress, request_to_speak_timestamp); /_control/stage-changes lists each
 // with its user.
@@ -4904,6 +4908,7 @@ const inviteJoins: Record<string, unknown>[] = [];
 const onboardingResponses: unknown[] = [];
 const membershipRequests: unknown[] = [];
 const stageChanges: unknown[] = [];
+const stageInstances: unknown[] = [];
 /** Alice's devices, and the hashes logged out. */
 const AUTH_SESSION = "fake-session-hash=";
 let authSessions = [
@@ -7351,6 +7356,20 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     stageChanges.push({ user: m[1], ...(await req.json() as any) });
     return empty();
   }
+  if (method === "POST" && path === "/stage-instances") {
+    const body: any = await req.json();
+    stageInstances.push({ method, ...body });
+    const stage = { id: "7300", guild_id: GUILD, channel_id: body.channel_id, topic: body.topic, privacy_level: body.privacy_level };
+    dispatch("STAGE_INSTANCE_CREATE", stage);
+    return json(stage);
+  }
+  if ((method === "PATCH" || method === "DELETE") && (m = path.match(/^\/stage-instances\/(\d+)$/))) {
+    const body: any = method === "PATCH" ? await req.json() : {};
+    stageInstances.push({ method, channel_id: m[1], ...body });
+    const stage = { id: "7300", guild_id: GUILD, channel_id: m[1], topic: body.topic ?? "", privacy_level: 2 };
+    dispatch(method === "PATCH" ? "STAGE_INSTANCE_UPDATE" : "STAGE_INSTANCE_DELETE", stage);
+    return method === "PATCH" ? json(stage) : empty();
+  }
   if (method === "GET" && path === "/auth/sessions") {
     return json({ user_sessions: authSessions });
   }
@@ -8008,7 +8027,7 @@ const GENERIC_CONTROLS = new Set([
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
-  "invite-joins", "invite-captcha", "invite-form", "onboarding-responses", "membership-requests", "stage-changes", "logged-out-sessions", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
+  "invite-joins", "invite-captcha", "invite-form", "onboarding-responses", "membership-requests", "stage-changes", "logged-out-sessions", "stage-instances", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
 ]);
 
 /** A status's emoji as the env gives it, Unicode or `<:name:id>`, as Discord sends it. */
@@ -9288,6 +9307,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/onboarding-responses") return Response.json(onboardingResponses);
     if (path === "/_control/membership-requests") return Response.json(membershipRequests);
     if (path === "/_control/stage-changes") return Response.json(stageChanges);
+    if (path === "/_control/stage-instances") return Response.json(stageInstances);
     if (path === "/_control/logged-out-sessions") return Response.json(loggedOutSessions);
     if (req.method === "POST" && path === "/_control/invite-form") {
       inviteForm = true;

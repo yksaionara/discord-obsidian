@@ -10890,6 +10890,20 @@ fn a_stages_audience_asks_to_speak_and_its_moderators_bring_them_up() {
         [Effect::Backend(Command::Discord(DiscordCommand::Member { user, change: MemberChange::Speak { speak: true, .. }, .. }))]
             if user == "3"
     ));
+    // A moderator starts the stage with a topic; ending one not live does nothing.
+    assert!(app.stage_moderator(&stage));
+    assert!(
+        app.dispatch(Action::SetStage {
+            room: stage.clone(),
+            topic: None
+        })
+        .is_empty()
+    );
+    assert!(matches!(
+        app.dispatch(Action::SetStage { room: stage.clone(), topic: Some(" Q&A ".into()) }).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Stage { topic: Some(topic), live: false, .. }))]
+            if topic == "Q&A"
+    ));
 }
 
 #[test]

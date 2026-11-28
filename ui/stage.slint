@@ -1,0 +1,77 @@
+import { Theme, Popup } from "theme.slint";
+import { ActionButton, IconButton, TextField } from "controls.slint";
+
+/// A stage moderator's dialogs, as Discord's call bar opens them: 1 Start
+/// Stage with its topic, 2 Edit Stage, 3 the question before End Stage.
+export component StageDialog inherits Rectangle {
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    in property <int> kind;
+    /// The stage's topic now, which Edit Stage starts from.
+    in property <string> topic;
+    /// Start or save with this topic.
+    callback save(string);
+    callback end-stage;
+    callback close;
+    property <string> typed: root.kind == 2 ? root.topic : "";
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.kind == 1 ? "Start Stage" : root.kind == 2 ? "Edit Stage" : "End Stage";
+        TouchArea { }
+        FocusScope {
+            init => { if root.kind == 3 { self.focus(); } }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close(); return accept; }
+                return reject;
+            }
+            content := VerticalLayout {
+                padding: 20px; spacing: 16px;
+                HorizontalLayout {
+                    Text {
+                        text: root.kind == 1 ? "Start Stage" : root.kind == 2 ? "Edit Stage" : "Do you want to end the Stage?";
+                        color: Theme.text; font-size: 20px; font-weight: 700;
+                        vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap;
+                    }
+                    IconButton {
+                        icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px;
+                        clicked => { root.close(); }
+                    }
+                }
+                if root.kind == 3: Text {
+                    text: "Are you sure you want to end the Stage for everyone? The Stage will end immediately.";
+                    color: Theme.secondary; font-size: 15px; wrap: word-wrap;
+                }
+                if root.kind != 3: VerticalLayout {
+                    spacing: 8px;
+                    Text { text: "Stage Topic"; color: Theme.secondary; font-size: 14px; font-weight: 600; }
+                    Text { text: "What will you be talking about?"; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
+                    TextField {
+                        init => { self.text = root.typed; self.focus-input(); }
+                        placeholder: "The debate is over: diet is better than regular"; label: "Stage Topic"; text-size: 15px;
+                        edited(text) => { root.typed = text; }
+                        accepted => { if root.typed.character-count > 0 { root.save(root.typed); } }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px;
+                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                    if root.kind == 3: ActionButton {
+                        text: "End Stage for Everyone"; danger: true;
+                        clicked => { root.end-stage(); }
+                    }
+                    if root.kind != 3: ActionButton {
+                        text: root.kind == 1 ? "Start Stage" : "Save Changes"; primary: true;
+                        enabled: root.typed.character-count > 0;
+                        clicked => { root.save(root.typed); }
+                    }
+                }
+            }
+        }
+    }
+}

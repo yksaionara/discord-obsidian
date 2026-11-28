@@ -82,10 +82,6 @@ pub(super) fn hiding() -> Hiding {
 /// Whether the window can be kept out of screen captures here.
 pub(super) const CAN_PROTECT: bool = cfg!(windows);
 
-/// What an invite link's field says while Streamer Mode hides it; Copy
-/// still copies it, as in Discord.
-pub(super) const HIDDEN_LINK: &str = "Hidden; Use copy button";
-
 /// The settings' switches, by the number the window gives each.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Switch {

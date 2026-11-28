@@ -23,7 +23,13 @@ Scope for the beta:
   member up ("Invite to Speak", `PATCH /guilds/{id}/voice-states/{user}`
   with `suppress: false`), or themselves ("Become a Speaker"), and moves a
   speaker to the audience. Discord's VOICE_STATE_UPDATE shows each change.
-  Starting and ending a stage, and its topic, stay in Discord's own app.
+  A stage moderator, with Manage Channels, Mute Members and Move Members,
+  starts the stage from the call bar's Start Stage, with a Stage Topic
+  (`POST /stage-instances`, `privacy_level` 2, guild only, with no start
+  notification); once live, Edit Stage changes the topic (`PATCH
+  /stage-instances/{channel}`) and End Stage, after Discord's question,
+  ends it for everyone (`DELETE`). STAGE_INSTANCE_CREATE, UPDATE and DELETE
+  show each change, and a failure says so over the channel.
 - DM and group DM calls, both incoming with ringing and outgoing.
 - One connection at a time across Discord Obsidian and Discord. Joining Discord voice asks
   to leave a Discord Obsidian call, and the other way round.

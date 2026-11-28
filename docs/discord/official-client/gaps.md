@@ -86,7 +86,6 @@ Discord meets it. Each lands with its own doc section when it's done.
 8. Server privacy settings, and the server settings pages not done yet:
    Integrations and webhooks, Soundboard, AutoMod, Server Template,
    Community and Discovery.
-9. Starting and ending a stage, and changing its topic.
 11. User settings pages Discord has that Discord Obsidian lacks: Keybinds,
     Accessibility, Text & Images and Activity Privacy.
 

@@ -147,6 +147,46 @@ impl Application {
             && self.discord_place(place).is_some()
     }
 
+    /// Whether this account moderates the stage `place`, as Discord's
+    /// stage moderators are: Manage Channels, Mute Members and Move Members.
+    pub fn stage_moderator(&self, place: &str) -> bool {
+        self.is_stage(place)
+            && self.may(place, Permission::ManageChannels)
+            && self.may(place, Permission::MuteMembers)
+            && self.may(place, Permission::MoveMembers)
+    }
+
+    /// A stage's topic, while it's live.
+    pub fn stage_topic(&self, place: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some((server, Some(channel), _)) = self.discord_place(place) {
+            return server
+                .channel(channel)
+                .filter(|channel| channel.stage)
+                .and_then(|channel| channel.status.as_deref().map(str::to_owned));
+        }
+        let _ = place;
+        None
+    }
+
+    /// Starts the stage `place` with a topic, changes a live one's, or with
+    /// none ends it, when this account moderates it.
+    pub(super) fn set_stage(&mut self, place: String, topic: Option<String>) -> Vec<Effect> {
+        let topic = topic.map(|topic| topic.trim().to_owned());
+        if !self.stage_moderator(&place) || topic.as_ref().is_some_and(String::is_empty) {
+            return vec![];
+        }
+        let live = self.stage_topic(&place).is_some();
+        if topic.is_none() && !live {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Stage {
+            room: place,
+            topic,
+            live,
+        }))]
+    }
+
     /// Whether a Discord voice channel is a stage.
     pub fn is_stage(&self, place: &str) -> bool {
         #[cfg(feature = "discord")]

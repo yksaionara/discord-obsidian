@@ -2032,6 +2032,12 @@ pub enum Action {
     SubmitMembership,
     /// Close what the server asks, leaving it for later; its channel opens.
     FinishJoining,
+    /// Start the stage `room` with a topic, change a live one's, or with
+    /// none end it.
+    SetStage {
+        room: String,
+        topic: Option<String>,
+    },
     /// Settings › Devices opened or closed.
     OpenDevices(bool),
     /// Log a device out, by its session hash, or with none every other one.
@@ -3525,6 +3531,7 @@ impl Application {
             Action::SubmitMembership => self.submit_membership(),
             #[cfg(feature = "discord")]
             Action::FinishJoining => self.finish_joining(),
+            Action::SetStage { room, topic } => self.set_stage(room, topic),
             #[cfg(feature = "discord")]
             Action::OpenDevices(true) => self.open_devices(),
             #[cfg(feature = "discord")]

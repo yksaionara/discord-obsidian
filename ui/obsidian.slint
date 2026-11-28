@@ -61,6 +61,7 @@ import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 import { ReminderDay, ReminderDialog } from "reminder.slint";
+import { StageDialog } from "stage.slint";
 import { FolderDialog } from "folder.slint";
 import { JoinField, JoinOption, JoiningDialog, JoiningPrompt } from "joining.slint";
 
@@ -2499,6 +2500,13 @@ export component ObsidianWindow inherits Window {
     // In a stage call: 1 audience, 2 hand raised, 3 speaking; see CallControls.
     in property <int> stage-call;
     callback stage-action;
+    // A stage moderator's Start, Edit and End Stage; see StageDialog.
+    in property <bool> stage-moderator;
+    in property <bool> stage-live;
+    in property <string> stage-topic;
+    property <int> stage-dialog;
+    callback set-stage-topic(string);
+    callback end-stage;
     // What a server just joined asks; see JoiningDialog.
     in property <bool> joining-open;
     in property <JoiningPrompt> joining-prompt;
@@ -3457,6 +3465,8 @@ export component ObsidianWindow inherits Window {
                                     can-soundboard: root.can-soundboard;
                                     stage: root.stage-call;
                                     stage-action => { root.stage-action(); }
+                                    stage-moderator: root.stage-moderator; stage-live: root.stage-live;
+                                    stage-dialog(kind) => { root.stage-dialog = kind; }
                                     mic-menu-open: call-mic-menu.is-open; camera-menu-open: call-camera-menu.is-open;
                                     share-menu-open: live-menu.is-open; more-menu-open: call-more-menu.is-open;
                                     open-mic-menu(x, y) => { root.open-call-menu(0, x, y); }
@@ -5112,6 +5122,16 @@ export component ObsidianWindow inherits Window {
         pick-time(index) => { root.custom-reminder-time-pick(index); }
         save => { root.save-custom-reminder(); }
         close => { root.close-custom-reminder(); }
+    }
+    stage-motion := PopupMotion { open: root.stage-dialog > 0 && root.stage-moderator; }
+    property <int> stage-shown: 1;
+    changed stage-dialog => { if root.stage-dialog > 0 { root.stage-shown = root.stage-dialog; } }
+    if stage-motion.shown: StageDialog {
+        motion: stage-motion.amount;
+        kind: root.stage-shown; topic: root.stage-topic;
+        save(topic) => { root.set-stage-topic(topic); root.stage-dialog = 0; }
+        end-stage => { root.end-stage(); root.stage-dialog = 0; }
+        close => { root.stage-dialog = 0; }
     }
     // A masked link, before it opens; see LeavingDialog.
     leaving-motion := PopupMotion { open: root.leaving-link != ""; }

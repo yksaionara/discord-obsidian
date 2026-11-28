@@ -349,6 +349,34 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::Stage { room, topic, live }) = command {
+        match (discord, discord::parse_room(&room)) {
+            (Ok(discord), Some((_, channel))) => {
+                let (discord, events, channel) =
+                    (discord.clone(), events.clone(), channel.to_owned());
+                tokio::spawn(async move {
+                    if let Err(error) = discord.set_stage(&channel, topic.as_deref(), live).await {
+                        let what = match (&topic, live) {
+                            (None, _) => "end the stage",
+                            (Some(_), true) => "change the stage's topic",
+                            (Some(_), false) => "start the stage",
+                        };
+                        let _ = events.send(Event::RoomError {
+                            room,
+                            message: format!("Couldn't {what}: {error:#}"),
+                        });
+                    }
+                });
+            }
+            (discord, _) => {
+                let _ = events.send(Event::RoomError {
+                    room,
+                    message: discord.err().unwrap_or(NOT_DISCORD).into(),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::Devices | DiscordCommand::LogOutDevices(_)) = &command {
         let events = events.clone();
         match discord {
