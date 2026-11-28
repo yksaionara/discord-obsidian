@@ -4862,6 +4862,9 @@ pub struct Alert {
     pub call: bool,
     /// A message mentioning this account.
     pub mention: bool,
+    /// A reminder come due, which shows even while Discord Obsidian is in front, as
+    /// Discord's notice does.
+    pub reminder: bool,
 }
 
 /// What woke the actor. Each network's own events are handled by its module.

@@ -852,6 +852,64 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        window.on_custom_reminder_day(move |index| {
+            if let Some(window) = weak.upgrade() {
+                let action = adapter.borrow().custom_reminder_day(index);
+                if let Some(action) = action {
+                    adapter.borrow_mut().action(&window, action);
+                }
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_custom_reminder_month_step(move |step| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::CustomReminderMonth(step.signum()));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_custom_reminder_time_pick(move |index| {
+            if let Some(window) = weak.upgrade()
+                && let Ok(step) = u32::try_from(index)
+            {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::CustomReminderTime(step * 15));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_save_custom_reminder(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::SaveCustomReminder);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_close_custom_reminder(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::CloseCustomReminder);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
         window.on_activity_clock(move || {
             if let Some(window) = weak.upgrade() {
                 adapter.borrow_mut().refresh(&window);

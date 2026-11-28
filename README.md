@@ -210,7 +210,8 @@ they do in Discord.
 - **Voice messages** play with their waveform, at Discord's four speeds,
   and the composer's + records one, which you can play back before sending.
 - **Bookmarks and reminders**: bookmark a message or set it a reminder from
-  its menu, and find both in the inbox.
+  its menu, at one of Discord's times or a date and time you pick, find both
+  in the inbox, and get a notification when a reminder comes due.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.

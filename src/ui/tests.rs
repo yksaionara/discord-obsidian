@@ -350,8 +350,22 @@ fn a_saved_messages_menu_and_inbox_line_say_how_it_stands() {
     adapter.show_saved_menu(&window, "d:7");
     assert_eq!(window.get_menu_saved(), 1);
     let rows = window.get_menu_reminder_rows();
-    assert_eq!(rows.row_count(), 5, "Discord's five times");
+    assert_eq!(rows.row_count(), 6, "Discord's five times, and Custom...");
     assert_eq!(rows.row_data(0).unwrap().text, "in 30m");
+    assert_eq!(rows.row_data(5).unwrap().text, "Custom...");
+    // Custom... opens "Set Custom Reminder" on today, with its 15-minute times.
+    let custom = super::saved::reminder_action("d:7", &rows.row_data(5).unwrap().id).unwrap();
+    adapter.app.state.selected = Some(room.clone());
+    adapter.action(&window, custom);
+    assert!(window.get_custom_reminder_open());
+    assert_eq!(window.get_custom_reminder_days().row_count(), 42);
+    assert_eq!(window.get_custom_reminder_times().row_count(), 96);
+    assert!(
+        !window.get_custom_reminder_earlier(),
+        "never before this month"
+    );
+    adapter.action(&window, Action::CloseCustomReminder);
+    assert!(!window.get_custom_reminder_open());
     adapter.show_saved_menu(&window, "d:6");
     assert_eq!(window.get_menu_saved(), 3);
     let rows = window.get_menu_reminder_rows();
@@ -9236,5 +9250,113 @@ fn review_settings_snapshots() {
     window.set_workspace(true);
     layout.apply_appearance(&window);
     save("main.png", 1600., 900.);
+    window.hide().unwrap();
+}
+
+/// Renders "Set Custom Reminder" off screen, closed, with its calendar open
+/// and with its times open, as PNGs in `OBSIDIAN_REVIEW_DIR`. Run it alone:
+/// it sets the testing platform for the process.
+#[test]
+#[ignore = "writes review snapshots to OBSIDIAN_REVIEW_DIR"]
+fn review_reminder_snapshots() {
+    let Some(directory) = std::env::var_os("OBSIDIAN_REVIEW_DIR") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            mock_time: true,
+            threading: false,
+            renderer_name: Some("skia".into()),
+        },
+    )))
+    .unwrap();
+    let window = obsidian::window().unwrap();
+    let layout = Layout {
+        theme: Some("dark".into()),
+        twelve_hour_clock: true,
+        ..Layout::default()
+    };
+    layout.apply_appearance(&window);
+    layout.apply(&window);
+    let now = chrono::DateTime::parse_from_rfc3339("2026-11-28T10:37:00+03:00").unwrap();
+    let custom = obsidian_core::application::CustomReminder::new("d:5".into(), &now);
+    let days: Vec<ReminderDay> = custom
+        .days()
+        .into_iter()
+        .map(|day| {
+            use chrono::Datelike;
+            ReminderDay {
+                day: day.day() as i32,
+                in_month: day.month() == 11,
+                past: day < custom.today,
+                today: day == custom.today,
+                picked: day == custom.today,
+            }
+        })
+        .collect();
+    window.set_custom_reminder_days(ModelRc::new(VecModel::from(days)));
+    window.set_custom_reminder_month("November 2026".into());
+    window.set_custom_reminder_date("11/28/2026".into());
+    window.set_custom_reminder_time("10:37 AM".into());
+    let times: Vec<SharedString> = (0..96)
+        .map(|step| obsidian_core::clock::time_of_day(step * 15, true).into())
+        .collect();
+    window.set_custom_reminder_times(ModelRc::new(VecModel::from(times)));
+    window.set_custom_reminder_time_near(42);
+    window.set_custom_reminder_open(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1280., 800.));
+    let save = |name: &str| {
+        for _ in 0..3 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(500));
+            window.window().take_snapshot().unwrap();
+        }
+        let frame = window.window().take_snapshot().unwrap();
+        image::save_buffer(
+            directory.join(name),
+            frame.as_bytes(),
+            frame.width(),
+            frame.height(),
+            image::ColorType::Rgba8,
+        )
+        .unwrap();
+    };
+    let click = |x: f32, y: f32| {
+        let position = slint::LogicalPosition::new(x, y);
+        for event in [
+            slint::platform::WindowEvent::PointerMoved { position },
+            slint::platform::WindowEvent::PointerPressed {
+                position,
+                button: slint::platform::PointerEventButton::Left,
+            },
+            slint::platform::WindowEvent::PointerReleased {
+                position,
+                button: slint::platform::PointerEventButton::Left,
+            },
+        ] {
+            window.window().dispatch_event(event);
+        }
+    };
+    save("reminder.png");
+    let x: f32 = std::env::var("OBSIDIAN_REVIEW_X")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(640.);
+    let date_y: f32 = std::env::var("OBSIDIAN_REVIEW_DATE_Y")
+        .ok()
+        .and_then(|y| y.parse().ok())
+        .unwrap_or(368.);
+    let time_y: f32 = std::env::var("OBSIDIAN_REVIEW_TIME_Y")
+        .ok()
+        .and_then(|y| y.parse().ok())
+        .unwrap_or(452.);
+    click(x, date_y);
+    save("reminder-calendar.png");
+    click(x, date_y);
+    click(x, time_y);
+    save("reminder-times.png");
     window.hide().unwrap();
 }

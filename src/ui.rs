@@ -2170,6 +2170,9 @@ struct Adapter {
     video_quiet: Cell<u32>,
     /// Follows the voice message playing, while it plays.
     voice_timer: Rc<slint::Timer>,
+    /// Fires when the next reminder comes due, and the time it's armed for.
+    reminder_timer: slint::Timer,
+    reminder_armed: Option<u64>,
     /// Follows the voice message being recorded, while it records.
     recording_timer: Rc<slint::Timer>,
     recording_shown: Option<Arc<obsidian_core::voice_message::Recording>>,
@@ -2478,6 +2481,8 @@ impl Adapter {
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
                 voice_timer: Rc::new(slint::Timer::default()),
+                reminder_timer: slint::Timer::default(),
+                reminder_armed: None,
                 recording_timer: Rc::new(slint::Timer::default()),
                 recording_shown: None,
                 video_cell: Cell::new((0, 0)),
@@ -2979,7 +2984,10 @@ impl Adapter {
                     {
                         attention(&window, true);
                     }
-                    if self.layout.notifications.unwrap_or(true) && !FOCUSED.get() {
+                    // A reminder's notice shows even in front, as Discord's does.
+                    if self.layout.notifications.unwrap_or(true)
+                        && (!FOCUSED.get() || alert.reminder)
+                    {
                         let style = crate::notify::Style {
                             text: self.layout.notification_text.unwrap_or(true),
                         };
@@ -3115,6 +3123,7 @@ impl Adapter {
                 | Action::SeekVoiceMessage { .. }
                 | Action::VoiceMessageRate
                 | Action::MuteVoiceMessages
+                | Action::VoiceMessageVolume(_)
         );
         // Typing on Roles changes only the settings, too.
         let setting = matches!(

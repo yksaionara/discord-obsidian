@@ -55,6 +55,20 @@ fn format_for(twelve_hour: bool) -> DateFormat {
     }
 }
 
+/// A day as a date field shows it, in the chosen format: `20/10/2026`.
+pub fn numeric_date(date: chrono::NaiveDate, twelve_hour: bool) -> String {
+    date.format(format_for(twelve_hour).numeric()).to_string()
+}
+
+/// A time of day, `minutes` into it, as a time field shows it: `9:05 PM`,
+/// or `21:05`.
+pub fn time_of_day(minutes: u32, twelve_hour: bool) -> String {
+    let time =
+        chrono::NaiveTime::from_hms_opt(minutes / 60 % 24, minutes % 60, 0).expect("a time of day");
+    time.format(if twelve_hour { "%-I:%M %p" } else { "%H:%M" })
+        .to_string()
+}
+
 /// Now, in Unix milliseconds.
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()

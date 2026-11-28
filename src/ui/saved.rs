@@ -3,11 +3,16 @@
 //! Bookmarks and Reminders tabs.
 
 use super::*;
+use chrono::Datelike;
 
 /// What a reminder row's id holds: a time it's due, in Unix milliseconds.
 const DUE: &str = "due:";
 /// The reminder row that marks one complete.
 const COMPLETE: &str = "complete";
+/// The reminder row that opens "Set Custom Reminder".
+const CUSTOM: &str = "custom";
+/// How far apart the custom reminder's times are, as Discord's time input.
+const TIME_STEP: u32 = 15;
 
 impl Adapter {
     /// A message's menu is opening: how it's saved, and its reminder's
@@ -57,7 +62,105 @@ impl Adapter {
                 ..Default::default()
             });
         }
+        rows.push(MenuRow {
+            id: CUSTOM.into(),
+            text: "Custom...".into(),
+            plain: true,
+            ..Default::default()
+        });
         window.set_menu_reminder_rows(ModelRc::new(VecModel::from(rows)));
+    }
+
+    /// "Set Custom Reminder" while it's open: its date and time, and the
+    /// calendar's month.
+    pub(super) fn show_custom_reminder(&mut self, window: &ObsidianWindow) {
+        let Some(custom) = &self.app.state.saved.custom else {
+            if window.get_custom_reminder_open() {
+                window.set_custom_reminder_open(false);
+                window.set_custom_reminder_days(ModelRc::default());
+                window.set_custom_reminder_times(ModelRc::default());
+            }
+            return;
+        };
+        let twelve_hour = self.layout.twelve_hour_clock;
+        window.set_custom_reminder_date(
+            obsidian_core::clock::numeric_date(custom.date, twelve_hour).into(),
+        );
+        window.set_custom_reminder_time(
+            obsidian_core::clock::time_of_day(custom.minutes, twelve_hour).into(),
+        );
+        window.set_custom_reminder_month(custom.month.format("%B %Y").to_string().into());
+        window.set_custom_reminder_earlier(custom.month > custom.today);
+        let days: Vec<ReminderDay> = custom
+            .days()
+            .into_iter()
+            .map(|day| ReminderDay {
+                day: day.day() as i32,
+                in_month: day.month() == custom.month.month(),
+                past: day < custom.today,
+                today: day == custom.today,
+                picked: day == custom.date,
+            })
+            .collect();
+        window.set_custom_reminder_days(ModelRc::new(VecModel::from(days)));
+        window.set_custom_reminder_time_near((custom.minutes / TIME_STEP) as i32);
+        window.set_custom_reminder_time_index(if custom.minutes % TIME_STEP == 0 {
+            (custom.minutes / TIME_STEP) as i32
+        } else {
+            -1
+        });
+        if !window.get_custom_reminder_open() || window.get_custom_reminder_times().row_count() == 0
+        {
+            let times: Vec<SharedString> = (0..24 * 60 / TIME_STEP)
+                .map(|step| obsidian_core::clock::time_of_day(step * TIME_STEP, twelve_hour).into())
+                .collect();
+            window.set_custom_reminder_times(ModelRc::new(VecModel::from(times)));
+        }
+        window.set_custom_reminder_open(true);
+    }
+
+    /// The calendar's day at `index`, of the 42 it shows.
+    pub(super) fn custom_reminder_day(&self, index: i32) -> Option<Action> {
+        let custom = self.app.state.saved.custom.as_ref()?;
+        let day = *custom.days().get(usize::try_from(index).ok()?)?;
+        Some(Action::CustomReminderDate(day))
+    }
+
+    /// Arms the timer for the next reminder coming due, as Discord's client
+    /// keeps one for the soonest within a week; it notices them when it
+    /// fires and arms itself again.
+    pub(super) fn arm_reminders(&mut self) {
+        let now = obsidian_core::clock::now_ms();
+        let next = self.app.next_reminder_due(now);
+        if next == self.reminder_armed {
+            return;
+        }
+        self.reminder_armed = next;
+        let Some(due_at) = next else {
+            self.reminder_timer.stop();
+            return;
+        };
+        let weak = self.weak.clone();
+        self.reminder_timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(due_at.saturating_sub(now).max(1)),
+            move || {
+                let Some(adapter) = weak.upgrade() else {
+                    return;
+                };
+                let window = adapter.borrow().window.upgrade();
+                let mut adapter = adapter.borrow_mut();
+                adapter.reminder_armed = None;
+                match window {
+                    Some(window) => adapter.action(&window, Action::RemindersDue),
+                    None => {
+                        let effects = adapter.app.dispatch(Action::RemindersDue);
+                        adapter.execute(effects);
+                        adapter.arm_reminders();
+                    }
+                }
+            },
+        );
     }
 
     /// The inbox's Bookmarks or Reminders: each saved message with who
@@ -133,6 +236,9 @@ pub(super) fn reminder_action(item: &str, id: &str) -> Option<Action> {
     if id == COMPLETE {
         return Some(Action::Unsave(item.to_owned()));
     }
+    if id == CUSTOM {
+        return Some(Action::OpenCustomReminder(item.to_owned()));
+    }
     let due_at = id.strip_prefix(DUE)?.parse().ok()?;
     Some(Action::Remind {
         item: item.to_owned(),
@@ -153,6 +259,10 @@ mod tests {
         assert!(matches!(
             reminder_action("d:5", COMPLETE),
             Some(Action::Unsave(item)) if item == "d:5"
+        ));
+        assert!(matches!(
+            reminder_action("d:5", CUSTOM),
+            Some(Action::OpenCustomReminder(item)) if item == "d:5"
         ));
         assert!(reminder_action("d:5", "").is_none());
     }

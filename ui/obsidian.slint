@@ -60,6 +60,7 @@ import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
+import { ReminderDay, ReminderDialog } from "reminder.slint";
 
 // Rust sees these, besides ObsidianWindow.
 export { ClientStyle } from "obsidian/style.slint";
@@ -2459,6 +2460,21 @@ export component ObsidianWindow inherits Window {
     callback unsave(string);
     /// A row of a message's reminder submenu, by its id, for an item.
     callback choose-reminder(string, string);
+    // "Set Custom Reminder", from the submenu's Custom...; see ReminderDialog.
+    in property <bool> custom-reminder-open;
+    in property <string> custom-reminder-date;
+    in property <string> custom-reminder-time;
+    in property <string> custom-reminder-month;
+    in property <[ReminderDay]> custom-reminder-days;
+    in property <bool> custom-reminder-earlier;
+    in property <[string]> custom-reminder-times;
+    in property <int> custom-reminder-time-index: -1;
+    in property <int> custom-reminder-time-near;
+    callback custom-reminder-day(int);
+    callback custom-reminder-month-step(int);
+    callback custom-reminder-time-pick(int);
+    callback save-custom-reminder;
+    callback close-custom-reminder;
     /// An app's command chosen from an Apps menu, by its row's id.
     callback run-app-command(string);
     call-link-menu := PopupWindow {
@@ -4938,6 +4954,20 @@ export component ObsidianWindow inherits Window {
         forward-choose(id) => { root.forward-choose(id); }
         forward-send(note) => { root.forward-send(note); }
         close-forward => { root.close-forward(); }
+    }
+    custom-reminder-motion := PopupMotion { open: root.custom-reminder-open; }
+    if custom-reminder-motion.shown: ReminderDialog {
+        motion: custom-reminder-motion.amount;
+        date: root.custom-reminder-date; time: root.custom-reminder-time;
+        month: root.custom-reminder-month; days: root.custom-reminder-days;
+        earlier-month: root.custom-reminder-earlier;
+        times: root.custom-reminder-times; time-index: root.custom-reminder-time-index;
+        time-near: root.custom-reminder-time-near;
+        pick-day(index) => { root.custom-reminder-day(index); }
+        step-month(step) => { root.custom-reminder-month-step(step); }
+        pick-time(index) => { root.custom-reminder-time-pick(index); }
+        save => { root.save-custom-reminder(); }
+        close => { root.close-custom-reminder(); }
     }
     // A masked link, before it opens; see LeavingDialog.
     leaving-motion := PopupMotion { open: root.leaving-link != ""; }

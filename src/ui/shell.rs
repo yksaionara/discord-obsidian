@@ -284,7 +284,7 @@ impl Shell {
             window.set_settings_open(false);
             self.adapter
                 .borrow_mut()
-                .action(&window, Action::OpenChat(room));
+                .action(&window, Action::OpenNotified(room));
         }
     }
 

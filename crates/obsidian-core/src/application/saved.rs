@@ -31,6 +31,66 @@ pub struct Saved {
     pub listed: bool,
     /// What's saved was asked for since Discord connected.
     asked: bool,
+    /// The "Set Custom Reminder" dialog, which Create Reminder's Custom...
+    /// opens.
+    pub custom: Option<CustomReminder>,
+    /// Reminders due up to here, in Unix milliseconds, have had their
+    /// notice; 0 until the reminders first came, as Discord's client gives
+    /// none for those due before it started.
+    due_through: u64,
+    /// The reminder whose notice showed last: its room and item, which
+    /// opening the room from the notice jumps to.
+    noticed: Option<(String, String)>,
+}
+
+/// "Set Custom Reminder": a date, from today on, and a time, in local time,
+/// as Discord's date and time inputs pick them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomReminder {
+    pub item: String,
+    pub date: chrono::NaiveDate,
+    /// Minutes into the day.
+    pub minutes: u32,
+    /// The first day of the month its calendar shows.
+    pub month: chrono::NaiveDate,
+    /// The earliest day it takes, today when it opened.
+    pub today: chrono::NaiveDate,
+}
+
+impl CustomReminder {
+    /// Opens at `now`, as Discord's starts with the current date and time.
+    pub fn new<Z: TimeZone>(item: String, now: &chrono::DateTime<Z>) -> Self {
+        let today = now.date_naive();
+        Self {
+            item,
+            date: today,
+            minutes: now.hour() * 60 + now.minute(),
+            month: today.with_day(1).expect("the first"),
+            today,
+        }
+    }
+
+    /// When it's due, in Unix milliseconds, in `zone`; a time a clock
+    /// change skips takes the hour after.
+    pub fn due_at<Z: TimeZone>(&self, zone: &Z) -> u64 {
+        let time = self
+            .date
+            .and_hms_opt(self.minutes / 60 % 24, self.minutes % 60, 0)
+            .expect("a time of day");
+        let local = zone.from_local_datetime(&time).earliest().or_else(|| {
+            zone.from_local_datetime(&(time + Span::hours(1)))
+                .earliest()
+        });
+        local.map_or(0, |at| u64::try_from(at.timestamp_millis()).unwrap_or(0))
+    }
+
+    /// The 42 days its calendar shows, six weeks from the Sunday on or
+    /// before the month's first, as Discord's date picker lays them out.
+    pub fn days(&self) -> Vec<chrono::NaiveDate> {
+        let back = i64::from(self.month.weekday().num_days_from_sunday());
+        let first = self.month - Span::days(back);
+        (0..42).map(|day| first + Span::days(day)).collect()
+    }
 }
 
 /// How a message stands: bookmarked, or a reminder due at a time.
@@ -103,6 +163,9 @@ impl Application {
         };
         reminders.sort_by_key(|reminder| reminder.due_at);
         let saved = &mut self.state.saved;
+        if saved.due_through == 0 {
+            saved.due_through = crate::clock::now_ms();
+        }
         saved.reminders = reminders;
         saved.bookmark_ids = ids.into_iter().collect();
         // A list shown before stays, less what's no longer bookmarked.
@@ -230,6 +293,145 @@ impl Application {
     }
 
     /// The Discord room of an item: one listed as saved, or on screen.
+    /// Create Reminder's Custom... opens "Set Custom Reminder" for an item
+    /// a reminder can be set on.
+    pub(super) fn open_custom_reminder(&mut self, item: String) -> Vec<Effect> {
+        if self.saved_room(&item).is_none() {
+            return vec![];
+        }
+        self.state.saved.custom = Some(CustomReminder::new(item, &Local::now()));
+        vec![]
+    }
+
+    /// A day picked on its calendar, from today on.
+    pub(super) fn custom_reminder_date(&mut self, date: chrono::NaiveDate) -> Vec<Effect> {
+        if let Some(custom) = &mut self.state.saved.custom
+            && date >= custom.today
+        {
+            custom.date = date;
+            custom.month = date.with_day(1).expect("the first");
+        }
+        vec![]
+    }
+
+    /// Its calendar a month back, or with 1 on, never before this month.
+    pub(super) fn custom_reminder_month(&mut self, step: i32) -> Vec<Effect> {
+        if let Some(custom) = &mut self.state.saved.custom {
+            let month = if step < 0 {
+                custom.month.checked_sub_months(chrono::Months::new(1))
+            } else {
+                custom.month.checked_add_months(chrono::Months::new(1))
+            };
+            if let Some(month) = month
+                && month >= custom.today.with_day(1).expect("the first")
+            {
+                custom.month = month;
+            }
+        }
+        vec![]
+    }
+
+    /// A time picked, in minutes into the day.
+    pub(super) fn custom_reminder_time(&mut self, minutes: u32) -> Vec<Effect> {
+        if let Some(custom) = &mut self.state.saved.custom
+            && minutes < 24 * 60
+        {
+            custom.minutes = minutes;
+        }
+        vec![]
+    }
+
+    /// Save sets the reminder at the date and time chosen.
+    pub(super) fn save_custom_reminder(&mut self) -> Vec<Effect> {
+        let Some(custom) = self.state.saved.custom.take() else {
+            return vec![];
+        };
+        let due_at = custom.due_at(&Local);
+        self.save_message(custom.item, Some(due_at))
+    }
+
+    /// When the next reminder comes due, in Unix milliseconds, for a timer
+    /// to notice it: as Discord's client, only one due within a week of
+    /// `now` and after the reminders first came.
+    pub fn next_reminder_due(&self, now: u64) -> Option<u64> {
+        let saved = &self.state.saved;
+        if saved.due_through == 0 {
+            return None;
+        }
+        const WEEK: u64 = 7 * 24 * 3_600_000;
+        saved
+            .reminders
+            .iter()
+            .filter_map(|reminder| reminder.due_at)
+            .find(|due_at| *due_at > saved.due_through)
+            .filter(|due_at| *due_at <= now + WEEK)
+    }
+
+    /// Reminders came due by `now`: each has a notice, "⏰ Reminder Due"
+    /// over what its message says, as Discord's client gives, unless
+    /// notifications are held off by Do Not Disturb.
+    pub(super) fn reminders_due(&mut self, now: u64) -> Vec<Effect> {
+        let saved = &mut self.state.saved;
+        if saved.due_through == 0 || now <= saved.due_through {
+            return vec![];
+        }
+        let from = std::mem::replace(&mut saved.due_through, now);
+        if self.state.do_not_disturb() {
+            return vec![];
+        }
+        let due: Vec<SavedMessage> = self
+            .state
+            .saved
+            .reminders
+            .iter()
+            .filter(|reminder| {
+                reminder
+                    .due_at
+                    .is_some_and(|due_at| due_at > from && due_at <= now)
+            })
+            .cloned()
+            .collect();
+        let mut effects = vec![];
+        for reminder in due {
+            // As Discord's, none for a message gone or out of reach.
+            let Some(message) = reminder.message.as_deref() else {
+                continue;
+            };
+            if !self.state.rooms.iter().any(|room| room.id == reminder.room) {
+                continue;
+            }
+            let picture = message
+                .avatar
+                .as_ref()
+                .and_then(|avatar| self.state.pictures.get(avatar).cloned());
+            effects.push(Effect::Notify(chat::Alert {
+                room: reminder.room.clone(),
+                title: "\u{23F0} Reminder Due".into(),
+                body: chat::notification_text(&message.body),
+                picture,
+                call: false,
+                mention: false,
+                reminder: true,
+            }));
+            self.state.saved.noticed = Some((reminder.room.clone(), reminder.item()));
+        }
+        effects
+    }
+
+    /// Opening a room from a notification; the last reminder's notice
+    /// shows its message, as Discord's jumps to it.
+    pub(super) fn open_noticed(&mut self, room: String) -> Vec<Effect> {
+        match self.state.saved.noticed.take() {
+            Some((noticed, item)) if noticed == room => {
+                self.dispatch(Action::JumpInRoom { room, item })
+            }
+            noticed => {
+                self.state.saved.noticed = noticed;
+                self.open(room, true)
+            }
+        }
+    }
+
     fn saved_room(&self, item: &str) -> Option<String> {
         let id = item.strip_prefix("d:")?;
         let saved = &self.state.saved;

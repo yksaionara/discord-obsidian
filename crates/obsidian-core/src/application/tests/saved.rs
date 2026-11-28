@@ -2,6 +2,7 @@
 
 use super::*;
 use chat::SavedMessage;
+use chrono::{Datelike, TimeZone};
 
 const ROOM: &str = "discord:10:11";
 
@@ -160,4 +161,103 @@ fn discords_limits_are_kept() {
     assert!(app.state.notice.as_deref().is_some_and(|notice| {
         notice.starts_with("You\u{2019}ve reached the limit for bookmarks (500 total)")
     }));
+}
+
+#[test]
+fn custom_sets_a_reminder_at_the_date_and_time_picked() {
+    let mut app = writing();
+    app.dispatch(Action::OpenCustomReminder("d:5".into()));
+    let custom = app
+        .state
+        .saved
+        .custom
+        .clone()
+        .expect("Set Custom Reminder opens");
+    assert_eq!(
+        custom.date, custom.today,
+        "it starts on today, as Discord's does"
+    );
+    // No day before today, nor a month before this one.
+    app.dispatch(Action::CustomReminderDate(custom.today.pred_opt().unwrap()));
+    app.dispatch(Action::CustomReminderMonth(-1));
+    let shown = app.state.saved.custom.clone().unwrap();
+    assert_eq!((shown.date, shown.month), (custom.date, custom.month));
+    let day = custom.today + chrono::Duration::days(40);
+    app.dispatch(Action::CustomReminderDate(day));
+    app.dispatch(Action::CustomReminderTime(21 * 60 + 15));
+    let picked = app.state.saved.custom.clone().unwrap();
+    assert_eq!(
+        picked.month,
+        day.with_day(1).unwrap(),
+        "the calendar follows the day"
+    );
+    let effects = app.dispatch(Action::SaveCustomReminder);
+    let due_at = chrono::Local
+        .from_local_datetime(&day.and_hms_opt(21, 15, 0).unwrap())
+        .earliest()
+        .unwrap()
+        .timestamp_millis() as u64;
+    assert!(matches!(
+        asked(&effects),
+        Some(DiscordCommand::SaveMessage { due_at: Some(at), .. }) if at == due_at
+    ));
+    assert!(app.state.saved.custom.is_none());
+}
+
+#[test]
+fn a_calendar_shows_six_weeks_from_the_sunday_before_the_first() {
+    let now = chrono::DateTime::parse_from_rfc3339("2026-11-28T10:37:00+03:00").unwrap();
+    let custom = CustomReminder::new("d:5".into(), &now);
+    assert_eq!(custom.minutes, 10 * 60 + 37);
+    let days = custom.days();
+    assert_eq!(days.len(), 42);
+    // November 2026 starts on a Sunday.
+    assert_eq!(
+        days[0],
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 1).unwrap()
+    );
+    assert_eq!(
+        days[41],
+        chrono::NaiveDate::from_ymd_opt(2026, 12, 12).unwrap()
+    );
+}
+
+#[test]
+fn a_reminder_coming_due_gives_discords_notice_and_opens_at_its_message() {
+    let mut app = writing();
+    let now = crate::clock::now_ms();
+    let mut reminder = saved("5", 100, Some(now + 60_000));
+    reminder.message = app.state.message("d:5").cloned().map(Arc::new);
+    app.apply(Event::SavedMessages(Ok((vec![reminder], vec![]))));
+    assert_eq!(app.next_reminder_due(now), Some(now + 60_000));
+    assert!(app.reminders_due(now + 30_000).is_empty(), "not yet");
+    let effects = app.reminders_due(now + 61_000);
+    let alert = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Notify(alert) => Some(alert),
+            _ => None,
+        })
+        .expect("a notice");
+    assert_eq!(alert.title, "\u{23F0} Reminder Due");
+    assert!(alert.reminder && alert.room == ROOM);
+    assert_eq!(app.next_reminder_due(now + 61_000), None, "one notice each");
+    assert!(app.reminders_due(now + 120_000).is_empty());
+    app.dispatch(Action::OpenNotified(ROOM.into()));
+    assert_eq!(
+        app.state.jump.as_ref().map(|(item, _)| item.as_str()),
+        Some("d:5")
+    );
+}
+
+#[test]
+fn reminders_overdue_when_they_come_have_no_notice() {
+    let mut app = writing();
+    let now = crate::clock::now_ms();
+    app.apply(Event::SavedMessages(Ok((
+        vec![saved("5", 100, Some(now - 1_000))],
+        vec![],
+    ))));
+    assert_eq!(app.next_reminder_due(now), None);
+    assert!(app.reminders_due(now + 1_000).is_empty());
 }

@@ -91,8 +91,8 @@ pub use profile_editor::{
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
 pub use saved::{
-    MAX_BOOKMARKS, MAX_REMINDERS, Saved, SavedOf, due_label, reminder_due, reminder_times,
-    reminder_times_now,
+    CustomReminder, MAX_BOOKMARKS, MAX_REMINDERS, Saved, SavedOf, due_label, reminder_due,
+    reminder_times, reminder_times_now,
 };
 pub use scheduled_event::EventDialog;
 pub use select_menus::{OpenSelect, SelectChoice};
@@ -1545,6 +1545,23 @@ pub enum Action {
         item: String,
         due_at: u64,
     },
+    /// Open "Set Custom Reminder" for a Discord message, by item, as
+    /// Create Reminder's Custom... does.
+    OpenCustomReminder(String),
+    /// The day its calendar picked, a month back or on (-1 or 1), and the
+    /// time picked, in minutes into the day.
+    CustomReminderDate(chrono::NaiveDate),
+    CustomReminderMonth(i32),
+    CustomReminderTime(u32),
+    /// Its Save: the reminder is set for the date and time chosen.
+    SaveCustomReminder,
+    CloseCustomReminder,
+    /// Open a room from its desktop notification: as [`Action::OpenChat`],
+    /// and at a reminder's message when the notice was one.
+    OpenNotified(String),
+    /// The clock reached a reminder's time, as
+    /// [`Application::next_reminder_due`] said: its notice shows.
+    RemindersDue,
     /// Remove a message's bookmark, or its reminder, marking it complete.
     Unsave(String),
     /// The bookmarks' list asks for its first page of them, or the next.
@@ -2987,6 +3004,7 @@ impl Application {
             }
             Action::Open(id) => self.open(id, false),
             Action::OpenChat(id) => self.open(id, true),
+            Action::OpenNotified(id) => self.open_noticed(id),
             Action::ShowVoiceChat(chat) => self.show_voice_chat(chat),
             Action::OpenAside(id) => self.open_aside(id),
             Action::CloseAside => self.close_aside(),
@@ -3081,6 +3099,16 @@ impl Application {
             Action::PressButton { item, custom_id } => self.press_button(item, custom_id),
             Action::Bookmark(item) => self.save_message(item, None),
             Action::Remind { item, due_at } => self.save_message(item, Some(due_at)),
+            Action::OpenCustomReminder(item) => self.open_custom_reminder(item),
+            Action::CustomReminderDate(date) => self.custom_reminder_date(date),
+            Action::CustomReminderMonth(step) => self.custom_reminder_month(step),
+            Action::CustomReminderTime(minutes) => self.custom_reminder_time(minutes),
+            Action::SaveCustomReminder => self.save_custom_reminder(),
+            Action::CloseCustomReminder => {
+                self.state.saved.custom = None;
+                vec![]
+            }
+            Action::RemindersDue => self.reminders_due(crate::clock::now_ms()),
             Action::Unsave(item) => self.unsave_message(item),
             Action::LoadBookmarks => self.load_bookmarks(),
             Action::OpenSelect { item, custom_id } => self.open_select(item, custom_id),
@@ -3864,6 +3892,7 @@ impl Application {
             picture,
             call: false,
             mention,
+            reminder: false,
         }
     }
 

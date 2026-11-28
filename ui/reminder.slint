@@ -1,0 +1,239 @@
+import { ScrollView } from "scrollview.slint";
+import { Theme, Popup } from "theme.slint";
+import { ActionButton, IconButton } from "controls.slint";
+
+/// A day on the reminder's calendar: its number, whether it's in the month
+/// shown, before today (and so not offered), today, and picked.
+export struct ReminderDay { day: int, in-month: bool, past: bool, today: bool, picked: bool }
+
+component FieldLabel inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 4px; alignment: start;
+    Text { text: root.text; color: Theme.secondary; font-size: 14px; font-weight: 600; }
+    // Discord marks both fields required.
+    Text { text: "*"; color: Theme.danger; font-size: 14px; font-weight: 600; }
+}
+
+/// A field that opens a picker below it, showing what's picked.
+component Field inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> open;
+    callback clicked;
+    height: 40px; border-radius: 8px;
+    background: Theme.field;
+    border-width: 1px; border-color: root.open || touch.has-hover ? Theme.accent : Theme.outline-field;
+    accessible-role: combobox;
+    accessible-value: root.text;
+    accessible-expanded: root.open;
+    accessible-action-default => { root.clicked(); }
+    Text {
+        x: 12px; width: parent.width - 48px; text: root.text; color: Theme.text; font-size: 15px;
+        vertical-alignment: center; overflow: elide;
+    }
+    Image {
+        x: parent.width - 32px; width: 20px; height: 20px; source: root.icon; colorize: Theme.muted;
+        accessible-role: none;
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// "Set Custom Reminder", as Create Reminder's Custom... opens it in
+/// Discord: a Date with a calendar from today on, a Time in steps of 15
+/// minutes, and Save. The Rust side keeps what's picked.
+export component ReminderDialog inherits Rectangle {
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    /// The date and time as their fields show them.
+    in property <string> date;
+    in property <string> time;
+    /// The month the calendar shows, as "November 2026", its 42 days from
+    /// the Sunday before its first, and whether it can go back a month.
+    in property <string> month;
+    in property <[ReminderDay]> days;
+    in property <bool> earlier-month;
+    /// The times offered, every 15 minutes from midnight, and the one
+    /// picked; -1 when the time picked isn't one of them.
+    in property <[string]> times;
+    in property <int> time-index: -1;
+    /// The time offered at or just before the one picked, which the list
+    /// opens at.
+    in property <int> time-near;
+    callback pick-day(int);
+    callback step-month(int);
+    callback pick-time(int);
+    callback save;
+    callback close;
+    property <bool> calendar-open;
+    property <bool> times-open;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    card := Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: "Set Custom Reminder";
+        TouchArea { clicked => { root.calendar-open = false; root.times-open = false; } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    if root.calendar-open || root.times-open {
+                        root.calendar-open = false; root.times-open = false;
+                    } else {
+                        root.close();
+                    }
+                    return accept;
+                }
+                if event.text == Key.Return { root.save(); return accept; }
+                return reject;
+            }
+            content := VerticalLayout {
+                padding: 20px; spacing: 16px;
+                HorizontalLayout {
+                    Text {
+                        text: "Set Custom Reminder"; color: Theme.text; font-size: 20px; font-weight: 700;
+                        vertical-alignment: center; horizontal-stretch: 1;
+                    }
+                    IconButton {
+                        icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px;
+                        clicked => { root.close(); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px;
+                    FieldLabel { text: "Date"; }
+                    date-field := Field {
+                        text: root.date; icon: @image-url("icons/calendar.svg");
+                        accessible-label: "Date";
+                        open: root.calendar-open;
+                        clicked => { root.times-open = false; root.calendar-open = !root.calendar-open; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px;
+                    FieldLabel { text: "Time"; }
+                    time-field := Field {
+                        text: root.time; icon: @image-url("icons/chevron-down.svg");
+                        accessible-label: "Time";
+                        open: root.times-open;
+                        clicked => { root.calendar-open = false; root.times-open = !root.times-open; }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px;
+                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: "Save"; primary: true; clicked => { root.save(); } }
+                }
+            }
+        }
+        // The calendar, over what's below the date's field.
+        if root.calendar-open: Rectangle {
+            x: date-field.absolute-position.x - card.absolute-position.x;
+            y: date-field.absolute-position.y - card.absolute-position.y + date-field.height + 4px;
+            width: 7 * 36px + 24px; height: calendar.preferred-height;
+            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000066;
+            accessible-role: groupbox;
+            accessible-label: root.month;
+            TouchArea { }
+            calendar := VerticalLayout {
+                padding: 12px; spacing: 4px;
+                HorizontalLayout {
+                    IconButton {
+                        icon: @image-url("icons/chevron-left.svg"); label: "Previous month"; size: 28px; glyph: 18px;
+                        enabled: root.earlier-month;
+                        clicked => { root.step-month(-1); }
+                    }
+                    Text {
+                        text: root.month; color: Theme.text; font-size: 15px; font-weight: 600;
+                        horizontal-alignment: center; vertical-alignment: center; horizontal-stretch: 1;
+                    }
+                    IconButton {
+                        icon: @image-url("icons/chevron-right.svg"); label: "Next month"; size: 28px; glyph: 18px;
+                        clicked => { root.step-month(1); }
+                    }
+                }
+                HorizontalLayout {
+                    for name in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]: Text {
+                        width: 36px; height: 24px; text: name;
+                        color: Theme.muted; font-size: 12px; font-weight: 600;
+                        horizontal-alignment: center; vertical-alignment: center;
+                    }
+                }
+                Rectangle {
+                    height: 6 * 36px;
+                    for cell[index] in root.days: Rectangle {
+                        x: Math.mod(index, 7) * 36px; y: Math.floor(index / 7) * 36px;
+                        width: 36px; height: 36px;
+                        Rectangle {
+                            width: 32px; height: 32px; border-radius: 16px;
+                            background: cell.picked ? Theme.accent
+                                : day-touch.has-hover && !cell.past ? Theme.hover : transparent;
+                            border-width: cell.today && !cell.picked ? 1px : 0px; border-color: Theme.accent;
+                            accessible-role: button;
+                            accessible-label: cell.day;
+                            accessible-enabled: !cell.past;
+                            accessible-action-default => { if !cell.past { root.pick-day(index); } }
+                            Text {
+                                text: cell.day; font-size: 14px;
+                                color: cell.picked ? Theme.on-accent
+                                    : cell.past ? Theme.faint
+                                    : cell.in-month ? Theme.text : Theme.muted;
+                            }
+                            day-touch := TouchArea {
+                                enabled: !cell.past;
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.pick-day(index); root.calendar-open = false; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The times, every 15 minutes, over what's below the time's field.
+        if root.times-open: Rectangle {
+            x: time-field.absolute-position.x - card.absolute-position.x;
+            y: time-field.absolute-position.y - card.absolute-position.y + time-field.height + 4px;
+            width: time-field.width; height: 200px;
+            background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000066;
+            accessible-role: list;
+            accessible-label: "Time";
+            TouchArea { }
+            ScrollView {
+                x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+                // The time picked, near the top, as a select scrolls to its value.
+                init => {
+                    if root.time-near > 2 {
+                        self.content-y = -(root.time-near - 2) * 36px;
+                    }
+                }
+                VerticalLayout {
+                    padding: 4px;
+                    for label[index] in root.times: Rectangle {
+                        height: 36px; border-radius: 4px;
+                        background: index == root.time-index ? Theme.active : option.has-hover ? Theme.hover : transparent;
+                        accessible-role: list-item;
+                        accessible-label: label;
+                        accessible-item-selected: index == root.time-index;
+                        accessible-action-default => { root.pick-time(index); }
+                        Text {
+                            x: 10px; text: label; color: Theme.text; font-size: 15px;
+                            vertical-alignment: center;
+                        }
+                        option := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.pick-time(index); root.times-open = false; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

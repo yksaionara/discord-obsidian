@@ -180,6 +180,7 @@ impl Application {
                             .and_then(|avatar| self.state.pictures.get(avatar).cloned()),
                         call: true,
                         mention: false,
+                        reminder: false,
                     }));
                 }
             }

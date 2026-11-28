@@ -287,6 +287,8 @@ impl Adapter {
             .set_revision(self.app.state.picture_changes as i32);
         self.show_viewer(window);
         self.show_profile(window);
+        self.show_custom_reminder(window);
+        self.arm_reminders();
         let card = self.app.state.stream_card.as_ref();
         window.set_stream_card_url(
             card.and_then(|card| card.url.as_deref())

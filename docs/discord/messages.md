@@ -645,7 +645,7 @@ SAVED_MESSAGE_DELETE keep both up to date, from this device or another.
 A Discord message's menu, after Pin, has Bookmark Message, or Remove Bookmark,
 and Create Reminder, whose submenu offers Discord's times: in 30m, in 1h, in
 4h, Tomorrow at 9:00am (Today at 9:00 AM before 9), and Monday at 9:00am,
-the coming Monday or this one before 9, in local time. A message with a
+the coming Monday or this one before 9, in local time, and last Custom.... A message with a
 reminder shows Edit Reminder instead, and no bookmark, as Discord keeps one or
 the other; its submenu says when it's due ("Reminder due in 3 hours", or "3
 hours ago") and has Mark Complete above the times. Saving is `PUT
@@ -657,6 +657,20 @@ removed." or "Reminder removed.". Past Discord's client's limits, 500
 bookmarks and 50 reminders, it says "You've reached the limit for bookmarks
 (500 total). To add more, please delete a few messages." (or reminders) and
 asks nothing.
+
+Custom... opens Discord's "Set Custom Reminder": a Date, whose field opens a
+calendar of six weeks from the Sunday before the month's first, from today on,
+and a Time, whose field lists every 15 minutes from midnight, both required,
+and Save. It starts at the current date and time, as Discord's does, and
+saves in local time; a time a clock change skips takes the hour after.
+
+When a reminder comes due, a desktop notification says "⏰ Reminder Due" over
+what its message says, as Discord's client gives it, even with Discord Obsidian
+in front, and clicking it opens the channel at the message. As Discord's
+client does, one timer waits for the soonest reminder due within a week, and
+only reminders that come due after they're listed have a notice: none for
+those already overdue when Discord connects, for a message gone or out of
+reach, or while the status is Do Not Disturb.
 
 The inbox's Bookmarks lists them with who wrote each, where, what it says
 and when it was sent, and Reminders with when each is due ("Due in 2 hours",
