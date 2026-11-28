@@ -4829,6 +4829,64 @@ async fn chooses_in_an_apps_select_menu() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn answers_a_servers_onboarding_and_form() {
+    use obsidian_discord::joining::FormAnswer;
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        ..
+    } = Fixture::start("answers_a_servers_onboarding_and_form").await;
+    let onboarding = discord.onboarding(&guild).await.unwrap();
+    assert!(onboarding.asks());
+    assert_eq!(onboarding.prompts[0].title, "What brings you here?");
+    let body = onboarding.responses(&["7102".into()], 1_700_000_000_000);
+    discord.answer_onboarding(&guild, &body).await.unwrap();
+    let sent: serde_json::Value = serde_json::from_str(&control(
+        server,
+        "GET",
+        "/_control/onboarding-responses",
+        "",
+    ))
+    .unwrap();
+    assert_eq!(sent[0]["onboarding_responses"], serde_json::json!(["7102"]));
+    assert_eq!(
+        sent[0]["onboarding_prompts_seen"]["7100"],
+        1_700_000_000_000u64
+    );
+
+    let form = discord
+        .member_verification(&guild, Some("server"))
+        .await
+        .unwrap();
+    assert_eq!(form.fields.len(), 2);
+    let mut answers = form.answers();
+    answers[0] = FormAnswer::Agreed(true);
+    answers[1] = FormAnswer::Text("A friend".into());
+    assert!(
+        discord
+            .request_membership(&guild, &form.request(&answers))
+            .await
+            .unwrap()
+    );
+    // One the moderators review isn't taken at once.
+    answers[1] = FormAnswer::Text("review".into());
+    assert!(
+        !discord
+            .request_membership(&guild, &form.request(&answers))
+            .await
+            .unwrap()
+    );
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/membership-requests", "")).unwrap();
+    assert_eq!(sent[0]["version"], "2026-11-01T10:00:00.000000+00:00");
+    assert_eq!(sent[0]["form_fields"][0]["response"], true);
+    assert_eq!(sent[0]["form_fields"][1]["response"], "A friend");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn runs_slash_commands_with_files() {
     let Fixture {
         _fake,

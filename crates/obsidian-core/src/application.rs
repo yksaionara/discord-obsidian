@@ -30,6 +30,8 @@ mod gifs;
 mod gift;
 mod header;
 mod join;
+#[cfg(feature = "discord")]
+mod joining;
 mod members;
 mod messages;
 mod mfa;
@@ -69,6 +71,8 @@ pub use forum::{
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use join::JoinDialog;
+#[cfg(feature = "discord")]
+pub use joining::{JoinStep, Joining};
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
 pub use members::{member_server, with_clubs};
@@ -466,6 +470,9 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// What a server just joined asks of its new member, over the window.
+    #[cfg(feature = "discord")]
+    pub joining: Option<joining::Joining>,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -2007,8 +2014,17 @@ pub enum Action {
     OpenInviteLink(String),
     JoinServer,
     OpenJoinCaptcha,
-    OpenJoinForm,
     CloseJoin,
+    /// Pick an option of the onboarding question showing, by id.
+    PickOnboarding(String),
+    /// The question's Next, Skip or Finish, or with true Back.
+    NextOnboarding(bool),
+    /// A field of the server's membership form answered, by its place.
+    #[cfg(feature = "discord")]
+    AnswerMembership(usize, obsidian_discord::joining::FormAnswer),
+    SubmitMembership,
+    /// Close what the server asks, leaving it for later; its channel opens.
+    FinishJoining,
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -3488,7 +3504,21 @@ impl Application {
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
-            Action::OpenJoinForm => self.open_join_form(),
+            #[cfg(feature = "discord")]
+            Action::PickOnboarding(option) => self.pick_onboarding(option),
+            #[cfg(feature = "discord")]
+            Action::NextOnboarding(back) => self.next_onboarding(back),
+            #[cfg(feature = "discord")]
+            Action::AnswerMembership(field, answer) => self.answer_membership(field, answer),
+            #[cfg(feature = "discord")]
+            Action::SubmitMembership => self.submit_membership(),
+            #[cfg(feature = "discord")]
+            Action::FinishJoining => self.finish_joining(),
+            #[cfg(not(feature = "discord"))]
+            Action::PickOnboarding(_)
+            | Action::NextOnboarding(_)
+            | Action::SubmitMembership
+            | Action::FinishJoining => vec![],
             Action::CloseJoin => {
                 self.state.join = None;
                 vec![]
@@ -4189,6 +4219,22 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            #[cfg(feature = "discord")]
+            Event::Onboarding { server, result } => return self.onboarding_came(&server, result),
+            #[cfg(feature = "discord")]
+            Event::OnboardingAnswered { server, result } => {
+                return self.onboarding_answered(&server, result);
+            }
+            #[cfg(feature = "discord")]
+            Event::MembershipForm { server, result } => {
+                return self.membership_form_came(&server, result);
+            }
+            #[cfg(feature = "discord")]
+            Event::MembershipRequested { server, result } => {
+                return self.membership_requested(&server, result);
+            }
+            #[cfg(not(feature = "discord"))]
+            Event::OnboardingAnswered { .. } | Event::MembershipRequested { .. } => {}
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
             Event::OAuthAuthorized { query, result } => {
                 return self.oauth_authorized(query, result);

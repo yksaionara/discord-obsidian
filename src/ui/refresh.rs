@@ -2073,9 +2073,7 @@ impl Adapter {
             _ if preview.voice => preview.channel.clone(),
             _ => format!("#{}", preview.channel),
         });
-        let confirm = if join.form.is_some() {
-            "Open in browser"
-        } else if join.member {
+        let confirm = if join.member {
             "Open Server"
         } else if preview.is_some() {
             "Join Server"
@@ -2084,9 +2082,7 @@ impl Adapter {
         } else {
             "Find Invite"
         };
-        let status = if join.form.is_some() {
-            "You joined. This server asks new members to fill in a form before they can talk, which this app can't show yet. Finish it in Discord's web app."
-        } else if join.captcha.is_some() {
+        let status = if join.captcha.is_some() {
             "Discord asks for a captcha first. Solve it in your browser."
         } else if join.joining {
             "Joining..."
@@ -2122,7 +2118,6 @@ impl Adapter {
             busy: join.resolving || join.joining,
             status: status.into(),
             captcha: join.captcha.is_some(),
-            form: join.form.is_some(),
             error: join.error.as_deref().unwrap_or_default().into(),
         });
     }
@@ -2853,6 +2848,8 @@ impl Adapter {
     /// The dialogs for adding a friend, the custom status, a new DM and
     /// forwarding, and the quick switcher.
     fn show_dialogs(&mut self, window: &ObsidianWindow) {
+        #[cfg(feature = "discord")]
+        self.show_joining(window);
         let state = &self.app.state;
         let add_friend = state.add_friend.as_ref();
         if add_friend.is_some() && !window.get_add_friend_open() {

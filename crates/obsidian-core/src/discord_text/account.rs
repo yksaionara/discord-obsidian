@@ -349,6 +349,16 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(
+        DiscordCommand::Onboarding { .. }
+        | DiscordCommand::AnswerOnboarding { .. }
+        | DiscordCommand::MembershipForm { .. }
+        | DiscordCommand::RequestMembership { .. },
+    ) = &command
+    {
+        joining(command, discord, events);
+        return None;
+    }
     if let Command::Discord(DiscordCommand::SetCustomStatus(custom)) = command {
         match discord {
             Ok(discord) => {
@@ -2002,3 +2012,82 @@ async fn activity_feed(discord: Discord, events: UnboundedSender<Event>) {
 const FEED_WAIT_MS: u64 = 5 * 60 * 1000;
 /// The least wait however Discord answers, in milliseconds.
 const FEED_LEAST_WAIT_MS: u64 = 60 * 1000;
+
+/// What a server just joined asks of its new member: its onboarding
+/// questions and its membership form, asked for and answered.
+fn joining(command: Command, discord: Result<&Discord, &str>, events: &UnboundedSender<Event>) {
+    let Command::Discord(command) = command else {
+        return;
+    };
+    let server = match &command {
+        DiscordCommand::Onboarding { server }
+        | DiscordCommand::AnswerOnboarding { server, .. }
+        | DiscordCommand::MembershipForm { server, .. }
+        | DiscordCommand::RequestMembership { server, .. } => server.clone(),
+        _ => return,
+    };
+    let guild = discord::parse_server(&server).unwrap_or(&server).to_owned();
+    let refused = |error: anyhow::Error| format!("{error:#}");
+    let discord = match discord {
+        Ok(discord) => discord.clone(),
+        Err(why) => {
+            let why = why.to_owned();
+            let _ = events.send(match command {
+                DiscordCommand::Onboarding { .. } => Event::Onboarding {
+                    server,
+                    result: Err(why),
+                },
+                DiscordCommand::AnswerOnboarding { .. } => Event::OnboardingAnswered {
+                    server,
+                    result: Err(why),
+                },
+                DiscordCommand::MembershipForm { .. } => Event::MembershipForm {
+                    server,
+                    result: Err(why),
+                },
+                _ => Event::MembershipRequested {
+                    server,
+                    result: Err(why),
+                },
+            });
+            return;
+        }
+    };
+    let events = events.clone();
+    tokio::spawn(async move {
+        let event = match command {
+            DiscordCommand::Onboarding { .. } => Event::Onboarding {
+                result: discord
+                    .onboarding(&guild)
+                    .await
+                    .map(Arc::new)
+                    .map_err(refused),
+                server,
+            },
+            DiscordCommand::AnswerOnboarding { body, .. } => Event::OnboardingAnswered {
+                result: discord
+                    .answer_onboarding(&guild, &body)
+                    .await
+                    .map_err(refused),
+                server,
+            },
+            DiscordCommand::MembershipForm { invite, .. } => Event::MembershipForm {
+                result: discord
+                    .member_verification(&guild, invite.as_deref())
+                    .await
+                    .map(Arc::new)
+                    .map_err(refused),
+                server,
+            },
+            DiscordCommand::RequestMembership { body, .. } => Event::MembershipRequested {
+                result: discord
+                    .request_membership(&guild, &body)
+                    .await
+                    .map_err(refused),
+                server,
+            },
+            _ => return,
+        };
+        let _ = events.send(event);
+    });
+}

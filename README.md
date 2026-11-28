@@ -189,7 +189,8 @@ the pages your roles let you use, and channel settings with their permissions.
 Make and edit channels and categories, invite people, hand out roles, change
 nicknames, time out, kick and ban. In voice, server mute, deafen and move
 people to another channel. Edit your server profile, and leave. Join a server
-by invite, from the + under your servers or a link in chat, and open a
+by invite, from the + under your servers or a link in chat, answering its
+onboarding questions and its rules or application form, and open a
 scheduled event from its link to mark yourself interested. Folders show up as
 they do in Discord: drop a server on another to make one, and name and color
 it in Folder Settings.
@@ -231,9 +232,8 @@ it in Folder Settings.
 
 ### Not there yet
 
-- Activities.
-- A server's form for new members, such as its rules, when you join. Discord Obsidian
-  sends you to Discord in your browser to fill it in.
+- Activities, on purpose: they'd need a whole browser engine inside the app,
+  and its memory.
 - Captchas, sort of. If Discord asks for one while you link or join a server,
   Discord Obsidian opens it in your browser, but I haven't hit one against real
   Discord yet, so who knows..

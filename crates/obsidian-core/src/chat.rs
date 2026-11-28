@@ -2796,6 +2796,28 @@ pub enum DiscordCommand {
         preview: Box<InvitePreview>,
         from_link: bool,
     },
+    /// Ask a server just joined, by its server id, for its onboarding
+    /// questions; [`Event::Onboarding`] follows.
+    Onboarding {
+        server: String,
+    },
+    /// Answer them with the body `obsidian_discord::joining` made;
+    /// [`Event::OnboardingAnswered`] follows.
+    AnswerOnboarding {
+        server: String,
+        body: serde_json::Value,
+    },
+    /// Ask a server joined by `invite` for its membership form;
+    /// [`Event::MembershipForm`] follows.
+    MembershipForm {
+        server: String,
+        invite: Option<String>,
+    },
+    /// Answer it; [`Event::MembershipRequested`] follows.
+    RequestMembership {
+        server: String,
+        body: serde_json::Value,
+    },
     /// Look up a Discord server's scheduled event by its server and
     /// event ids, with whether this account is interested in it.
     /// [`Event::EventResolved`] follows.
@@ -4304,6 +4326,31 @@ pub enum Event {
         room: String,
         query: String,
         members: Vec<ChatMember>,
+    },
+    /// A server's onboarding questions, as [`DiscordCommand::Onboarding`]
+    /// asked, or why they didn't come.
+    #[cfg(feature = "discord")]
+    Onboarding {
+        server: String,
+        result: Result<Arc<obsidian_discord::joining::Onboarding>, String>,
+    },
+    /// Discord took the onboarding answers, or why it didn't.
+    OnboardingAnswered {
+        server: String,
+        result: Result<(), String>,
+    },
+    /// A server's membership form, as [`DiscordCommand::MembershipForm`]
+    /// asked, or why it didn't come.
+    #[cfg(feature = "discord")]
+    MembershipForm {
+        server: String,
+        result: Result<Arc<obsidian_discord::joining::Verification>, String>,
+    },
+    /// Discord took the form: at once (`true`) or for the server's
+    /// moderators to review; or why it didn't.
+    MembershipRequested {
+        server: String,
+        result: Result<bool, String>,
     },
     /// An app opened a form in a Discord room.
     #[cfg(feature = "discord")]

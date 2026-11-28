@@ -226,7 +226,13 @@
 // its X-Context-Properties and session. POST /_control/invite-captcha makes
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
-// in first.
+// in first. "Server" asks one onboarding question (GET
+// /guilds/{id}/onboarding) and has a membership form of rules and a short
+// answer (GET /guilds/{id}/member-verification); POST
+// /guilds/{id}/onboarding-responses and PUT /guilds/{id}/requests/@me take
+// the answers, which GET /_control/onboarding-responses and
+// /_control/membership-requests list. The form is taken at once unless the
+// short answer is "review", which holds it as SUBMITTED.
 // Authorizing Alien App from its link previews and authorizes the same
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
@@ -4887,6 +4893,28 @@ const notFound = (message = "404: Not Found", code = 0) => json({ message, code 
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
 const inviteJoins: Record<string, unknown>[] = [];
+/** Onboarding answers and membership forms Alice sent, for
+ *  /_control/onboarding-responses and /_control/membership-requests. */
+const onboardingResponses: unknown[] = [];
+const membershipRequests: unknown[] = [];
+/** "Server"'s onboarding and membership form, as Discord sends them. */
+const ONBOARDING = {
+  guild_id: GUILD, enabled: true, mode: 0, below_requirements: false, default_channel_ids: [GENERAL],
+  prompts: [{
+    id: "7100", title: "What brings you here?", type: 0, single_select: false, required: true, in_onboarding: true,
+    options: [
+      { id: "7101", title: "Chatting", description: "Talk with everyone", emoji: { id: null, name: "💬" }, channel_ids: [GENERAL], role_ids: [] },
+      { id: "7102", title: "Games", description: "", emoji: { id: null, name: "🎮" }, channel_ids: [], role_ids: [] },
+    ],
+  }],
+};
+const MEMBER_VERIFICATION = {
+  version: "2026-11-01T10:00:00.000000+00:00", description: "A place to talk",
+  form_fields: [
+    { field_type: "TERMS", label: "Read and agree to the server rules", description: null, automations: null, required: true, values: ["Be kind", "No spam"] },
+    { field_type: "TEXT_INPUT", label: "How did you find us?", description: null, automations: null, required: true, placeholder: null },
+  ],
+};
 /** Each authorization of an application, oldest first, for
  *  GET /_control/oauth-authorizations. */
 const oauthAuthorizations: Record<string, unknown>[] = [];
@@ -7305,6 +7333,26 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json({ ...invite, new_member: newMember, show_verification_form: form });
   }
 
+  if (method === "GET" && path === `/guilds/${GUILD}/onboarding`) {
+    return json(ONBOARDING);
+  }
+  if (method === "POST" && path === `/guilds/${GUILD}/onboarding-responses`) {
+    onboardingResponses.push(await req.json());
+    return empty();
+  }
+  if (method === "GET" && path === `/guilds/${GUILD}/member-verification`) {
+    return json(MEMBER_VERIFICATION);
+  }
+  if (method === "PUT" && path === `/guilds/${GUILD}/requests/@me`) {
+    const body: any = await req.json();
+    membershipRequests.push(body);
+    const review = body.form_fields?.some((field: any) => field.response === "review");
+    return json({
+      id: "7200", guild_id: GUILD, user_id: ALICE, created_at: new Date().toISOString(),
+      application_status: review ? "SUBMITTED" : "APPROVED", form_responses: body.form_fields,
+    });
+  }
+
   // The scheduled event in "Server"'s Lounge, from its link, and Alice's
   // interest in it: marking it fires the gateway event Discord sends.
   if (method === "GET" && path === "/users/@me/scheduled-events") {
@@ -7932,7 +7980,7 @@ const GENERIC_CONTROLS = new Set([
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
-  "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
+  "invite-joins", "invite-captcha", "invite-form", "onboarding-responses", "membership-requests", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
 ]);
 
 /** A status's emoji as the env gives it, Unicode or `<:name:id>`, as Discord sends it. */
@@ -9209,6 +9257,8 @@ const server = Bun.serve<SocketData>({
       inviteCaptcha = true;
       return new Response("the next join by an invite asks for a captcha\n");
     }
+    if (path === "/_control/onboarding-responses") return Response.json(onboardingResponses);
+    if (path === "/_control/membership-requests") return Response.json(membershipRequests);
     if (req.method === "POST" && path === "/_control/invite-form") {
       inviteForm = true;
       return new Response("the next join by an invite has a form to fill in\n");

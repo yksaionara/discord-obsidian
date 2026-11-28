@@ -1919,6 +1919,37 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A server's membership form, such as its rules, as Discord's client
+    /// asks for it once joining says the server has one.
+    pub async fn member_verification(&self, guild: &str, invite: Option<&str>) -> Result<Value> {
+        let mut path = format!("/guilds/{guild}/member-verification?with_guild=false");
+        if let Some(invite) = invite {
+            path.push_str(&format!("&invite_code={}", encode(invite)));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Answers a server's membership form; Discord answers with the join
+    /// request it makes.
+    pub async fn request_membership(&self, guild: &str, body: &Value) -> Result<Value> {
+        let path = format!("/guilds/{guild}/requests/@me");
+        self.json(with_json(self.request(Method::PUT, &path), body))
+            .await
+    }
+
+    /// A server's onboarding questions.
+    pub async fn onboarding(&self, guild: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/onboarding");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Answers a server's onboarding questions, as joining does at first.
+    pub async fn answer_onboarding(&self, guild: &str, body: &Value) -> Result<()> {
+        let path = format!("/guilds/{guild}/onboarding-responses");
+        self.empty(with_json(self.request(Method::POST, &path), body))
+            .await
+    }
+
     /// A server's scheduled event, with how many people are interested
     /// in it, as Discord's client asks before showing it.
     pub async fn scheduled_event(&self, guild: &str, event: &str) -> Result<Value> {

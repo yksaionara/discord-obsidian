@@ -27,6 +27,7 @@ pub mod gifs;
 pub mod gift;
 pub mod guild;
 pub mod invite;
+pub mod joining;
 pub mod limits;
 pub mod link;
 pub mod marked;

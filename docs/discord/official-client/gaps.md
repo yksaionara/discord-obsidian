@@ -83,15 +83,14 @@ Discord meets it. Each lands with its own doc section when it's done.
 
 1. A search over a modal's user, role and channel menus, and the Apps
    menu's per-app submenus (its commands list under each app's name).
-6. A server's onboarding questions and membership form when joining.
 8. Server privacy settings, and the server settings pages not done yet:
    Integrations and webhooks, Soundboard, AutoMod, Server Template,
    Community and Discovery.
 9. Stage channels' speaker requests and moderation.
-10. Animated custom emoji and avatars, which show their first frame.
 11. User settings pages Discord has that Discord Obsidian lacks: Keybinds,
     Accessibility, Text & Images, Activity Privacy and Devices
     (`SESSIONS_REPLACE`).
-12. Activities, which need Discord's embedded web runtime.
 
-Nitro, the Shop, Quests and billing are left out on purpose.
+Nitro, the Shop, Quests and billing are left out on purpose, and so are
+Activities: they run in Discord's embedded web runtime, which would take an
+embedded browser engine and its hundreds of megabytes.

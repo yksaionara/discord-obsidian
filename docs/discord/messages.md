@@ -192,6 +192,11 @@ an error.
   before the UI sees them. Once more than 400 have arrived, those off
   screen go, and Discord Obsidian asks for them again, from disk, when they show.
   Custom emoji stay, since the picker asks for hundreds at once.
+  An animated avatar or server icon, one whose hash starts with `a_`, plays
+  while the pointer is on its row, message or icon, as Discord's client plays
+  it: its animated WebP (`.webp?size=…&animated=true`) is asked for then,
+  and its frames decode one at a time as they show, as an animated
+  picture's do, so only what's under the pointer moves and holds frames.
   Initials show until a picture arrives or when it fails. A download that
   may work later, when the CDN is out of reach, fails or answers 429, is
   tried up to six times; every download then waits together, 10 seconds

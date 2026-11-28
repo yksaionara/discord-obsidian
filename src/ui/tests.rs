@@ -9430,5 +9430,54 @@ fn review_reminder_snapshots() {
     save("forum-gallery.png");
     window.set_posts_gallery(false);
     save("forum-list.png");
+    // What a server just joined asks: a question, then its rules.
+    let option = |id: &str, title: &str, emoji: &str, chosen: bool| JoinOption {
+        id: id.into(),
+        title: title.into(),
+        emoji: emoji.into(),
+        chosen,
+        ..Default::default()
+    };
+    window.set_joining_prompt(JoiningPrompt {
+        kind: 1,
+        name: "Builders".into(),
+        title: "What brings you here?".into(),
+        hint: "Choose all that apply.".into(),
+        progress: "1 of 2".into(),
+        next: "Next".into(),
+        options: ModelRc::new(VecModel::from(vec![
+            option("1", "Chatting", "💬", true),
+            option("2", "Games", "🎮", false),
+        ])),
+        ..Default::default()
+    });
+    window.set_joining_open(true);
+    save("joining-question.png");
+    window.set_joining_prompt(JoiningPrompt {
+        kind: 2,
+        name: "Builders".into(),
+        fields: ModelRc::new(VecModel::from(vec![
+            JoinField {
+                kind: 0,
+                label: "Read and agree to the server rules".into(),
+                required: true,
+                rules: ModelRc::new(VecModel::from(vec![
+                    SharedString::from("Be kind"),
+                    SharedString::from("No spam"),
+                ])),
+                chosen: -1,
+                ..Default::default()
+            },
+            JoinField {
+                kind: 1,
+                label: "How did you find us?".into(),
+                required: true,
+                chosen: -1,
+                ..Default::default()
+            },
+        ])),
+        ..Default::default()
+    });
+    save("joining-form.png");
     window.hide().unwrap();
 }

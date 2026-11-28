@@ -366,6 +366,11 @@ export component Avatar inherits Rectangle {
     in property <bool> animate;
     property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision) : @image-url("");
     property <string> animated-url: root.animate && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
+    /// An animated avatar's animation, asked for and played only while
+    /// `animate` is set, as Discord's client plays one under the pointer;
+    /// empty for a still one.
+    property <string> moving-url: root.animate && root.picture-url != "" && PictureStore.animated(root.picture-url) != root.picture-url
+        ? PictureStore.animated(root.picture-url) : "";
     function request-decoration() {
         if root.decoration-url != "" && root.decoration.width == 0 {
             PictureStore.request(root.decoration-url);
@@ -373,10 +378,14 @@ export component Avatar inherits Rectangle {
         if root.animated-url != "" {
             PictureStore.request(root.animated-url);
         }
+        if root.moving-url != "" {
+            PictureStore.request(root.moving-url);
+        }
     }
     changed decoration-url => { root.request-decoration(); }
     changed decoration => { root.request-decoration(); }
     changed animated-url => { root.request-decoration(); }
+    changed moving-url => { root.request-decoration(); }
     width: root.size; height: root.size;
     border-top-left-radius: root.corner-tl >= 0px ? root.corner-tl : root.shape;
     border-top-right-radius: root.corner-tr >= 0px ? root.corner-tr : root.shape;
@@ -394,7 +403,13 @@ export component Avatar inherits Rectangle {
         border-bottom-left-radius: root.corner-bl >= 0px ? root.corner-bl : root.shape;
         border-bottom-right-radius: root.corner-br >= 0px ? root.corner-br : root.shape;
         clip: true;
-        Image { source: root.shown-picture; width: root.size; height: root.size; image-fit: cover; }
+        if root.moving-url == "": Image { source: root.shown-picture; width: root.size; height: root.size; image-fit: cover; }
+        if root.moving-url != "": Picture {
+            width: root.size; height: root.size; image-fit: cover; accessible-role: none;
+            still: root.shown-picture;
+            frames: PictureStore.frames(root.moving-url, PictureStore.revision);
+            delays: PictureStore.delays(root.moving-url, PictureStore.revision);
+        }
     }
     if root.decoration.width > 0: Picture {
         x: -root.size / 10; y: -root.size / 10; width: root.size * 1.2; height: root.size * 1.2;

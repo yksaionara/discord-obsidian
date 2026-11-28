@@ -126,8 +126,6 @@ export struct JoinPrompt {
     status: string,
     /// Discord asked for a captcha, which opens again from a button.
     captcha: bool,
-    /// The server asks for a form, which its button opens in the browser.
-    form: bool,
     error: string,
 }
 
@@ -139,7 +137,6 @@ export component JoinDialog inherits Rectangle {
     callback find(string);
     callback join;
     callback open-captcha;
-    callback open-form;
     callback close;
     /// How far it's open, from 0 to 1; see PopupMotion.
     in property <float> motion: 1;
@@ -191,13 +188,12 @@ export component JoinDialog inherits Rectangle {
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
-                    ActionButton { text: root.prompt.form || root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
                     if root.prompt.captcha: ActionButton { text: "Open the captcha again"; clicked => { root.open-captcha(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => {
-                            if root.prompt.form { root.open-form(); }
-                            else if root.prompt.found { root.join(); }
+                            if root.prompt.found { root.join(); }
                             else { root.find(root.link); }
                         }
                     }

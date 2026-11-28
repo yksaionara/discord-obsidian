@@ -203,10 +203,34 @@ opens it. Discord's refusals come back in the dialog's words: an invalid or
 expired invite (10006, 50020), a ban (40007), too many servers (30001), a
 full server (30019) and paused invites (40069).
 
-When the answer has `show_verification_form`, the server asks new members
-to fill in its form, such as accepting its rules, before they may talk.
-Discord Obsidian doesn't show forms or onboarding questions yet, so the dialog says
-so and opens the channel in Discord's web app, where the form waits. A voice
+Once joined, Discord Obsidian asks what the server asks of new members, as
+Discord's client does (`joining.rs`, `application/joining.rs`,
+`JoiningDialog`), before the invite's channel opens:
+
+- Its onboarding questions: `GET /guilds/{id}/onboarding`, those with
+  `in_onboarding`, one at a time, each with its options as cards, "Choose
+  one:" for a question of one and "Choose all that apply." otherwise, and
+  Back, then Next, Skip for an unanswered optional question, or Finish on
+  the last. A required question wants an answer first. Finish sends `POST
+  /guilds/{id}/onboarding-responses` with the options chosen as
+  `onboarding_responses`, and each question and option shown in
+  `onboarding_prompts_seen` and `onboarding_responses_seen`, by when. A
+  server with onboarding off, or that won't say, asks nothing.
+- Then its membership form, when joining's answer had
+  `show_verification_form`: `GET /guilds/{id}/member-verification` with
+  `with_guild=false` and the invite's code, titled "Before you can talk in
+  Server...": its rules, numbered, with "I have read and agree to the
+  rules", short answers (150 characters) and paragraphs (1000), and choices
+  of one. Submit sends `PUT /guilds/{id}/requests/@me` with the form's
+  `version` and every field as Discord sent it, with its `response`: true
+  for the rules, the text, or a choice's place. Unanswered required fields
+  say "You must finish reading the rules to join." for rules alone, or
+  "Answer the required questions first.". A form of rules alone is taken at
+  once; others wait for the server's moderators (`application_status`
+  SUBMITTED), and the dialog says "Your application is pending review."
+
+Closing either leaves it for later: the server is joined, and its channel
+opens. A voice
 channel's invite joins the server and opens the channel without joining the
 call. Discord's client also sends `invite_instance_id` from a message's
 invite card, which Discord Obsidian doesn't show yet, so it leaves that out.

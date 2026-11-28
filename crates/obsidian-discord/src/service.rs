@@ -2715,6 +2715,34 @@ impl Discord {
         invite::Preview::of(&invite).context("This invite isn't to a server.")
     }
 
+    /// A server's membership form, as joining by `invite` found it.
+    pub async fn member_verification(
+        &self,
+        guild: &str,
+        invite: Option<&str>,
+    ) -> Result<crate::joining::Verification> {
+        let value = self.api.member_verification(guild, invite).await?;
+        Ok(crate::joining::Verification::parse(&value))
+    }
+
+    /// Answers a server's membership form; true when Discord took it at
+    /// once, false when the server's moderators review it.
+    pub async fn request_membership(&self, guild: &str, body: &Value) -> Result<bool> {
+        let request = self.api.request_membership(guild, body).await?;
+        Ok(crate::joining::approved(&request))
+    }
+
+    /// A server's onboarding questions; none when it has them off.
+    pub async fn onboarding(&self, guild: &str) -> Result<crate::joining::Onboarding> {
+        let value = self.api.onboarding(guild).await?;
+        Ok(crate::joining::Onboarding::parse(&value))
+    }
+
+    /// Answers a server's onboarding questions with the options chosen.
+    pub async fn answer_onboarding(&self, guild: &str, body: &Value) -> Result<()> {
+        self.api.answer_onboarding(guild, body).await
+    }
+
     /// Joins a server by the invite `preview` shows, as Discord's client
     /// does from `from`, showing each captcha Discord asks for first:
     /// `captcha` hears its page's address. The server's GUILD_CREATE

@@ -50,6 +50,8 @@ mod game_mode;
 mod games;
 mod gifs;
 mod gta;
+#[cfg(feature = "discord")]
+mod joining;
 mod menus;
 mod messages;
 #[cfg(feature = "discord")]
@@ -2175,6 +2177,9 @@ struct Adapter {
     video_quiet: Cell<u32>,
     /// Follows the voice message playing, while it plays.
     voice_timer: Rc<slint::Timer>,
+    /// What the joining dialog showed, but its typed text; see `joining.rs`.
+    #[cfg(feature = "discord")]
+    joining_shown: Option<String>,
     /// The forum's tags that filter its posts, as last shown.
     forum_filters_shown: Option<Vec<PostTagChoice>>,
     /// Streamer Mode's notice over the window was dismissed while it's on.
@@ -2492,6 +2497,8 @@ impl Adapter {
                 voice_timer: Rc::new(slint::Timer::default()),
                 streamer_notice_dismissed: false,
                 forum_filters_shown: None,
+                #[cfg(feature = "discord")]
+                joining_shown: None,
                 reminder_timer: slint::Timer::default(),
                 reminder_armed: None,
                 recording_timer: Rc::new(slint::Timer::default()),
@@ -3162,6 +3169,18 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        // Typing in a server's membership form changes only the core's copy;
+        // the field already shows it.
+        #[cfg(feature = "discord")]
+        let joining_text = matches!(
+            action,
+            Action::AnswerMembership(
+                _,
+                obsidian_core::obsidian_discord::joining::FormAnswer::Text(_)
+            )
+        );
+        #[cfg(not(feature = "discord"))]
+        let joining_text = false;
         // As do Folder Settings' name and colour, until Done.
         let foldering = matches!(
             action,
@@ -3175,7 +3194,8 @@ impl Adapter {
         let effects = self.app.dispatch(action);
         let selecting = selecting && effects.is_empty();
         self.execute(effects);
-        if selecting {
+        if joining_text {
+        } else if selecting {
             self.show_select(window);
         } else if foldering {
             self.show_folder_settings(window);

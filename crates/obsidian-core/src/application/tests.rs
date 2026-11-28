@@ -9888,6 +9888,12 @@ fn join_a_server_shows_the_invite_and_joins_on_the_click() {
         }),
     });
     assert!(app.state.join.is_none());
+    // A server without onboarding asks nothing more.
+    app.apply(Event::Onboarding {
+        server: "discord:20".into(),
+        result: Ok(Arc::default()),
+    });
+    assert!(app.state.joining.is_none());
     let mut snapshot = obsidian_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     let joined = obsidian_discord::ready::server(&serde_json::json!({
         "id": "20", "owner_id": "99",
@@ -9948,10 +9954,20 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
     let join = app.state.join.clone().unwrap();
     assert!(!join.joining);
     assert!(join.error.unwrap().ends_with("full."));
+}
 
-    // A server with a form to fill in sends it to Discord's web app.
+#[test]
+#[cfg(feature = "discord")]
+fn a_server_joined_asks_its_onboarding_questions_then_its_form() {
+    use obsidian_discord::joining::{FormAnswer, Onboarding, Verification};
+    let mut app = discord_server();
+    app.dispatch(Action::OpenInviteLink("new".into()));
+    app.apply(Event::InviteResolved {
+        code: "new".into(),
+        result: Ok(invite_to("new", "30", "31")),
+    });
     app.dispatch(Action::JoinServer);
-    app.apply(Event::ServerJoined {
+    let effects = app.apply(Event::ServerJoined {
         code: "new".into(),
         result: Ok(chat::JoinedServer {
             server: "discord:30".into(),
@@ -9959,13 +9975,72 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
             form: true,
         }),
     });
-    assert!(app.dispatch(Action::JoinServer).is_empty());
-    let effects = app.dispatch(Action::OpenJoinForm);
+    assert!(app.state.join.is_none());
     assert!(matches!(
         effects.as_slice(),
-        [Effect::OpenPage(page)] if page == "https://discord.com/channels/30/31"
+        [Effect::Backend(Command::Discord(DiscordCommand::Onboarding { server }))] if server == "discord:30"
     ));
-    assert!(app.state.join.is_none());
+    let onboarding = Onboarding::parse(&serde_json::json!({"enabled": true, "prompts": [
+        {"id": "1", "title": "Why?", "required": true, "single_select": true,
+         "options": [{"id": "11", "title": "Chat"}, {"id": "12", "title": "Games"}]},
+        {"id": "2", "title": "Also?", "required": false,
+         "options": [{"id": "21", "title": "News"}]},
+    ]}));
+    app.apply(Event::Onboarding {
+        server: "discord:30".into(),
+        result: Ok(Arc::new(onboarding)),
+    });
+    // A required question wants an answer; a question of one takes one.
+    assert!(app.dispatch(Action::NextOnboarding(false)).is_empty());
+    assert!(app.state.joining.as_ref().unwrap().error.is_some());
+    app.dispatch(Action::PickOnboarding("11".into()));
+    app.dispatch(Action::PickOnboarding("12".into()));
+    app.dispatch(Action::NextOnboarding(false));
+    // The last, skipped, sends the answers.
+    let effects = app.dispatch(Action::NextOnboarding(false));
+    let Some(body) = effects.iter().find_map(|effect| match effect {
+        Effect::Backend(Command::Discord(DiscordCommand::AnswerOnboarding { body, .. })) => {
+            Some(body.clone())
+        }
+        _ => None,
+    }) else {
+        panic!("the answers go");
+    };
+    assert_eq!(body["onboarding_responses"], serde_json::json!(["12"]));
+    let effects = app.apply(Event::OnboardingAnswered {
+        server: "discord:30".into(),
+        result: Ok(()),
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::MembershipForm { invite: Some(code), .. }))]
+            if code == "new"
+    ));
+    let form = Verification::parse(&serde_json::json!({"form_fields": [
+        {"field_type": "TERMS", "label": "Rules", "required": true, "values": ["Be kind"]},
+    ]}));
+    app.apply(Event::MembershipForm {
+        server: "discord:30".into(),
+        result: Ok(Arc::new(form)),
+    });
+    assert!(app.dispatch(Action::SubmitMembership).is_empty());
+    assert_eq!(
+        app.state.joining.as_ref().unwrap().error.as_deref(),
+        Some("You must finish reading the rules to join.")
+    );
+    app.dispatch(Action::AnswerMembership(0, FormAnswer::Agreed(true)));
+    let effects = app.dispatch(Action::SubmitMembership);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Backend(Command::Discord(DiscordCommand::RequestMembership { body, .. }))
+            if body["form_fields"][0]["response"] == true
+    )));
+    // Taken at once, it closes, and the channel opens once it lists.
+    app.apply(Event::MembershipRequested {
+        server: "discord:30".into(),
+        result: Ok(true),
+    });
+    assert!(app.state.joining.is_none());
 }
 
 #[test]

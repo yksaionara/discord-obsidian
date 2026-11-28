@@ -6,7 +6,7 @@
 | [Voice](voice.md) | Server voice channels, mute, deafen, per-person volume, voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) on a recorded key, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and push-to-talk on real Windows, and of push-to-talk on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
-| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state, notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), [slash commands](messages.md#slash-commands), [apps' modals](messages.md#apps-modals), [the Apps menu](messages.md#the-apps-menu), [voice messages](messages.md#voice-messages), [bookmarks and reminders](messages.md#bookmarks-and-reminders), [apps' buttons and select menus](messages.md#apps-buttons), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers | The rest of a server's settings and its privacy, membership forms when joining |
+| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state, notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), [slash commands](messages.md#slash-commands), [apps' modals](messages.md#apps-modals), [the Apps menu](messages.md#the-apps-menu), [voice messages](messages.md#voice-messages), [bookmarks and reminders](messages.md#bookmarks-and-reminders), [apps' buttons and select menus](messages.md#apps-buttons), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers | The rest of a server's settings and its privacy |
 | [DMs](people.md#dms) | DMs, group DMs, message requests and spam, starting a DM, [a DM's menu](people.md#a-dms-menu): pinning, muting, closing and leaving a group | |
 | [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile) and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring and blocking, [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
 | [Mirroring](#mirroring-into-matrix) | | Planned and not started |
@@ -203,18 +203,17 @@ its token.
 
 In rough order. The browser covers these until then.
 
-- A server's membership form and onboarding questions when joining by
-  invite, and invite cards in messages.
+- Invite cards in messages.
 - A server's privacy settings: direct messages, message requests and
   activity status from its members.
 - Discord's voice settings beyond those above, and push-to-talk's sounds,
   mouse buttons or key combinations as its key, and more than one key.
 - A server's soundboard sounds in its settings.
-- Activities, and the rest of a server's settings.
+- The rest of a server's settings. Activities are left out on purpose: they
+  need an embedded browser engine, and its memory.
 - [Mirroring into Matrix](#mirroring-into-matrix).
 - The blocked on the friends page, beside Online and All.
 - Blocking and unblocking from a profile.
-- Animated custom emoji, which show their first frame.
 - Copying custom emoji: copied text has their private code points, not
   `:name:`.
 - A custom status's end while Discord Obsidian is closed, or set from a device whose

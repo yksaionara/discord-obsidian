@@ -114,13 +114,55 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
     })
 }
 
-/// The address of the animated version of a collectible's still picture:
-/// Discord serves a decoration's or nameplate's `/static` PNG and, beside it,
-/// an `/animated` APNG. Any other address is its own.
+/// The address of the animated version of a still picture: Discord serves
+/// a decoration's or nameplate's `/static` PNG and, beside it, an
+/// `/animated` APNG; an animated avatar or server icon, whose hash starts
+/// with `a_`, as an animated WebP, which its client asks for while the
+/// pointer is on it. Any other address is its own.
 pub(super) fn animated_url(url: &str) -> String {
-    match url.strip_suffix("/static") {
-        Some(base) if url.contains("/collectibles-shop/") => format!("{base}/animated"),
-        _ => url.to_owned(),
+    if let Some(base) = url.strip_suffix("/static")
+        && url.contains("/collectibles-shop/")
+    {
+        return format!("{base}/animated");
+    }
+    let (path, query) = url.split_once('?').unwrap_or((url, ""));
+    let animated = path.contains("/avatars/") || path.contains("/icons/");
+    match path
+        .rsplit_once('/')
+        .filter(|(_, file)| animated && file.starts_with("a_"))
+        .and_then(|(base, file)| Some((base, file.rsplit_once('.')?.0)))
+    {
+        Some((base, hash)) => {
+            let size = query
+                .split('&')
+                .find(|pair| pair.starts_with("size="))
+                .map_or(String::new(), |size| format!("{size}&"));
+            format!("{base}/{hash}.webp?{size}animated=true")
+        }
+        None => url.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod animated_tests {
+    use super::animated_url;
+
+    #[test]
+    fn animated_avatars_and_icons_play_as_webp() {
+        assert_eq!(
+            animated_url("https://cdn.discordapp.com/avatars/1/a_abc.png?size=128"),
+            "https://cdn.discordapp.com/avatars/1/a_abc.webp?size=128&animated=true"
+        );
+        assert_eq!(
+            animated_url("https://cdn.discordapp.com/icons/10/a_def.png"),
+            "https://cdn.discordapp.com/icons/10/a_def.webp?animated=true"
+        );
+        let still = "https://cdn.discordapp.com/avatars/1/abc.png?size=128";
+        assert_eq!(animated_url(still), still, "a still one is its own");
+        assert_eq!(
+            animated_url("https://cdn.discordapp.com/assets/collectibles-shop/x/static"),
+            "https://cdn.discordapp.com/assets/collectibles-shop/x/animated"
+        );
     }
 }
 

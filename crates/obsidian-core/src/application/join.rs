@@ -21,9 +21,6 @@ pub struct JoinDialog {
     pub joining: bool,
     /// The page with the captcha Discord asked for before joining.
     pub captcha: Option<String>,
-    /// The server, joined, asks new members to fill in its form first,
-    /// which Discord Obsidian leaves to Discord's web app at this address.
-    pub form: Option<String>,
     pub error: Option<String>,
 }
 
@@ -116,12 +113,7 @@ impl Application {
     /// Joins by the invite the dialog shows, or opens its server for a
     /// member.
     pub(super) fn join_server(&mut self) -> Vec<Effect> {
-        let Some(join) = self
-            .state
-            .join
-            .as_mut()
-            .filter(|join| !join.joining && join.form.is_none())
-        else {
+        let Some(join) = self.state.join.as_mut().filter(|join| !join.joining) else {
             return vec![];
         };
         let Some(preview) = join.preview.clone() else {
@@ -191,32 +183,25 @@ impl Application {
                 return vec![];
             }
         };
-        if joined.form {
-            // The server lists once Discord sends it, and the dialog stays
-            // to send the form to the web app.
-            join.form = Some(match discord::parse_room(&joined.room) {
-                Some((guild, channel)) => {
-                    format!("https://discord.com/channels/{guild}/{channel}")
-                }
-                None => "https://discord.com/app".into(),
-            });
-            self.pending_open = Some(joined.room);
-            return vec![];
+        // What the server asks of new members comes first: its onboarding
+        // questions, then its form.
+        #[cfg(feature = "discord")]
+        {
+            let name = join
+                .preview
+                .as_ref()
+                .map(|preview| preview.name.clone())
+                .unwrap_or_default();
+            self.state.join = None;
+            self.start_joining(joined, name, Some(code))
         }
+        #[cfg(not(feature = "discord"))]
         self.open_joined(&joined.server, joined.room)
-    }
-
-    /// Opens the server's form in Discord's web app, and closes the dialog.
-    pub(super) fn open_join_form(&mut self) -> Vec<Effect> {
-        match self.state.join.take().and_then(|join| join.form) {
-            Some(page) => vec![Effect::OpenPage(page)],
-            None => vec![],
-        }
     }
 
     /// Closes the dialog and opens the invite's channel, now or once it
     /// lists, or else its server.
-    fn open_joined(&mut self, server: &str, room: String) -> Vec<Effect> {
+    pub(super) fn open_joined(&mut self, server: &str, room: String) -> Vec<Effect> {
         self.state.join = None;
         if self.state.rooms.iter().any(|listed| listed.id == room) {
             return self.dispatch(Action::Open(room));
