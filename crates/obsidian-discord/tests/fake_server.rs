@@ -4829,6 +4829,63 @@ async fn chooses_in_an_apps_select_menu() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_and_logs_out_devices() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("lists_and_logs_out_devices").await;
+    let devices = discord.devices().await.unwrap();
+    assert_eq!(devices.len(), 2);
+    assert_eq!(devices[0].platform, "Firefox", "the latest used first");
+    let current = discord.snapshots().borrow().auth_session.clone();
+    assert_eq!(current.as_deref(), Some(devices[0].hash.as_str()));
+    discord
+        .log_out_devices(&["phone-hash=".into()])
+        .await
+        .unwrap();
+    let out: Vec<String> =
+        serde_json::from_str(&control(server, "GET", "/_control/logged-out-sessions", "")).unwrap();
+    assert_eq!(out, ["phone-hash="]);
+    assert_eq!(discord.devices().await.unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn asks_to_speak_on_a_stage_and_brings_people_up() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        ..
+    } = Fixture::start("asks_to_speak_on_a_stage_and_brings_people_up").await;
+    discord.raise_hand(&guild, "60", true).await.unwrap();
+    discord.raise_hand(&guild, "60", false).await.unwrap();
+    discord.stage_speak(&guild, "42", "60", true).await.unwrap();
+    discord
+        .stage_speak(&guild, "@me", "60", false)
+        .await
+        .unwrap();
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/stage-changes", "")).unwrap();
+    assert_eq!(sent[0]["user"], "@me");
+    assert_eq!(sent[0]["channel_id"], "60");
+    assert!(sent[0]["request_to_speak_timestamp"].is_string(), "{sent}");
+    assert!(sent[1]["request_to_speak_timestamp"].is_null());
+    assert_eq!(
+        sent[2],
+        serde_json::json!({"user": "42", "channel_id": "60", "suppress": false})
+    );
+    assert_eq!(
+        sent[3],
+        serde_json::json!({"user": "@me", "channel_id": "60", "suppress": true})
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn answers_a_servers_onboarding_and_form() {
     use obsidian_discord::joining::FormAnswer;
     let Fixture {

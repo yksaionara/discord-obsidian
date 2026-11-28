@@ -2850,6 +2850,8 @@ impl Adapter {
     fn show_dialogs(&mut self, window: &ObsidianWindow) {
         #[cfg(feature = "discord")]
         self.show_joining(window);
+        #[cfg(feature = "discord")]
+        self.show_devices(window);
         let state = &self.app.state;
         let add_friend = state.add_friend.as_ref();
         if add_friend.is_some() && !window.get_add_friend_open() {
@@ -4001,6 +4003,18 @@ impl Adapter {
             }
             .into(),
         );
+        // A stage's button: raise or lower the hand, or leave the stage.
+        let stage = voice
+            .room
+            .as_deref()
+            .filter(|room| voice.active() && self.app.is_stage(room))
+            .and_then(|_| voice.participants.iter().find(|person| person.local))
+            .map_or(0, |me| match (me.suppressed, me.hand_raised) {
+                (true, false) => 1,
+                (true, true) => 2,
+                (false, _) => 3,
+            });
+        window.set_stage_call(stage);
         window.set_voice_error(voice.error.as_deref().unwrap_or_default().into());
         window.set_voice_warning(voice.warning.as_deref().unwrap_or_default().into());
         update_model(
@@ -4023,6 +4037,10 @@ impl Adapter {
                         connected: person.connected,
                         status: if let Some(problem) = &person.problem {
                             problem.as_str()
+                        } else if person.hand_raised {
+                            "Hand raised"
+                        } else if person.suppressed {
+                            "In the audience"
                         } else if !person.connected {
                             "Connection lost"
                         } else if person.deafened {
@@ -4037,6 +4055,8 @@ impl Adapter {
                         .into(),
                         muted: person.muted,
                         deafened: person.deafened,
+                        suppressed: person.suppressed,
+                        hand_raised: person.hand_raised,
                         live: person.streaming,
                         video: person.video.is_some(),
                         elsewhere: false,

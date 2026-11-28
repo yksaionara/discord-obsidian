@@ -349,6 +349,43 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::Devices | DiscordCommand::LogOutDevices(_)) = &command {
+        let events = events.clone();
+        match discord {
+            Ok(discord) => {
+                let discord = discord.clone();
+                let Command::Discord(command) = command else {
+                    return None;
+                };
+                tokio::spawn(async move {
+                    let event = match command {
+                        DiscordCommand::LogOutDevices(hashes) => Event::DevicesLoggedOut(
+                            discord
+                                .log_out_devices(&hashes)
+                                .await
+                                .map_err(|error| format!("{error:#}")),
+                        ),
+                        _ => Event::Devices(
+                            discord
+                                .devices()
+                                .await
+                                .map_err(|error| format!("{error:#}")),
+                        ),
+                    };
+                    let _ = events.send(event);
+                });
+            }
+            Err(why) => {
+                let _ = events.send(match command {
+                    Command::Discord(DiscordCommand::LogOutDevices(_)) => {
+                        Event::DevicesLoggedOut(Err(why.into()))
+                    }
+                    _ => Event::Devices(Err(why.into())),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(
         DiscordCommand::Onboarding { .. }
         | DiscordCommand::AnswerOnboarding { .. }
@@ -1371,6 +1408,8 @@ fn from_dialog(change: &MemberChange) -> bool {
             | MemberChange::ServerMute(_)
             | MemberChange::ServerDeafen(_)
             | MemberChange::Move(_)
+            | MemberChange::Speak { .. }
+            | MemberChange::RaiseHand { .. }
     )
 }
 
@@ -1684,6 +1723,28 @@ fn change_person(
                             "undeafen them"
                         },
                     ),
+                    MemberChange::Speak { stage, speak } => {
+                        let channel = channel(&stage);
+                        (
+                            discord.stage_speak(guild, &user, &channel, speak).await,
+                            if speak {
+                                "bring them up to speak"
+                            } else {
+                                "move them to the audience"
+                            },
+                        )
+                    }
+                    MemberChange::RaiseHand { stage, raised } => {
+                        let channel = channel(&stage);
+                        (
+                            discord.raise_hand(guild, &channel, raised).await,
+                            if raised {
+                                "raise your hand"
+                            } else {
+                                "lower your hand"
+                            },
+                        )
+                    }
                     MemberChange::Move(to) => {
                         let channel = to
                             .as_deref()

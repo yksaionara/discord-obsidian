@@ -820,6 +820,18 @@ nix develop path:./nix --command cargo build --profile measure -p obsidian-disco
 target/measure/obsidian-game-detection-probe /path/to/discord-games.json 30
 ```
 
+## Devices
+
+Settings › Devices lists the devices the account is logged in on, as
+Discord's page does (`sessions.rs`, `application/devices.rs`): `GET
+/auth/sessions` each time it opens, this login under Current Device, found by
+READY's `auth_session_id_hash`, and the rest under Other Devices, the latest
+used first, each with its system and client, where it was, and how long ago.
+Each other device's X logs it out, and Log Out All Known Devices logs out
+all but this one: `POST /auth/sessions/logout` with their
+`session_id_hashes`, after the account's second factor when Discord asks for
+it, as other changes to the account do. The list is asked for again after.
+
 ## Role icons
 
 A role with an icon (`icon` on the role, from GUILD_CREATE and GUILD_ROLE_*)

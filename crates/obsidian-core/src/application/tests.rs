@@ -1566,6 +1566,8 @@ fn in_call(id: &str, local: bool, streaming: bool) -> voice::Participant {
         streaming,
         video: None,
         avatar: None,
+        suppressed: false,
+        hand_raised: false,
     }
 }
 
@@ -2383,6 +2385,8 @@ fn streams_sound_as_others_start_and_stop_watching() {
         streaming: false,
         video: None,
         avatar: None,
+        suppressed: false,
+        hand_raised: false,
     };
     let frames = std::sync::Arc::new(crate::frames::Frames::create(2, 2).unwrap());
     let call = |sharing: Option<&[&str]>, watching: Option<&[&str]>| voice::State {
@@ -2451,6 +2455,8 @@ fn others_going_live_and_ending_sounds_but_not_as_anyone_comes_or_goes_streaming
         streaming,
         video: None,
         avatar: None,
+        suppressed: false,
+        hand_raised: false,
     };
     let call = |me: bool, people: &[(&str, bool)]| voice::State {
         phase: Phase::Connected,
@@ -2510,6 +2516,8 @@ fn calls_sound_as_people_come_and_go_but_not_while_reconnecting_or_ringing() {
         streaming: false,
         video: None,
         avatar: None,
+        suppressed: false,
+        hand_raised: false,
     };
     let call = |phase: Phase, people: &[(&str, bool)]| voice::State {
         phase,
@@ -2993,6 +3001,8 @@ fn asks_once_for_the_pictures_on_screen() {
                 elsewhere: false,
                 server_muted: false,
                 server_deafened: false,
+                suppressed: false,
+                hand_raised: false,
             }],
         )]
         .into(),
@@ -4577,6 +4587,8 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         elsewhere: false,
         server_muted: false,
         server_deafened: false,
+        suppressed: false,
+        hand_raised: false,
     };
     let snapshot = |ringing: Vec<VoiceMember>, in_call: Vec<VoiceMember>| Snapshot {
         status: Status::Online,
@@ -4666,6 +4678,8 @@ fn do_not_disturb_shows_a_call_without_notifying() {
         elsewhere: false,
         server_muted: false,
         server_deafened: false,
+        suppressed: false,
+        hand_raised: false,
     };
     let mut app = Application::default();
     let effects = app.apply(discord_event(Snapshot {
@@ -10760,4 +10774,164 @@ fn back_and_forward_walk_the_conversations_visited_without_recording_the_walk() 
     assert_eq!(app.state.selected.as_deref(), Some("games"));
     app.dispatch(Action::NavigateBack);
     assert_eq!(app.state.selected.as_deref(), Some("general"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_stages_audience_asks_to_speak_and_its_moderators_bring_them_up() {
+    use chat::MemberChange;
+    use obsidian_discord::{
+        ready::{self, permission},
+        service::{Snapshot, Status, VoiceMember},
+    };
+    let person = |id: &str, suppressed: bool, hand_raised: bool| VoiceMember {
+        user_id: id.into(),
+        name: format!("Person {id}"),
+        avatar: String::new(),
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        streaming: false,
+        video: false,
+        elsewhere: false,
+        suppressed,
+        hand_raised,
+    };
+    let snapshot = |owner: &str, me_hand: bool| {
+        let server = ready::server(&serde_json::json!({
+            "id": "10", "owner_id": owner, "properties": {"name": "Test"},
+            "roles": [{"id": "10", "name": "@everyone", "position": 0, "permissions": (
+                permission::VIEW_CHANNEL | permission::CONNECT).to_string()}],
+            "channels": [{"id": "16", "type": 13, "name": "town-hall", "position": 0}],
+        }))
+        .unwrap();
+        discord_event(Snapshot {
+            status: Status::Online,
+            user_id: Some("1".into()),
+            servers: vec![MarkedServer::from(server)],
+            voice: [(
+                "16".to_owned(),
+                vec![
+                    person("1", true, me_hand),
+                    person("2", false, false),
+                    person("3", true, true),
+                ],
+            )]
+            .into(),
+            ..Default::default()
+        })
+    };
+    let stage = "discord:10:16".to_owned();
+    let mut app = Application::default();
+    app.apply(snapshot("99", false));
+    assert!(app.is_stage(&stage));
+    // In the audience, without moderating: raise a hand, and nothing for others.
+    let mine = app.voice_person_choices(&stage, "1");
+    assert!(mine.contains(&MenuChoice::RaiseHand) && !mine.contains(&MenuChoice::BecomeSpeaker));
+    assert!(
+        !app.voice_person_choices(&stage, "2")
+            .contains(&MenuChoice::MoveToAudience)
+    );
+    let effects = app.dispatch(Action::ChangeMember {
+        place: stage.clone(),
+        user: "1".into(),
+        change: MemberChange::RaiseHand {
+            stage: stage.clone(),
+            raised: true,
+        },
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Member { user, change: MemberChange::RaiseHand { raised: true, .. }, .. }))]
+            if user == "@me"
+    ));
+    app.apply(snapshot("99", true));
+    assert!(
+        app.voice_person_choices(&stage, "1")
+            .contains(&MenuChoice::LowerHand)
+    );
+    // Not a moderator: no one comes up.
+    assert!(
+        app.dispatch(Action::ChangeMember {
+            place: stage.clone(),
+            user: "3".into(),
+            change: MemberChange::Speak {
+                stage: stage.clone(),
+                speak: true
+            },
+        })
+        .is_empty()
+    );
+    // The owner moderates: invite the raised hand up, step up, move a speaker down.
+    app.apply(snapshot("1", true));
+    assert!(
+        app.voice_person_choices(&stage, "3")
+            .contains(&MenuChoice::InviteToSpeak)
+    );
+    assert!(
+        app.voice_person_choices(&stage, "1")
+            .contains(&MenuChoice::BecomeSpeaker)
+    );
+    assert!(
+        app.voice_person_choices(&stage, "2")
+            .contains(&MenuChoice::MoveToAudience)
+    );
+    let effects = app.dispatch(Action::ChangeMember {
+        place: stage.clone(),
+        user: "3".into(),
+        change: MemberChange::Speak {
+            stage: stage.clone(),
+            speak: true,
+        },
+    });
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Member { user, change: MemberChange::Speak { speak: true, .. }, .. }))]
+            if user == "3"
+    ));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn devices_list_this_one_first_and_log_the_others_out() {
+    use obsidian_discord::sessions::Device;
+    let mut app = discord_server();
+    app.state.discord_online = true;
+    let mut snapshot = obsidian_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
+    snapshot.auth_session = Some("me=".into());
+    app.apply(discord_event(snapshot));
+    assert!(matches!(
+        app.dispatch(Action::OpenDevices(true)).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Devices))]
+    ));
+    let device = |hash: &str| Device {
+        hash: hash.into(),
+        ..Default::default()
+    };
+    app.apply(Event::Devices(Ok(vec![
+        device("phone="),
+        device("me="),
+        device("tv="),
+    ])));
+    let devices = app.state.devices.as_ref().unwrap();
+    let (this, others) = devices.split();
+    assert_eq!(this.unwrap().hash, "me=");
+    assert_eq!(others.len(), 2);
+    // Log Out All Known Devices leaves this one.
+    let effects = app.dispatch(Action::LogOutDevices(None));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::LogOutDevices(hashes)))]
+            if *hashes == ["phone=", "tv="]
+    ));
+    assert!(
+        app.dispatch(Action::LogOutDevices(None)).is_empty(),
+        "one at a time"
+    );
+    // Done, the list is asked for again.
+    assert!(matches!(
+        app.apply(Event::DevicesLoggedOut(Ok(()))).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Devices))]
+    ));
 }

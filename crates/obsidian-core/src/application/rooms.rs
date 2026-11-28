@@ -80,6 +80,16 @@ pub enum MenuChoice {
     SelfDeafen,
     /// Move them to another voice channel, in a submenu of those.
     MoveTo,
+    // A stage's, as Discord's menu offers them.
+    /// This account, in the audience, raises its hand to speak, or lowers it.
+    RaiseHand,
+    LowerHand,
+    /// A moderator brings someone in the audience up to speak, or
+    /// themselves.
+    InviteToSpeak,
+    BecomeSpeaker,
+    /// A speaker goes, or is moved, to the audience.
+    MoveToAudience,
     /// Mute or deafen them for everyone, as boxes to tick, or take them
     /// out of voice.
     ServerMute,

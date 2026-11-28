@@ -16,6 +16,9 @@ export struct PersonRow {
     /// Muted or deafened by the Discord server, whose icons show in red.
     server-muted: bool,
     server-deafened: bool,
+    /// In a stage's audience, and with their hand raised to speak.
+    suppressed: bool,
+    hand-raised: bool,
     /// Who they are across calls, by Discord or Matrix user id, which their
     /// volumes are remembered by.
     person: string,
@@ -1232,6 +1235,7 @@ export component ParticipantGrid inherits Flickable {
             if tile.streams-here: Image { source: @image-url("icons/monitor.svg"); width: 14px; image-fit: contain; colorize: #ffffff; }
             if person.muted && !person.deafened: Image { source: @image-url("icons/mic-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
             if person.deafened: Image { source: @image-url("icons/headphone-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
+            if person.hand-raised: Image { source: @image-url("icons/hand.svg"); width: 14px; image-fit: contain; colorize: Theme.accent; }
         }
     }
 }
@@ -1319,6 +1323,11 @@ component BarGroup inherits Rectangle {
 // the soundboard and the call's other options; and leaving.
 export component CallControls inherits HorizontalLayout {
     in property <bool> muted;
+    /// In a stage: 1 in the audience, 2 with a hand raised, 3 speaking; 0
+    /// elsewhere. Its button raises or lowers the hand, or leaves the stage
+    /// for the audience.
+    in property <int> stage;
+    callback stage-action;
     in property <bool> deafened;
     in property <bool> voice-ready;
     in property <bool> voice-leaving;
@@ -1383,6 +1392,13 @@ export component CallControls inherits HorizontalLayout {
         if root.sharing: BarCaret {
             label: "Stream Options"; open: root.share-menu-open;
             clicked => { root.open-share-menu(actions.absolute-position.x, actions.absolute-position.y); }
+        }
+        if root.stage > 0: BarButton {
+            icon: @image-url("icons/hand.svg");
+            label: root.stage == 1 ? "Request to Speak" : root.stage == 2 ? "Lower Hand" : "Move to Audience";
+            live: root.stage == 2;
+            enabled: root.voice-ready;
+            clicked => { root.stage-action(); }
         }
         if root.can-soundboard: BarButton {
             icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";

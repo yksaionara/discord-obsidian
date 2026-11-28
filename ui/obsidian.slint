@@ -45,7 +45,7 @@ import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, Ga
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar, CommandRow, CommandChip, CommandBar, CommandList, CommandOptions } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiSection, EmojiCard, EmojiCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoiceRecorder, VoiceRecorderBar, SelectMenus, SelectMenuPopup, Polls, Logged } from "messages.slint";
-import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, StreamerModeSettings, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
+import { SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, StreamerModeSettings, DevicesSettings, DeviceRow, AddonsSettings, GtaClock, GtaCountdown } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog, ModalRow, ModalChoice, ModalDialog } from "dialogs.slint";
@@ -2487,6 +2487,18 @@ export component ObsidianWindow inherits Window {
     /// A switch of its settings flipped; see StreamerModeSettings.
     callback streamer-changed(int, bool);
     callback dismiss-streamer-notice;
+    // Settings › Devices; see DevicesSettings.
+    in property <bool> devices-loading;
+    in property <string> devices-error;
+    in property <bool> devices-busy;
+    in property <[DeviceRow]> devices-current;
+    in property <[DeviceRow]> devices-others;
+    callback log-out-device(string);
+    callback log-out-all-devices;
+    callback open-account-devices;
+    // In a stage call: 1 audience, 2 hand raised, 3 speaking; see CallControls.
+    in property <int> stage-call;
+    callback stage-action;
     // What a server just joined asks; see JoiningDialog.
     in property <bool> joining-open;
     in property <JoiningPrompt> joining-prompt;
@@ -3443,6 +3455,8 @@ export component ObsidianWindow inherits Window {
                                     can-share: root.can-share; sharing: root.sharing;
                                     can-film: root.can-film; camera-on: root.camera-on; camera-starting: root.camera-starting;
                                     can-soundboard: root.can-soundboard;
+                                    stage: root.stage-call;
+                                    stage-action => { root.stage-action(); }
                                     mic-menu-open: call-mic-menu.is-open; camera-menu-open: call-camera-menu.is-open;
                                     share-menu-open: live-menu.is-open; more-menu-open: call-more-menu.is-open;
                                     open-mic-menu(x, y) => { root.open-call-menu(0, x, y); }
@@ -4535,6 +4549,13 @@ export component ObsidianWindow inherits Window {
         }
         if root.settings-section == 42: GtaCountdown {
             tick => { return root.gta-tick(); }
+        }
+        if root.settings-section == 11: DevicesSettings {
+            loading: root.devices-loading; error: root.devices-error; busy: root.devices-busy;
+            current: root.devices-current; others: root.devices-others;
+            log-out(hash) => { root.log-out-device(hash); }
+            log-out-all => { root.log-out-all-devices(); }
+            opened => { root.open-account-devices(); }
         }
         if root.settings-section == 10: StreamerModeSettings {
             enabled: root.streamer-enabled; auto: root.streamer-auto;

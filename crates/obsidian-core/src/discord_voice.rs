@@ -1287,6 +1287,8 @@ fn discord_participants(
                 avatar: Some(member.avatar.clone()),
                 streaming: member.streaming,
                 video,
+                suppressed: member.suppressed,
+                hand_raised: member.hand_raised,
             }
         })
         .collect();
@@ -1317,6 +1319,8 @@ fn discord_participants(
                 avatar: Some(member.avatar.clone()),
                 streaming: false,
                 video: None,
+                suppressed: false,
+                hand_raised: false,
             });
         }
     }

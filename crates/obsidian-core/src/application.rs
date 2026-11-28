@@ -23,6 +23,8 @@ mod browse;
 mod calls;
 mod channel_settings;
 mod compose;
+#[cfg(feature = "discord")]
+mod devices;
 mod discord_account;
 mod folders;
 mod forum;
@@ -64,6 +66,8 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+#[cfg(feature = "discord")]
+pub use devices::Devices;
 pub use folders::{DEFAULT_FOLDER_COLOR, FOLDER_NAME_LIMIT, FolderSettings};
 pub use forum::{
     ForumChange, ForumChoice, ForumInfo, ForumPost, ForumPosts, ForumShown, ForumView,
@@ -473,6 +477,9 @@ pub struct AppState {
     /// What a server just joined asks of its new member, over the window.
     #[cfg(feature = "discord")]
     pub joining: Option<joining::Joining>,
+    /// Settings › Devices, while it's open.
+    #[cfg(feature = "discord")]
+    pub devices: Option<devices::Devices>,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -2025,6 +2032,10 @@ pub enum Action {
     SubmitMembership,
     /// Close what the server asks, leaving it for later; its channel opens.
     FinishJoining,
+    /// Settings › Devices opened or closed.
+    OpenDevices(bool),
+    /// Log a device out, by its session hash, or with none every other one.
+    LogOutDevices(Option<String>),
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -3514,6 +3525,17 @@ impl Application {
             Action::SubmitMembership => self.submit_membership(),
             #[cfg(feature = "discord")]
             Action::FinishJoining => self.finish_joining(),
+            #[cfg(feature = "discord")]
+            Action::OpenDevices(true) => self.open_devices(),
+            #[cfg(feature = "discord")]
+            Action::OpenDevices(false) => {
+                self.state.devices = None;
+                vec![]
+            }
+            #[cfg(feature = "discord")]
+            Action::LogOutDevices(hash) => self.log_out_devices(hash),
+            #[cfg(not(feature = "discord"))]
+            Action::OpenDevices(_) | Action::LogOutDevices(_) => vec![],
             #[cfg(not(feature = "discord"))]
             Action::PickOnboarding(_)
             | Action::NextOnboarding(_)
@@ -4219,6 +4241,12 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            #[cfg(feature = "discord")]
+            Event::Devices(result) => self.devices_came(result),
+            #[cfg(feature = "discord")]
+            Event::DevicesLoggedOut(result) => return self.devices_logged_out(result),
+            #[cfg(not(feature = "discord"))]
+            Event::DevicesLoggedOut(_) => {}
             #[cfg(feature = "discord")]
             Event::Onboarding { server, result } => return self.onboarding_came(&server, result),
             #[cfg(feature = "discord")]

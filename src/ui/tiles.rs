@@ -247,6 +247,8 @@ mod tests {
             streaming,
             video: filming.then(obsidian_core::picture::Feed::new),
             avatar: None,
+            suppressed: false,
+            hand_raised: false,
         }
     }
 

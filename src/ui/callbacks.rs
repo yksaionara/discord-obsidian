@@ -236,6 +236,8 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     super::modal::bind(window, adapter);
     #[cfg(feature = "discord")]
     super::joining::bind(window, adapter);
+    #[cfg(feature = "discord")]
+    super::devices::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);
     super::channel_settings::bind(window, adapter);
@@ -860,6 +862,41 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                 if let Some(action) = action {
                     adapter.borrow_mut().action(&window, action);
                 }
+            }
+        });
+    }
+    // A stage's button in the call bar, as the call's own menu offers it.
+    {
+        use obsidian_core::chat::MemberChange;
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_stage_action(move || {
+            let Some(window) = weak.upgrade() else { return };
+            let action = {
+                let adapter = state.borrow();
+                let app = &adapter.app.state;
+                let me = app.voice.participants.iter().find(|person| person.local);
+                match (app.voice.room.clone(), me, app.discord_user.clone()) {
+                    (Some(stage), Some(me), Some(user)) => Some(Action::ChangeMember {
+                        place: stage.clone(),
+                        user,
+                        change: if me.suppressed {
+                            MemberChange::RaiseHand {
+                                stage,
+                                raised: !me.hand_raised,
+                            }
+                        } else {
+                            MemberChange::Speak {
+                                stage,
+                                speak: false,
+                            }
+                        },
+                    }),
+                    _ => None,
+                }
+            };
+            if let Some(action) = action {
+                state.borrow_mut().action(&window, action);
             }
         });
     }

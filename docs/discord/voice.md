@@ -12,6 +12,18 @@ Scope for the beta:
   answers, and VOICE_CHANNEL_STATUS_UPDATE keeps them current. A live
   stage's topic shows the same way, from GUILD_CREATE's `stage_instances`
   and STAGE_INSTANCE_CREATE, UPDATE and DELETE.
+- Stage channels' speakers and audience, as Discord's client has them. Each
+  voice state's `suppress` puts someone in the audience, and its
+  `request_to_speak_timestamp` raises their hand; their tile says "In the
+  audience" or "Hand raised", with a hand. In the audience, the call bar's
+  hand button and one's own menu ask to speak, `PATCH
+  /guilds/{id}/voice-states/@me` with `request_to_speak_timestamp` now, or
+  lower the hand with null; speaking, the button moves one to the audience
+  (`suppress: true`). With Mute Members, a stage moderator's menu brings a
+  member up ("Invite to Speak", `PATCH /guilds/{id}/voice-states/{user}`
+  with `suppress: false`), or themselves ("Become a Speaker"), and moves a
+  speaker to the audience. Discord's VOICE_STATE_UPDATE shows each change.
+  Starting and ending a stage, and its topic, stay in Discord's own app.
 - DM and group DM calls, both incoming with ringing and outgoing.
 - One connection at a time across Discord Obsidian and Discord. Joining Discord voice asks
   to leave a Discord Obsidian call, and the other way round.

@@ -271,6 +271,8 @@ fn voice_person(member: &obsidian_discord::service::VoiceMember) -> VoicePerson 
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        suppressed: member.suppressed,
+        hand_raised: member.hand_raised,
     }
 }
 
@@ -1652,6 +1654,8 @@ mod tests {
             elsewhere: false,
             server_muted: false,
             server_deafened: false,
+            suppressed: false,
+            hand_raised: false,
         };
         let first = Snapshot {
             servers: vec![server("10", "11", "12"), server("20", "21", "22")],
@@ -1820,6 +1824,8 @@ mod tests {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                suppressed: false,
+                hand_raised: false,
             }],
         );
         assert!(kept.update_into(&call, false, &mut rooms, &mut servers));
@@ -1870,6 +1876,8 @@ mod tests {
                     elsewhere: false,
                     server_muted: false,
                     server_deafened: false,
+                    suppressed: false,
+                    hand_raised: false,
                 }],
             )]
             .into(),

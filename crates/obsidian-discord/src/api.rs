@@ -1813,6 +1813,28 @@ impl Api {
             .await
     }
 
+    /// Changes a voice state in a stage: `@me` for this account's own.
+    pub async fn modify_voice_state(&self, guild: &str, user: &str, body: &Value) -> Result<()> {
+        let path = format!("/guilds/{guild}/voice-states/{user}");
+        self.empty(with_json(self.request(Method::PATCH, &path), body))
+            .await
+    }
+
+    /// The account's logged-in sessions, up to 50.
+    pub async fn auth_sessions(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/auth/sessions")).await
+    }
+
+    /// Logs sessions out, by their hashes.
+    pub async fn log_out_sessions(&self, hashes: &[String]) -> Result<()> {
+        let body = json!({ "session_id_hashes": hashes });
+        self.empty(with_json(
+            self.request(Method::POST, "/auth/sessions/logout"),
+            &body,
+        ))
+        .await
+    }
+
     /// Gives a member a role, or with `add` false takes it away.
     pub async fn member_role(&self, guild: &str, user: &str, role: &str, add: bool) -> Result<()> {
         let path = format!("/guilds/{guild}/members/{user}/roles/{role}");

@@ -45,6 +45,8 @@ mod call_link;
 mod call_timer;
 mod callbacks;
 mod channel_settings;
+#[cfg(feature = "discord")]
+mod devices;
 mod emoji_animation;
 mod game_mode;
 mod games;

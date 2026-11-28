@@ -233,6 +233,12 @@
 // the answers, which GET /_control/onboarding-responses and
 // /_control/membership-requests list. The form is taken at once unless the
 // short answer is "review", which holds it as SUBMITTED.
+// GET /auth/sessions lists Alice's devices, this one by READY's
+// auth_session_id_hash and a phone; POST /auth/sessions/logout logs them out
+// by hash, which /_control/logged-out-sessions lists.
+// PATCH /guilds/{id}/voice-states/{user or @me} changes a stage voice state
+// (suppress, request_to_speak_timestamp); /_control/stage-changes lists each
+// with its user.
 // Authorizing Alien App from its link previews and authorizes the same
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
@@ -2839,7 +2845,7 @@ function ready(ws: Socket) {
     session_id: ws.data.session,
     session_type: "normal",
     resume_gateway_url: `${ws.data.origin.replace(/^http/, "ws")}`,
-    auth_session_id_hash: "fake",
+    auth_session_id_hash: AUTH_SESSION,
     country_code: "US",
     analytics_token: "fake",
     api_code_version: 1,
@@ -4897,6 +4903,14 @@ const inviteJoins: Record<string, unknown>[] = [];
  *  /_control/onboarding-responses and /_control/membership-requests. */
 const onboardingResponses: unknown[] = [];
 const membershipRequests: unknown[] = [];
+const stageChanges: unknown[] = [];
+/** Alice's devices, and the hashes logged out. */
+const AUTH_SESSION = "fake-session-hash=";
+let authSessions = [
+  { id_hash: AUTH_SESSION, approx_last_used_time: "2026-11-28T10:00:00+00:00", client_info: { os: "Linux", platform: "Firefox", location: "Paris, France" } },
+  { id_hash: "phone-hash=", approx_last_used_time: "2026-11-20T09:00:00+00:00", client_info: { os: "Android", platform: "Discord Android", location: "Lyon, France" } },
+];
+const loggedOutSessions: string[] = [];
 /** "Server"'s onboarding and membership form, as Discord sends them. */
 const ONBOARDING = {
   guild_id: GUILD, enabled: true, mode: 0, below_requirements: false, default_channel_ids: [GENERAL],
@@ -7333,6 +7347,20 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json({ ...invite, new_member: newMember, show_verification_form: form });
   }
 
+  if (method === "PATCH" && (m = path.match(new RegExp(`^/guilds/${GUILD}/voice-states/(@me|\\d+)$`)))) {
+    stageChanges.push({ user: m[1], ...(await req.json() as any) });
+    return empty();
+  }
+  if (method === "GET" && path === "/auth/sessions") {
+    return json({ user_sessions: authSessions });
+  }
+  if (method === "POST" && path === "/auth/sessions/logout") {
+    const body: any = await req.json();
+    const hashes: string[] = body.session_id_hashes ?? [];
+    loggedOutSessions.push(...hashes);
+    authSessions = authSessions.filter((session) => !hashes.includes(session.id_hash));
+    return empty();
+  }
   if (method === "GET" && path === `/guilds/${GUILD}/onboarding`) {
     return json(ONBOARDING);
   }
@@ -7980,7 +8008,7 @@ const GENERIC_CONTROLS = new Set([
   "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
-  "invite-joins", "invite-captcha", "invite-form", "onboarding-responses", "membership-requests", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
+  "invite-joins", "invite-captcha", "invite-form", "onboarding-responses", "membership-requests", "stage-changes", "logged-out-sessions", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
 ]);
 
 /** A status's emoji as the env gives it, Unicode or `<:name:id>`, as Discord sends it. */
@@ -9259,6 +9287,8 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/onboarding-responses") return Response.json(onboardingResponses);
     if (path === "/_control/membership-requests") return Response.json(membershipRequests);
+    if (path === "/_control/stage-changes") return Response.json(stageChanges);
+    if (path === "/_control/logged-out-sessions") return Response.json(loggedOutSessions);
     if (req.method === "POST" && path === "/_control/invite-form") {
       inviteForm = true;
       return new Response("the next join by an invite has a form to fill in\n");

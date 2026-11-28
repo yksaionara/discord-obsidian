@@ -147,6 +147,16 @@ impl Application {
             && self.discord_place(place).is_some()
     }
 
+    /// Whether a Discord voice channel is a stage.
+    pub fn is_stage(&self, place: &str) -> bool {
+        #[cfg(feature = "discord")]
+        if let Some((server, Some(channel), _)) = self.discord_place(place) {
+            return server.channel(channel).is_some_and(|channel| channel.stage);
+        }
+        let _ = place;
+        false
+    }
+
     /// Someone in the voice channel `place`, as its list shows them.
     pub fn voice_person(&self, place: &str, user: &str) -> Option<&crate::chat::VoicePerson> {
         self.state
@@ -252,6 +262,32 @@ impl Application {
             && !self.server_roles(place).is_empty()
         {
             choices.push(MenuChoice::Roles);
+        }
+        // A stage's speakers and audience, as Discord's menu offers them:
+        // raising one's own hand, inviting someone up, or moving them down.
+        if let Some(person) = self
+            .voice_person(place, user)
+            .filter(|_| self.is_stage(place))
+        {
+            let moderator = self.may(place, Permission::MuteMembers);
+            if person.suppressed {
+                if me {
+                    choices.push(if person.hand_raised {
+                        MenuChoice::LowerHand
+                    } else {
+                        MenuChoice::RaiseHand
+                    });
+                }
+                if moderator {
+                    choices.push(if me {
+                        MenuChoice::BecomeSpeaker
+                    } else {
+                        MenuChoice::InviteToSpeak
+                    });
+                }
+            } else if me || moderator {
+                choices.push(MenuChoice::MoveToAudience);
+            }
         }
         if in_voice && !self.move_targets(place, user).is_empty() {
             choices.push(MenuChoice::MoveTo);
@@ -551,6 +587,27 @@ impl Application {
                         && self.state.relation(&user) != Relation::Me
                         && self.may(&place, Permission::MoveMembers)
                 }
+                MemberChange::Speak { stage, speak } => {
+                    let me = self.state.relation(&user) == Relation::Me;
+                    self.is_stage(stage)
+                        && stage == &place
+                        && self.voice_person(&place, &user).is_some_and(|person| {
+                            if *speak {
+                                person.suppressed && self.may(&place, Permission::MuteMembers)
+                            } else {
+                                !person.suppressed
+                                    && (me || self.may(&place, Permission::MuteMembers))
+                            }
+                        })
+                }
+                MemberChange::RaiseHand { stage, .. } => {
+                    self.is_stage(stage)
+                        && stage == &place
+                        && self.state.relation(&user) == Relation::Me
+                        && self
+                            .voice_person(&place, &user)
+                            .is_some_and(|person| person.suppressed)
+                }
                 // This account moves itself by joining.
                 MemberChange::Move(Some(to)) => {
                     self.state.relation(&user) != Relation::Me
@@ -566,6 +623,12 @@ impl Application {
                 .filter(|_| allowed && self.state.discord_online)
                 .map(|(server, _, _)| discord::server_id(&server.id));
             if let Some(server) = server {
+                // A stage's own voice state is this account's `@me`.
+                let own = matches!(
+                    change,
+                    MemberChange::Speak { .. } | MemberChange::RaiseHand { .. }
+                ) && self.state.relation(&user) == Relation::Me;
+                let user = if own { "@me".to_owned() } else { user };
                 return vec![Effect::Backend(Command::Discord(DiscordCommand::Member {
                     server,
                     user,

@@ -101,6 +101,9 @@ struct VoiceEntry {
     server_deafened: bool,
     streaming: bool,
     video: bool,
+    /// In a stage's audience, and asking to speak there.
+    suppressed: bool,
+    hand_raised: bool,
 }
 
 /// The account's servers and voice channels, kept current from gateway events.
@@ -109,6 +112,9 @@ pub(super) struct Tracker {
     /// This gateway session, from READY; a voice state of this account with
     /// another is on another client.
     pub(super) session: Option<String>,
+    /// This login's session, by the hash READY's `auth_session_id_hash`
+    /// gives, which marks it among the account's devices.
+    auth_session: Option<String>,
     /// This account's Nitro, as [`Account::premium_type`].
     premium: u8,
     /// Whether this account has two-factor authentication on.
@@ -191,6 +197,7 @@ impl Tracker {
         let mut tracker = Self {
             me,
             session: ready["session_id"].as_str().map(str::to_owned),
+            auth_session: ready["auth_session_id_hash"].as_str().map(str::to_owned),
             premium: premium_type(&ready["user"]),
             mfa: ready["user"]["mfa_enabled"].as_bool().unwrap_or_default(),
             email: ready["user"]["email"].is_string(),
@@ -1047,6 +1054,8 @@ impl Tracker {
                         server_deafened: flag("deaf"),
                         streaming: flag("self_stream"),
                         video: flag("self_video"),
+                        suppressed: flag("suppress"),
+                        hand_raised: state["request_to_speak_timestamp"].is_string(),
                     },
                 );
             }
@@ -1678,6 +1687,8 @@ impl Tracker {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                suppressed: false,
+                hand_raised: false,
             })
             .collect();
         let preview = private
@@ -1825,6 +1836,8 @@ impl Tracker {
                     streaming: entry.streaming,
                     video: entry.video,
                     elsewhere: *user == self.me && self.elsewhere(entry),
+                    suppressed: entry.suppressed,
+                    hand_raised: entry.hand_raised,
                 });
         }
         for members in voice.values_mut() {
@@ -1908,6 +1921,7 @@ impl Tracker {
         Snapshot {
             status: Status::Online,
             user_id: Some(self.me.clone()),
+            auth_session: self.auth_session.clone(),
             account: names.user_name(&self.me).map(|name| Account {
                 name: name.to_owned(),
                 username: names.username(&self.me).unwrap_or_default().to_owned(),

@@ -69,6 +69,7 @@ export component SettingsNavigation inherits Rectangle {
                     { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
                     { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
                     { text: "Streamer Mode", icon: @image-url("../icons/video.svg"), id: 10 },
+                    { text: "Devices", icon: @image-url("../icons/monitor.svg"), id: 11 },
                     { text: "Add-ons", icon: @image-url("../icons/puzzle.svg"), id: 9 },
                     { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
                 ]: VerticalLayout {
@@ -77,7 +78,7 @@ export component SettingsNavigation inherits Rectangle {
                         height: entry.text == "Account" ? 24px : 40px;
                         Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
-                    if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8 && entry.id != 10)): ChannelRow {
+                    if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8 && entry.id != 10 && entry.id != 11)): ChannelRow {
                         height: 40px; text: entry.text; icon: entry.icon;
                         selected: root.selected == entry.id;
                         clicked => { root.chose(entry.id); }

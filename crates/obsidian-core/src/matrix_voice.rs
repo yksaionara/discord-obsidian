@@ -423,6 +423,8 @@ async fn connected(
                     avatar: None,
                     streaming: false,
                     video,
+                    suppressed: false,
+                    hand_raised: false,
                 }
             }).collect();
             state.participants.sort_by(|a,b| b.local.cmp(&a.local).then_with(|| a.user.cmp(&b.user)).then_with(|| a.id.cmp(&b.id)));

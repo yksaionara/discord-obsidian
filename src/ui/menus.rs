@@ -212,6 +212,11 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::Apps
                 | MenuChoice::Roles
                 | MenuChoice::MoveTo => 4,
+                MenuChoice::RaiseHand
+                | MenuChoice::LowerHand
+                | MenuChoice::InviteToSpeak
+                | MenuChoice::BecomeSpeaker
+                | MenuChoice::MoveToAudience => 12,
                 MenuChoice::MoveUp | MenuChoice::MoveDown => 9,
                 MenuChoice::FolderSettings | MenuChoice::CloseAllFolders => 11,
                 MenuChoice::UserVolume => 10,
@@ -428,6 +433,11 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         // Drawn as Discord's slider; see MenuRow.
         MenuChoice::UserVolume => ("User Volume", &icons.mute),
         MenuChoice::Disconnect => ("Disconnect", &icons.disconnect),
+        MenuChoice::RaiseHand => ("Request to Speak", &icons.mute),
+        MenuChoice::LowerHand => ("Lower Hand", &icons.mute),
+        MenuChoice::InviteToSpeak => ("Invite to Speak", &icons.unmute),
+        MenuChoice::BecomeSpeaker => ("Become a Speaker", &icons.unmute),
+        MenuChoice::MoveToAudience => ("Move to Audience", &icons.mute),
         // Notify::dress names these.
         MenuChoice::ChannelMute => ("Mute", &icons.mute),
         MenuChoice::ChannelNotifications => ("Notification settings", &icons.unmute),
@@ -1084,6 +1094,26 @@ pub(super) fn choose(
         MenuChoice::ServerMute => ticked.and_then(|mute| voice(MemberChange::ServerMute(mute))),
         MenuChoice::ServerDeafen => ticked.and_then(|deaf| voice(MemberChange::ServerDeafen(deaf))),
         MenuChoice::Disconnect => voice(MemberChange::Move(None)),
+        MenuChoice::RaiseHand | MenuChoice::LowerHand => {
+            place.clone().map(|stage| Action::ChangeMember {
+                place: stage.clone(),
+                user: target.clone(),
+                change: MemberChange::RaiseHand {
+                    stage,
+                    raised: choice == MenuChoice::RaiseHand,
+                },
+            })
+        }
+        MenuChoice::InviteToSpeak | MenuChoice::BecomeSpeaker | MenuChoice::MoveToAudience => {
+            place.clone().map(|stage| Action::ChangeMember {
+                place: stage.clone(),
+                user: target.clone(),
+                change: MemberChange::Speak {
+                    stage,
+                    speak: choice != MenuChoice::MoveToAudience,
+                },
+            })
+        }
         // Notify's choices, above.
         MenuChoice::ChannelMute | MenuChoice::ChannelNotifications => None,
         // The slider sets it as it moves.
@@ -1201,7 +1231,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 71] = [
+const CHOICES: [MenuChoice; 76] = [
     MenuChoice::MarkRead,
     MenuChoice::MoveUp,
     MenuChoice::MoveDown,
@@ -1272,6 +1302,11 @@ const CHOICES: [MenuChoice; 71] = [
     MenuChoice::ServerMute,
     MenuChoice::ServerDeafen,
     MenuChoice::Disconnect,
+    MenuChoice::RaiseHand,
+    MenuChoice::LowerHand,
+    MenuChoice::InviteToSpeak,
+    MenuChoice::BecomeSpeaker,
+    MenuChoice::MoveToAudience,
     MenuChoice::UserVolume,
 ];
 
@@ -1348,6 +1383,11 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::ServerMute => "server-mute",
         MenuChoice::ServerDeafen => "server-deafen",
         MenuChoice::Disconnect => "disconnect",
+        MenuChoice::RaiseHand => "raise-hand",
+        MenuChoice::LowerHand => "lower-hand",
+        MenuChoice::InviteToSpeak => "invite-to-speak",
+        MenuChoice::BecomeSpeaker => "become-speaker",
+        MenuChoice::MoveToAudience => "move-to-audience",
     }
 }
 

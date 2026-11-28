@@ -75,6 +75,11 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// In a stage's audience rather than speaking (`suppress`).
+    pub suppressed: bool,
+    /// In a stage's audience with their hand raised, asking to speak
+    /// (`request_to_speak_timestamp`).
+    pub hand_raised: bool,
 }
 
 /// The linked account, as Discord shows it outside any server.
@@ -295,6 +300,10 @@ pub struct Snapshot {
     #[serde(skip)]
     pub status: Status,
     pub user_id: Option<String>,
+    /// This login's session among the account's devices; see
+    /// [`crate::sessions`].
+    #[serde(skip)]
+    pub auth_session: Option<String>,
     pub account: Option<Account>,
     /// Each server and this account's marks in it, each shared between
     /// snapshots while unchanged, so a change of the marks alone copies
@@ -2605,6 +2614,43 @@ impl Discord {
     pub async fn move_member(&self, guild: &str, user: &str, channel: Option<&str>) -> Result<()> {
         let body = serde_json::json!({ "channel_id": channel });
         self.api.modify_member_voice(guild, user, &body).await
+    }
+
+    /// In a stage, brings someone up to speak or moves them to the
+    /// audience (`suppress`), `@me` for this account, as Discord's client
+    /// does: a moderator's invitation, or a speaker stepping down.
+    pub async fn stage_speak(
+        &self,
+        guild: &str,
+        user: &str,
+        channel: &str,
+        speak: bool,
+    ) -> Result<()> {
+        let body = serde_json::json!({ "channel_id": channel, "suppress": !speak });
+        self.api.modify_voice_state(guild, user, &body).await
+    }
+
+    /// In a stage's audience, raises this account's hand to speak
+    /// (`request_to_speak_timestamp`, now), or lowers it.
+    pub async fn raise_hand(&self, guild: &str, channel: &str, raised: bool) -> Result<()> {
+        let at = raised.then(|| {
+            chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::now())
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        });
+        let body = serde_json::json!({ "channel_id": channel, "request_to_speak_timestamp": at });
+        self.api.modify_voice_state(guild, "@me", &body).await
+    }
+
+    /// The account's logged-in devices, as Settings › Devices lists them.
+    pub async fn devices(&self) -> Result<Vec<crate::sessions::Device>> {
+        let value = self.api.auth_sessions().await?;
+        Ok(crate::sessions::devices(&value))
+    }
+
+    /// Logs devices out, by their session hashes, with the account's second
+    /// factor when Discord asks for it.
+    pub async fn log_out_devices(&self, hashes: &[String]) -> Result<()> {
+        self.stepping_up(|| self.api.log_out_sessions(hashes)).await
     }
 
     /// Removes a member from a server.

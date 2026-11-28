@@ -319,6 +319,8 @@ impl Application {
                             avatar: None,
                             streaming: false,
                             video: None,
+                            suppressed: false,
+                            hand_raised: false,
                         }],
                         can_film: true,
                         ..self.preview_voice()

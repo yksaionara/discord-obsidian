@@ -61,6 +61,10 @@ pub struct Participant {
     pub video: Option<crate::picture::Feed>,
     /// The address of their avatar; see [`crate::chat::DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// In a Discord stage's audience rather than speaking, and asking to
+    /// speak there with a raised hand.
+    pub suppressed: bool,
+    pub hand_raised: bool,
 }
 
 /// Sharing this account's screen in the call.

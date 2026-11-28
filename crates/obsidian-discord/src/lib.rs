@@ -52,6 +52,7 @@ pub mod scheduled_event;
 pub mod search;
 pub mod server_settings;
 pub mod service;
+pub mod sessions;
 pub mod settings;
 pub mod soundboard;
 pub mod stream;

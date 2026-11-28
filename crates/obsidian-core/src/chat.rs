@@ -441,6 +441,9 @@ pub struct VoicePerson {
     /// This account, in the call on another client, as Discord shows it:
     /// dimmed, without its icons.
     pub elsewhere: bool,
+    /// In a stage's audience, and with their hand raised to speak there.
+    pub suppressed: bool,
+    pub hand_raised: bool,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
@@ -2796,6 +2799,12 @@ pub enum DiscordCommand {
         preview: Box<InvitePreview>,
         from_link: bool,
     },
+    /// List the Discord account's logged-in devices; [`Event::Devices`]
+    /// follows.
+    Devices,
+    /// Log devices out, by their session hashes; [`Event::DevicesLoggedOut`]
+    /// follows.
+    LogOutDevices(Vec<String>),
     /// Ask a server just joined, by its server id, for its onboarding
     /// questions; [`Event::Onboarding`] follows.
     Onboarding {
@@ -3712,6 +3721,19 @@ pub enum MemberChange {
     /// Move them to another voice channel of the server, by its room id,
     /// or with none disconnect them from voice.
     Move(Option<String>),
+    /// In the stage `stage`, by its room id: bring them up to speak, or
+    /// move them to the audience; for this account, become a speaker or
+    /// leave the stage for the audience.
+    Speak {
+        stage: String,
+        speak: bool,
+    },
+    /// This account, in the stage's audience, raises its hand to speak, or
+    /// lowers it.
+    RaiseHand {
+        stage: String,
+        raised: bool,
+    },
 }
 
 /// How long a Discord DM, server, channel or category stays muted.
@@ -4327,6 +4349,11 @@ pub enum Event {
         query: String,
         members: Vec<ChatMember>,
     },
+    /// The Discord account's logged-in devices, or why they didn't come.
+    #[cfg(feature = "discord")]
+    Devices(Result<Vec<obsidian_discord::sessions::Device>, String>),
+    /// Devices were logged out, or why not.
+    DevicesLoggedOut(Result<(), String>),
     /// A server's onboarding questions, as [`DiscordCommand::Onboarding`]
     /// asked, or why they didn't come.
     #[cfg(feature = "discord")]
