@@ -139,9 +139,11 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
     let mut group = None;
     // Copy ID shows only with Developer Mode on, as in Discord.
     let developer_mode = adapter.layout.developer_mode;
+    let folders_open = !adapter.layout.open_folders.is_empty();
     let mut rows: Vec<MenuRow> = choices
         .into_iter()
         .filter(|choice| developer_mode || *choice != MenuChoice::CopyId)
+        .filter(|choice| folders_open || *choice != MenuChoice::CloseAllFolders)
         .map(|choice| {
             let (text, mut icon) = match choice {
                 MenuChoice::Timeout => (format!("Time out {}", name()), &icons.timeout),
@@ -211,6 +213,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::Roles
                 | MenuChoice::MoveTo => 4,
                 MenuChoice::MoveUp | MenuChoice::MoveDown => 9,
+                MenuChoice::FolderSettings | MenuChoice::CloseAllFolders => 11,
                 MenuChoice::UserVolume => 10,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
@@ -448,6 +451,8 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::DuplicateChannel => ("Duplicate channel", &icons.duplicate),
         MenuChoice::DeleteChannel => ("Delete channel", &icons.delete),
         MenuChoice::LeaveServer => ("Leave server", &icons.leave),
+        MenuChoice::FolderSettings => ("Folder Settings", &icons.settings),
+        MenuChoice::CloseAllFolders => ("Close All Folders", &icons.move_up),
         MenuChoice::JoinThread => ("Join thread", &icons.thread),
         MenuChoice::LeaveThread => ("Leave thread", &icons.leave),
         MenuChoice::EditServerProfile => ("Edit server profile", &icons.rename),
@@ -1120,6 +1125,16 @@ pub(super) fn choose(
         MenuChoice::DuplicateChannel => Some(Action::AskChannel(ChannelAsk::Duplicate(target))),
         MenuChoice::DeleteChannel => Some(Action::AskChannel(ChannelAsk::Delete(target))),
         MenuChoice::LeaveServer => Some(Action::AskLeaveServer(target)),
+        MenuChoice::FolderSettings => Some(Action::OpenFolderSettings(target)),
+        // Which folders are open is this window's.
+        MenuChoice::CloseAllFolders => {
+            adapter.layout.open_folders.clear();
+            adapter.layout.write(&adapter.root);
+            // What the sidebar was built from leaves the layout out.
+            adapter.sidebar = None;
+            adapter.show_sidebar(window);
+            None
+        }
         MenuChoice::JoinThread | MenuChoice::LeaveThread => Some(Action::JoinThread {
             room: target,
             join: choice == MenuChoice::JoinThread,
@@ -1186,7 +1201,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 69] = [
+const CHOICES: [MenuChoice; 71] = [
     MenuChoice::MarkRead,
     MenuChoice::MoveUp,
     MenuChoice::MoveDown,
@@ -1243,6 +1258,8 @@ const CHOICES: [MenuChoice; 69] = [
     MenuChoice::DuplicateChannel,
     MenuChoice::DeleteChannel,
     MenuChoice::LeaveServer,
+    MenuChoice::FolderSettings,
+    MenuChoice::CloseAllFolders,
     MenuChoice::JoinThread,
     MenuChoice::LeaveThread,
     MenuChoice::EditServerProfile,
@@ -1317,6 +1334,8 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::DuplicateChannel => "duplicate-channel",
         MenuChoice::DeleteChannel => "delete-channel",
         MenuChoice::LeaveServer => "leave-server",
+        MenuChoice::FolderSettings => "folder-settings",
+        MenuChoice::CloseAllFolders => "folder-collapse",
         MenuChoice::JoinThread => "join-thread",
         MenuChoice::LeaveThread => "leave-thread",
         MenuChoice::EditServerProfile => "edit-server-profile",

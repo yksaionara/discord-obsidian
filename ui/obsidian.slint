@@ -61,6 +61,7 @@ import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 import { ReminderDay, ReminderDialog } from "reminder.slint";
+import { FolderDialog } from "folder.slint";
 
 // Rust sees these, besides ObsidianWindow.
 export { ClientStyle } from "obsidian/style.slint";
@@ -2460,6 +2461,20 @@ export component ObsidianWindow inherits Window {
     callback unsave(string);
     /// A row of a message's reminder submenu, by its id, for an item.
     callback choose-reminder(string, string);
+    // A server folder's Folder Settings, from its menu; see FolderDialog.
+    in property <bool> folder-settings-open;
+    in property <string> folder-name;
+    in property <color> folder-color;
+    in property <bool> folder-default-color;
+    in property <bool> folder-custom-color;
+    in property <string> folder-hex;
+    in property <[RoleSwatch]> folder-bright;
+    in property <[RoleSwatch]> folder-dark;
+    callback folder-name-edited(string);
+    callback folder-pick-color(int);
+    callback folder-pick-hex(string);
+    callback save-folder-settings;
+    callback close-folder-settings;
     // "Set Custom Reminder", from the submenu's Custom...; see ReminderDialog.
     in property <bool> custom-reminder-open;
     in property <string> custom-reminder-date;
@@ -4954,6 +4969,18 @@ export component ObsidianWindow inherits Window {
         forward-choose(id) => { root.forward-choose(id); }
         forward-send(note) => { root.forward-send(note); }
         close-forward => { root.close-forward(); }
+    }
+    folder-settings-motion := PopupMotion { open: root.folder-settings-open; }
+    if folder-settings-motion.shown: FolderDialog {
+        motion: folder-settings-motion.amount;
+        name: root.folder-name; chosen: root.folder-color;
+        default-color: root.folder-default-color; custom-color: root.folder-custom-color;
+        hex: root.folder-hex; bright: root.folder-bright; dark: root.folder-dark;
+        name-edited(text) => { root.folder-name-edited(text); }
+        pick(index) => { root.folder-pick-color(index); }
+        pick-hex(text) => { root.folder-pick-hex(text); }
+        done => { root.save-folder-settings(); }
+        close => { root.close-folder-settings(); }
     }
     custom-reminder-motion := PopupMotion { open: root.custom-reminder-open; }
     if custom-reminder-motion.shown: ReminderDialog {

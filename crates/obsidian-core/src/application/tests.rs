@@ -1857,9 +1857,10 @@ fn a_folder_marks_its_servers_read() {
         rooms: rooms.clone(),
         servers: servers.clone(),
     }));
-    assert!(
-        app.state.menu_choices("discord-folder:7").is_empty(),
-        "nothing unread"
+    assert_eq!(
+        app.state.menu_choices("discord-folder:7"),
+        [MenuChoice::CloseAllFolders],
+        "nothing unread, and no Folder Settings for servers not Discord's"
     );
 
     for (id, unread) in [("general", 4), ("standup", 1)] {
@@ -1868,7 +1869,7 @@ fn a_folder_marks_its_servers_read() {
     app.apply(Event::Rooms(RoomIndex { rooms, servers }));
     assert_eq!(
         app.state.menu_choices("discord-folder:7"),
-        [MenuChoice::MarkRead]
+        [MenuChoice::MarkRead, MenuChoice::CloseAllFolders]
     );
     let marked: Vec<String> = app
         .dispatch(Action::MarkRead("discord-folder:7".into()))
@@ -1879,6 +1880,56 @@ fn a_folder_marks_its_servers_read() {
         })
         .collect();
     assert_eq!(marked, ["general", "standup"]);
+}
+
+#[test]
+fn folder_settings_name_and_colour_a_discord_folder_on_discord() {
+    let mut app = discord_server();
+    let folder = chat::ServerFolder {
+        id: "discord-folder:7".into(),
+        name: Some("Games".into()),
+        color: Some(0x1abc9c),
+    };
+    for server in app.state.servers.iter_mut().map(Arc::make_mut) {
+        server.folder = Some(folder.clone());
+    }
+    assert!(
+        app.menu_choices("discord-folder:7")
+            .contains(&MenuChoice::FolderSettings)
+    );
+    app.dispatch(Action::OpenFolderSettings("discord-folder:7".into()));
+    let settings = app.state.folder_settings.clone().expect("it opens");
+    assert_eq!(
+        (settings.name.as_str(), settings.color),
+        ("Games", Some(0x1abc9c))
+    );
+    app.dispatch(Action::WriteFolderName("x".repeat(40)));
+    assert_eq!(
+        app.state.folder_settings.as_ref().unwrap().name.len(),
+        32,
+        "Discord's Folder Name takes 32 characters"
+    );
+    app.dispatch(Action::WriteFolderName("  ".into()));
+    // Discord's default colour is saved as none.
+    app.dispatch(Action::PickFolderColor(Some(DEFAULT_FOLDER_COLOR)));
+    let listed = app
+        .dispatch(Action::SaveFolderSettings)
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::SetServerList(entries))) => {
+                Some(entries)
+            }
+            _ => None,
+        })
+        .expect("the server list goes to Discord");
+    let saved = listed[0].folder.as_ref().unwrap();
+    assert_eq!(saved.id, "discord-folder:7");
+    assert_eq!(
+        (saved.name.as_deref(), saved.color),
+        (None, None),
+        "a blank name is none"
+    );
+    assert!(app.state.folder_settings.is_none());
 }
 
 #[test]

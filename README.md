@@ -186,7 +186,8 @@ nicknames, time out, kick and ban. In voice, server mute, deafen and move
 people to another channel. Edit your server profile, and leave. Join a server
 by invite, from the + under your servers or a link in chat, and open a
 scheduled event from its link to mark yourself interested. Folders show up as
-they do in Discord.
+they do in Discord: drop a server on another to make one, and name and color
+it in Folder Settings.
 
 <p align="center">
   <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">
@@ -227,7 +228,6 @@ they do in Discord.
 
 - Media channels.
 - Activities.
-- Making and changing server folders.
 - A server's form for new members, such as its rules, when you join. Discord Obsidian
   sends you to Discord in your browser to fill it in.
 - Captchas, sort of. If Discord asks for one while you link or join a server,

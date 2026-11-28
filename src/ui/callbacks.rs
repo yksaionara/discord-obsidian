@@ -864,6 +864,66 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        window.on_folder_name_edited(move |name| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::WriteFolderName(name.into()));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_folder_pick_color(move |index| {
+            if let Some(window) = weak.upgrade() {
+                let color = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| obsidian_core::application::ROLE_COLORS.get(index).copied());
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::PickFolderColor(color));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_folder_pick_hex(move |text| {
+            if let Some(window) = weak.upgrade()
+                && let Some(color) = super::server_settings::hex_color(&text)
+            {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::PickFolderColor(Some(color)));
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_save_folder_settings(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::SaveFolderSettings);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_close_folder_settings(move || {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::CloseFolderSettings);
+            }
+        });
+    }
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
         window.on_custom_reminder_month_step(move |step| {
             if let Some(window) = weak.upgrade() {
                 adapter

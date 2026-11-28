@@ -288,6 +288,7 @@ impl Adapter {
         self.show_viewer(window);
         self.show_profile(window);
         self.show_custom_reminder(window);
+        self.show_folder_settings(window);
         self.arm_reminders();
         let card = self.app.state.stream_card.as_ref();
         window.set_stream_card_url(

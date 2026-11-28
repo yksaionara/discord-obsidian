@@ -3145,6 +3145,11 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        // As do Folder Settings' name and colour, until Done.
+        let foldering = matches!(
+            action,
+            Action::WriteFolderName(_) | Action::PickFolderColor(_)
+        );
         // As do an app's select menu's, until they tell its app.
         let selecting = matches!(
             action,
@@ -3155,6 +3160,8 @@ impl Adapter {
         self.execute(effects);
         if selecting {
             self.show_select(window);
+        } else if foldering {
+            self.show_folder_settings(window);
         } else if channel_setting {
             self.show_channel_settings(window);
         } else if voice_message {

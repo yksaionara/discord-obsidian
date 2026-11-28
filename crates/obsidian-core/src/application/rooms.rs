@@ -123,6 +123,11 @@ pub enum MenuChoice {
     DeleteChannel,
     /// Leave a Discord server this account doesn't own.
     LeaveServer,
+    /// A Discord server folder's name and colour, in Folder Settings.
+    FolderSettings,
+    /// Close every open folder on the rail, as Discord's folder menu does
+    /// while one is open; the window knows which are.
+    CloseAllFolders,
     /// Join a Discord thread this account isn't in, or leave one it is.
     JoinThread,
     LeaveThread,
@@ -378,14 +383,19 @@ impl AppState {
             .filter(move |server| server.folder.as_ref().is_some_and(|folder| folder.id == id))
     }
 
-    /// What a rail folder's menu offers: marking its servers read, as
-    /// Discord's does.
+    /// What a rail folder's menu offers, as Discord's does: marking its
+    /// servers read, Folder Settings for a Discord folder, and closing the
+    /// open folders.
     fn folder_choices(&self, id: &str) -> Vec<MenuChoice> {
+        let mut choices = vec![];
         if !self.preview && self.unread_in_folder(id).next().is_some() {
-            vec![MenuChoice::MarkRead]
-        } else {
-            vec![]
+            choices.push(MenuChoice::MarkRead);
         }
+        if !self.preview && self.folder_servers(id).any(|server| server.discord) {
+            choices.push(MenuChoice::FolderSettings);
+        }
+        choices.push(MenuChoice::CloseAllFolders);
+        choices
     }
 
     /// The channels of a folder's servers with messages to read.

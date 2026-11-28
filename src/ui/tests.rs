@@ -9358,5 +9358,23 @@ fn review_reminder_snapshots() {
     click(x, date_y);
     click(x, time_y);
     save("reminder-times.png");
+    // Folder Settings, with one of Discord's colours.
+    window.set_custom_reminder_open(false);
+    let swatch = |rgb: &u32| RoleSwatch {
+        color: slint::Color::from_argb_encoded(0xff00_0000 | rgb),
+        chosen: *rgb == 0x1abc9c,
+    };
+    let colors = obsidian_core::application::ROLE_COLORS;
+    window.set_folder_name("Games".into());
+    window.set_folder_color(slint::Color::from_rgb_u8(0x1a, 0xbc, 0x9c));
+    window.set_folder_hex("#1abc9c".into());
+    window.set_folder_bright(ModelRc::new(VecModel::from(
+        colors[..10].iter().map(swatch).collect::<Vec<_>>(),
+    )));
+    window.set_folder_dark(ModelRc::new(VecModel::from(
+        colors[10..].iter().map(swatch).collect::<Vec<_>>(),
+    )));
+    window.set_folder_settings_open(true);
+    save("folder-settings.png");
     window.hide().unwrap();
 }

@@ -1,0 +1,126 @@
+import { Theme, Popup } from "theme.slint";
+import { ActionButton, IconButton, TextField } from "controls.slint";
+import { RoleSwatch } from "roles.slint";
+
+/// A server folder's Folder Settings, as Discord's folder menu opens it: its
+/// Folder Name, up to 32 characters, and its Folder Color, from Discord's
+/// default, its twenty colours or any other as hex, then Done.
+export component FolderDialog inherits Rectangle {
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    in property <string> name;
+    /// The colour chosen; Discord's default, one of the swatches, or another.
+    in property <color> chosen;
+    in property <bool> default-color;
+    in property <bool> custom-color;
+    in property <string> hex;
+    in property <[RoleSwatch]> bright;
+    in property <[RoleSwatch]> dark;
+    callback name-edited(string);
+    /// A colour: -1 Discord's default, else one of the swatches.
+    callback pick(int);
+    /// Another colour, as hex.
+    callback pick-hex(string);
+    callback done;
+    callback close;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: "Folder Settings";
+        TouchArea { }
+        FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close(); return accept; }
+                return reject;
+            }
+            content := VerticalLayout {
+                padding: 20px; spacing: 16px;
+                HorizontalLayout {
+                    Text {
+                        text: "Folder Settings"; color: Theme.text; font-size: 20px; font-weight: 700;
+                        vertical-alignment: center; horizontal-stretch: 1;
+                    }
+                    IconButton {
+                        icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px;
+                        clicked => { root.close(); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px;
+                    Text { text: "Folder Name"; color: Theme.secondary; font-size: 14px; font-weight: 600; }
+                    name-field := TextField {
+                        property <string> shown: root.name;
+                        changed shown => { if self.text != self.shown { self.text = self.shown; } }
+                        init => { self.text = self.shown; self.focus-input(); }
+                        placeholder: "Server Folder"; label: "Folder Name"; text-size: 15px;
+                        edited(text) => { root.name-edited(text); }
+                        accepted => { root.done(); }
+                    }
+                }
+                VerticalLayout {
+                    spacing: 8px;
+                    Text { text: "Folder Color"; color: Theme.secondary; font-size: 14px; font-weight: 600; }
+                    HorizontalLayout {
+                        spacing: 8px; alignment: start;
+                        // Discord's default, then its colours in two rows.
+                        Rectangle {
+                            width: 50px; height: 50px; border-radius: 4px; background: #5865f2;
+                            accessible-role: button; accessible-label: "Default";
+                            if root.default-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                            TouchArea { mouse-cursor: pointer; clicked => { root.pick(-1); } }
+                        }
+                        // Any other colour, as hex.
+                        Rectangle {
+                            width: 50px; height: 50px; border-radius: 4px; background: root.chosen;
+                            border-width: 1px; border-color: Theme.outline;
+                            accessible-role: image; accessible-label: "Custom color";
+                            if root.custom-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                        }
+                        VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                for swatch[index] in root.bright: Rectangle {
+                                    width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
+                                    accessible-role: button; accessible-label: "Color " + (index + 1);
+                                    if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.pick(index); } }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                for swatch[index] in root.dark: Rectangle {
+                                    width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
+                                    accessible-role: button; accessible-label: "Color " + (index + 11);
+                                    if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                                    TouchArea { mouse-cursor: pointer; clicked => { root.pick(index + 10); } }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        TextField {
+                            property <string> shown: root.hex;
+                            changed shown => { self.text = self.shown; }
+                            init => { self.text = self.shown; }
+                            width: 110px; min-height: 36px; text-size: 14px; pad: 10px;
+                            placeholder: "#5865f2"; label: "Custom color";
+                            edited(text) => { if text.character-count == 7 { root.pick-hex(text); } }
+                            accepted => { root.pick-hex(self.text); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    ActionButton { text: "Done"; primary: true; clicked => { root.done(); } }
+                }
+            }
+        }
+    }
+}

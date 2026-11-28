@@ -126,9 +126,13 @@ impl Application {
             let moves = [(up, MenuChoice::MoveUp), (down, MenuChoice::MoveDown)]
                 .into_iter()
                 .filter_map(|(can, choice)| can.then_some(choice));
+            // Before copying, or a folder's settings, where Discord's
+            // "Move to..." goes.
             let at = choices
                 .iter()
-                .position(|choice| *choice == MenuChoice::CopyLink)
+                .position(|choice| {
+                    matches!(choice, MenuChoice::CopyLink | MenuChoice::FolderSettings)
+                })
                 .unwrap_or(choices.len());
             choices.splice(at..at, moves);
         }

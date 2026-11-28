@@ -738,7 +738,7 @@ fn roles_prompt(page: &RolesPage, rules: &RoleRules) -> RolesPrompt {
 }
 
 /// A colour written as hex, "#rrggbb" or without its "#".
-fn hex_color(text: &str) -> Option<u32> {
+pub(super) fn hex_color(text: &str) -> Option<u32> {
     let hex = text.trim();
     let hex = hex.strip_prefix('#').unwrap_or(hex);
     if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {

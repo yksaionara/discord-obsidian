@@ -131,6 +131,27 @@ fn entries(servers: &[Arc<ChatServer>]) -> Vec<ServerListEntry> {
         .collect()
 }
 
+/// The rail with folder `id` named and coloured anew, as Folder Settings
+/// saves it; none when there's no such folder or nothing changes.
+pub fn with_folder(
+    servers: &[Arc<ChatServer>],
+    id: &str,
+    name: Option<String>,
+    color: Option<u32>,
+) -> Option<Vec<ServerListEntry>> {
+    let mut entries = entries(servers);
+    let folder = entries
+        .iter_mut()
+        .filter_map(|entry| entry.folder.as_mut())
+        .find(|folder| folder.id == id)?;
+    if folder.name == name && folder.color == color {
+        return None;
+    }
+    folder.name = name;
+    folder.color = color;
+    Some(entries)
+}
+
 fn key(entry: &ServerListEntry) -> &str {
     entry
         .folder

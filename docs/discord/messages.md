@@ -178,8 +178,9 @@ an error.
   open folders on this device, in `layout.json`, as Discord's client keeps
   them per device. Settings entries with an id are folders, read with their
   name and colour (`GuildFolder` fields 2 to 4, each in a wrapper); one
-  without is a server on its own. Folders can't be made or changed in Discord Obsidian
-  yet.
+  without is a server on its own. Folders are made by dropping one server on
+  another, and named and coloured in Folder Settings, from the folder's menu
+  (see [the rail](../chat-ui.md)).
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`

@@ -445,6 +445,14 @@ The window follows Discord's arrangement:
   client gives them. With only Discord's servers on the rail, Discord's
   list is the order and this device keeps none; Matrix's servers keep
   their place on this device (`server_order` in `layout.json`).
+  A folder's menu is Discord's: Mark Folder As Read while any of its
+  servers' channels is unread, Move up and Move down, then Folder Settings
+  for a Discord folder, and Close All Folders while any is open. Folder
+  Settings has its Folder Name, up to 32 characters, "Server Folder" until
+  one is typed, and its Folder Color: Discord's default (#5865f2, saved as
+  none, as Discord's client saves it), Discord's twenty colours, or any
+  other as hex; Done puts it on Discord with the rest of the server list,
+  and a blank name leaves the folder unnamed.
   Hovering shows the server's name. A right click on a server, or the Menu
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's

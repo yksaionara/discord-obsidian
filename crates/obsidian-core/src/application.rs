@@ -24,6 +24,7 @@ mod calls;
 mod channel_settings;
 mod compose;
 mod discord_account;
+mod folders;
 mod forum;
 mod gifs;
 mod gift;
@@ -61,6 +62,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use folders::{DEFAULT_FOLDER_COLOR, FOLDER_NAME_LIMIT, FolderSettings};
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
@@ -745,6 +747,8 @@ pub struct AppState {
     pub select: Option<OpenSelect>,
     /// Discord's bookmarks and reminders.
     pub saved: Saved,
+    /// A server folder's Folder Settings, open from its menu.
+    pub folder_settings: Option<FolderSettings>,
     /// The profile card that's open.
     pub profile: Option<ProfileView>,
     pub role: Option<RoleView>,
@@ -1545,6 +1549,14 @@ pub enum Action {
         item: String,
         due_at: u64,
     },
+    /// Open Folder Settings for a Discord server folder, by its id.
+    OpenFolderSettings(String),
+    /// Its name as typed, and its colour, none for Discord's default.
+    WriteFolderName(String),
+    PickFolderColor(Option<u32>),
+    /// Done: the folder takes the name and colour, on Discord.
+    SaveFolderSettings,
+    CloseFolderSettings,
     /// Open "Set Custom Reminder" for a Discord message, by item, as
     /// Create Reminder's Custom... does.
     OpenCustomReminder(String),
@@ -3099,6 +3111,14 @@ impl Application {
             Action::PressButton { item, custom_id } => self.press_button(item, custom_id),
             Action::Bookmark(item) => self.save_message(item, None),
             Action::Remind { item, due_at } => self.save_message(item, Some(due_at)),
+            Action::OpenFolderSettings(id) => self.open_folder_settings(id),
+            Action::WriteFolderName(name) => self.write_folder_name(name),
+            Action::PickFolderColor(color) => self.pick_folder_color(color),
+            Action::SaveFolderSettings => self.save_folder_settings(),
+            Action::CloseFolderSettings => {
+                self.state.folder_settings = None;
+                vec![]
+            }
             Action::OpenCustomReminder(item) => self.open_custom_reminder(item),
             Action::CustomReminderDate(date) => self.custom_reminder_date(date),
             Action::CustomReminderMonth(step) => self.custom_reminder_month(step),

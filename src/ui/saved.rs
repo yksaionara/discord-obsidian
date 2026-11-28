@@ -71,6 +71,37 @@ impl Adapter {
         window.set_menu_reminder_rows(ModelRc::new(VecModel::from(rows)));
     }
 
+    /// A server folder's Folder Settings while it's open: its name, and its
+    /// colour among Discord's default, its swatches, and any other.
+    pub(super) fn show_folder_settings(&mut self, window: &ObsidianWindow) {
+        use obsidian_core::application::{DEFAULT_FOLDER_COLOR, ROLE_COLORS};
+        let Some(settings) = &self.app.state.folder_settings else {
+            window.set_folder_settings_open(false);
+            return;
+        };
+        let color = settings.color.unwrap_or(DEFAULT_FOLDER_COLOR);
+        let swatch = |rgb: &u32| RoleSwatch {
+            color: slint::Color::from_argb_encoded(0xff00_0000 | rgb),
+            chosen: settings.color == Some(*rgb),
+        };
+        window.set_folder_name(settings.name.as_str().into());
+        window.set_folder_color(slint::Color::from_argb_encoded(0xff00_0000 | color));
+        window.set_folder_default_color(settings.color.is_none());
+        window.set_folder_custom_color(
+            settings
+                .color
+                .is_some_and(|color| !ROLE_COLORS.contains(&color)),
+        );
+        window.set_folder_hex(format!("#{color:06x}").into());
+        window.set_folder_bright(ModelRc::new(VecModel::from(
+            ROLE_COLORS[..10].iter().map(swatch).collect::<Vec<_>>(),
+        )));
+        window.set_folder_dark(ModelRc::new(VecModel::from(
+            ROLE_COLORS[10..].iter().map(swatch).collect::<Vec<_>>(),
+        )));
+        window.set_folder_settings_open(true);
+    }
+
     /// "Set Custom Reminder" while it's open: its date and time, and the
     /// calendar's month.
     pub(super) fn show_custom_reminder(&mut self, window: &ObsidianWindow) {
