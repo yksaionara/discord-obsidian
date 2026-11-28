@@ -7,7 +7,6 @@
 
 use std::{sync::Arc, time::Duration};
 
-use tokio::time::timeout;
 use obsidian_discord::{
     api::Span,
     client,
@@ -19,6 +18,7 @@ use obsidian_discord::{
     token,
     voice::{Call, Listener},
 };
+use tokio::time::timeout;
 
 const WAIT: Duration = Duration::from_secs(10);
 /// The example's own files, as the fake serves them.

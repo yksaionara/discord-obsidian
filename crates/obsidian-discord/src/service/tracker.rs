@@ -1293,7 +1293,10 @@ impl Tracker {
     /// Shows the server list as these entries put it, before the settings
     /// say so: an entry with an empty `id` is a server outside any folder.
     pub(crate) fn set_server_list(&mut self, entries: Vec<settings::Folder>) {
-        self.order = entries.iter().flat_map(|entry| entry.servers.iter().cloned()).collect();
+        self.order = entries
+            .iter()
+            .flat_map(|entry| entry.servers.iter().cloned())
+            .collect();
         self.folders = entries
             .into_iter()
             .filter(|entry| !entry.id.is_empty() && !entry.servers.is_empty())
@@ -1965,7 +1968,10 @@ mod tests {
         assert_eq!(topic(&tracker), None, "an ended stage shows none");
 
         let member = json!({"guild_id": "10", "user": {"id": "2", "username": "ann"}, "roles": [], "nick": "Annie"});
-        assert!(!tracker.apply(&Event::GuildMemberAdd, &member), "nothing shown changes");
+        assert!(
+            !tracker.apply(&Event::GuildMemberAdd, &member),
+            "nothing shown changes"
+        );
         assert_eq!(tracker.servers[0].member_count, Some(5));
     }
 
@@ -1980,7 +1986,10 @@ mod tests {
         });
         let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
         let status = |tracker: &Tracker, index: usize| {
-            tracker.servers[0].voice_channels[index].status.as_deref().map(str::to_owned)
+            tracker.servers[0].voice_channels[index]
+                .status
+                .as_deref()
+                .map(str::to_owned)
         };
         assert!(tracker.apply(
             &Event::ChannelInfo,
@@ -1989,17 +1998,23 @@ mod tests {
                 {"id": "12", "status": null},
             ]}),
         ));
-        assert_eq!(status(&tracker, 0).as_deref(), Some("watching <:pog:5> movies"));
+        assert_eq!(
+            status(&tracker, 0).as_deref(),
+            Some("watching <:pog:5> movies")
+        );
         assert_eq!(status(&tracker, 1), None);
         assert!(tracker.apply(
             &Event::VoiceChannelStatusUpdate,
             &json!({"guild_id": "10", "id": "11", "status": ""}),
         ));
         assert_eq!(status(&tracker, 0), None, "an empty status clears it");
-        assert!(!tracker.apply(
-            &Event::VoiceChannelStatusUpdate,
-            &json!({"guild_id": "10", "id": "11", "status": ""}),
-        ), "nothing changed");
+        assert!(
+            !tracker.apply(
+                &Event::VoiceChannelStatusUpdate,
+                &json!({"guild_id": "10", "id": "11", "status": ""}),
+            ),
+            "nothing changed"
+        );
     }
 
     #[test]

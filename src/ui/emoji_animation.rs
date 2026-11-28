@@ -443,7 +443,11 @@ impl Animations {
     /// Takes what arrived from the decoders, starts what is wanted next, and
     /// draws what shows a frame again. Called each tick and each refresh, so a
     /// decode that finishes is seen at once rather than at the next change.
-    pub(super) fn run(&mut self, window: &ObsidianWindow, pictures: &HashMap<String, Arc<Picture>>) {
+    pub(super) fn run(
+        &mut self,
+        window: &ObsidianWindow,
+        pictures: &HashMap<String, Arc<Picture>>,
+    ) {
         self.start(pictures);
         self.drain();
         window

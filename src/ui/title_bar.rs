@@ -236,8 +236,14 @@ mod full_screen {
             // WS_MAXIMIZE too: winit keeps a maximized window without
             // decorations off the taskbar, so a window maximized before going
             // full screen drew 48 px short, with the taskbar showing through.
-            let frame = (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
-                | WS_BORDER | WS_DLGFRAME | WS_MAXIMIZE) as isize;
+            let frame = (WS_CAPTION
+                | WS_THICKFRAME
+                | WS_SYSMENU
+                | WS_MINIMIZEBOX
+                | WS_MAXIMIZEBOX
+                | WS_BORDER
+                | WS_DLGFRAME
+                | WS_MAXIMIZE) as isize;
             let edges = (WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME) as isize;
             SetWindowLongPtrW(hwnd, GWL_STYLE, (style & !frame) | WS_POPUP as isize);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, extended & !edges);
@@ -248,7 +254,12 @@ mod full_screen {
             };
             let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
             if GetMonitorInfoW(monitor, &mut info) != 0 {
-                let RECT { left, top, right, bottom } = info.rcMonitor;
+                let RECT {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                } = info.rcMonitor;
                 SetWindowPos(
                     hwnd,
                     HWND_TOP,

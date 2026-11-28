@@ -84,7 +84,10 @@ fn switches() -> Switches {
         return switches;
     }
     #[cfg(test)]
-    return Switches { on: false, ..Switches::default() };
+    return Switches {
+        on: false,
+        ..Switches::default()
+    };
     #[allow(unreachable_code)]
     Switches {
         on: ON.load(Ordering::Relaxed),

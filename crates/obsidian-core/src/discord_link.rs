@@ -3,12 +3,12 @@
 //! anything else runs. The login goes into the OS credential store; see
 //! `obsidian_discord::remote_auth`.
 
-use tokio::sync::mpsc::{self, UnboundedReceiver};
 use obsidian_discord::{
     api::{Api, Refused},
     remote_auth::{self, Step, Stopped},
     token,
 };
+use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use crate::runtime::{BackgroundRuntime, BackgroundTask};
 

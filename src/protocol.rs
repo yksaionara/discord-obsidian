@@ -165,7 +165,8 @@ mod windows {
             if let Some(protocol) = query_string(OLD_BACKUP, Some(HAD_URL_PROTOCOL)) {
                 set_string(BACKUP, Some(HAD_URL_PROTOCOL), &protocol)?;
             }
-            let (previous, kind) = query_value(OLD_BACKUP, Some(PREVIOUS_COMMAND)).unwrap_or_default();
+            let (previous, kind) =
+                query_value(OLD_BACKUP, Some(PREVIOUS_COMMAND)).unwrap_or_default();
             set_value(BACKUP, Some(PREVIOUS_COMMAND), &previous, kind.max(REG_SZ))?;
         }
         // SAFETY: deletes keys by name; one with keys left in it stays.
@@ -342,8 +343,12 @@ mod windows {
 
         #[test]
         fn recognises_its_own_registered_command() {
-            assert!(is_ours(r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" --open-link "%1""#));
-            assert!(is_ours(r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" "%1""#));
+            assert!(is_ours(
+                r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" --open-link "%1""#
+            ));
+            assert!(is_ours(
+                r#""C:\Apps\Discord Obsidian\Discord Obsidian.exe" "%1""#
+            ));
             assert!(!is_ours(r#""C:\Apps\Discord\Discord.exe" "%1""#));
             assert_eq!(
                 command_line(&[r"C:\Apps\Discord Obsidian\Discord Obsidian.exe".into()]),
@@ -402,7 +407,9 @@ mod linux {
         if enabled {
             desktop_entry::install();
             if !desktop_exists() {
-                return Err(io::Error::other("Discord Obsidian's desktop entry isn't installed"));
+                return Err(io::Error::other(
+                    "Discord Obsidian's desktop entry isn't installed",
+                ));
             }
         }
         apply(&list, &root.join(PREVIOUS), enabled)

@@ -14,12 +14,12 @@ use std::{
 };
 
 use anyhow::Result;
-use tokio::sync::Notify;
 use obsidian_discord::{
     call_video::{CameraSender, VideoFrame},
     stream_connection::{Frame, SEND_CODEC},
     voice::Call,
 };
+use tokio::sync::Notify;
 
 use crate::{
     camera::{self, Camera},

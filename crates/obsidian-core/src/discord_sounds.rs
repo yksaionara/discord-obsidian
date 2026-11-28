@@ -66,7 +66,11 @@ pub fn named((name, _): (&str, &str)) -> Option<Vec<f32>> {
                 .collect(),
         ),
         Err(error) => {
-            tracing::warn!(error = format!("{error:#}"), name, "a Discord sound didn't decode");
+            tracing::warn!(
+                error = format!("{error:#}"),
+                name,
+                "a Discord sound didn't decode"
+            );
             None
         }
     }
@@ -99,7 +103,10 @@ pub fn fetch_missing() {
         .spawn(move || {
             std::thread::sleep(FETCH_DELAY);
             if let Err(error) = fetch(&folder, &missing) {
-                tracing::info!(error = format!("{error:#}"), "Discord's sounds didn't all arrive");
+                tracing::info!(
+                    error = format!("{error:#}"),
+                    "Discord's sounds didn't all arrive"
+                );
             }
             FETCHING.store(false, Ordering::Relaxed);
         });
@@ -153,7 +160,11 @@ mod tests {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let folder = tempfile::tempdir().unwrap();
         set_folder(folder.path());
-        let all: Vec<_> = Sound::ALL.iter().map(|sound| file(*sound)).chain([RINGING, CALLING]).collect();
+        let all: Vec<_> = Sound::ALL
+            .iter()
+            .map(|sound| file(*sound))
+            .chain([RINGING, CALLING])
+            .collect();
         fetch(FOLDER.get().unwrap(), &all).unwrap();
         for sound in Sound::ALL {
             let samples = samples(sound).expect("decodes");

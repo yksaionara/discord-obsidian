@@ -7,8 +7,8 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use slint::{Timer, TimerMode};
 use obsidian_core::application::Action;
+use slint::{Timer, TimerMode};
 
 use super::{Adapter, ObsidianWindow};
 

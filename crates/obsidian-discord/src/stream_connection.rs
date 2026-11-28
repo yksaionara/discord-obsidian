@@ -164,7 +164,11 @@ impl RateControl {
                 let near = self
                     .ceiling
                     .is_some_and(|ceiling| rate >= ceiling as f64 * 0.85);
-                let mut next = if near { rate * 1.01 + 1000.0 } else { rate * 1.08 + 1000.0 };
+                let mut next = if near {
+                    rate * 1.01 + 1000.0
+                } else {
+                    rate * 1.08 + 1000.0
+                };
                 if let Some(ceiling) = self.ceiling {
                     next = next.min((ceiling as f64 * CEILING_HOLD).max(rate));
                 }
@@ -227,7 +231,8 @@ impl Loss {
     /// reached it from here, and viewers' NACKs, which also count what was
     /// lost on the way to them.
     fn take_both(&mut self) -> (Option<f64>, Option<f64>, Option<f64>) {
-        let reported = (self.expected >= LOSS_SAMPLE).then(|| self.lost as f64 / self.expected as f64);
+        let reported =
+            (self.expected >= LOSS_SAMPLE).then(|| self.lost as f64 / self.expected as f64);
         let nacked = (self.sent >= LOSS_SAMPLE)
             .then(|| (self.nacked.len() as f64 / self.sent as f64).min(1.0));
         self.expected = 0;
@@ -432,9 +437,7 @@ impl StreamSender {
         // 160 ms of sound.
         let (sounds, heard) = mpsc::channel(8);
         spawn("obsidian-stream-send", shared.clone(), move |shared| {
-            Box::pin(
-                async move { send(&server, user, channel, &shared, receiver, heard).await },
-            )
+            Box::pin(async move { send(&server, user, channel, &shared, receiver, heard).await })
         })?;
         Ok(Self {
             frames,
@@ -920,8 +923,24 @@ async fn send(
             // Viewers may have missed frames meanwhile; tell the server
             // about the video again, as when someone connects.
             shared.keyframe.store(true, Ordering::Relaxed);
-            note(&mut dropped, send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await);
-            note(&mut dropped, send_json(&mut connection.ws, 5, json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc})).await);
+            note(
+                &mut dropped,
+                send_json(
+                    &mut connection.ws,
+                    12,
+                    video_attributes(ssrc, video, rtx, size, fps),
+                )
+                .await,
+            );
+            note(
+                &mut dropped,
+                send_json(
+                    &mut connection.ws,
+                    5,
+                    json!({"speaking": SOUNDSHARE, "delay": 0, "ssrc": ssrc}),
+                )
+                .await,
+            );
             continue;
         }
         tokio::select! {
@@ -1392,7 +1411,10 @@ async fn receive_stream(
                 }
                 incoming.clear();
                 last_report = None;
-                note(&mut dropped, send_json(&mut connection.ws, 15, json!({"any": 100})).await);
+                note(
+                    &mut dropped,
+                    send_json(&mut connection.ws, 15, json!({"any": 100})).await,
+                );
                 tracing::info!("watching the stream again");
             }
             let interval = connection.interval;
@@ -1599,16 +1621,40 @@ mod tests {
     fn the_bitrate_starts_where_discords_estimate_does_and_follows_the_loss() {
         let cap = u64::from(max_bitrate(1080, 144));
         let mut rate = RateControl::new(cap);
-        assert_eq!(rate.bitrate(), START_BITRATE, "starts where Discord's estimate does");
-        assert_eq!(RateControl::new(3_500_000).bitrate(), 3_500_000, "or lower, at 720p30's cap");
-        assert_eq!(rate.update(None, cap, None), START_BITRATE, "no reports hold it");
-        assert_eq!(rate.update(Some(0.0), cap, None), 4_321_000, "a clear path grows it 8%");
+        assert_eq!(
+            rate.bitrate(),
+            START_BITRATE,
+            "starts where Discord's estimate does"
+        );
+        assert_eq!(
+            RateControl::new(3_500_000).bitrate(),
+            3_500_000,
+            "or lower, at 720p30's cap"
+        );
+        assert_eq!(
+            rate.update(None, cap, None),
+            START_BITRATE,
+            "no reports hold it"
+        );
+        assert_eq!(
+            rate.update(Some(0.0), cap, None),
+            4_321_000,
+            "a clear path grows it 8%"
+        );
         for _ in 0..60 {
             rate.update(Some(0.0), cap, None);
         }
         assert_eq!(rate.bitrate(), cap, "up to the cap, in about 20 s");
-        assert_eq!(rate.update(Some(0.05), cap, None), cap, "some loss holds it");
-        assert_eq!(rate.update(Some(0.30), cap, None), cap * 85 / 100, "heavy loss lowers it");
+        assert_eq!(
+            rate.update(Some(0.05), cap, None),
+            cap,
+            "some loss holds it"
+        );
+        assert_eq!(
+            rate.update(Some(0.30), cap, None),
+            cap * 85 / 100,
+            "heavy loss lowers it"
+        );
         let lowered = rate.bitrate();
         assert_eq!(
             rate.update(Some(0.01), cap, None),
@@ -1618,14 +1664,25 @@ mod tests {
         for _ in 0..60 {
             rate.update(Some(0.0), cap, None);
         }
-        assert_eq!(rate.bitrate(), (cap as f64 * CEILING_HOLD) as u64, "but stays under it");
+        assert_eq!(
+            rate.bitrate(),
+            (cap as f64 * CEILING_HOLD) as u64,
+            "but stays under it"
+        );
         for _ in 0..RAISE_CEILING {
             rate.update(Some(0.0), cap, None);
         }
-        assert!(rate.bitrate() > (cap as f64 * CEILING_HOLD) as u64, "until the path held a while");
+        assert!(
+            rate.bitrate() > (cap as f64 * CEILING_HOLD) as u64,
+            "until the path held a while"
+        );
         rate.update(Some(0.5), cap, None);
         let far = rate.update(Some(0.5), cap, None);
-        assert_eq!(rate.update(Some(0.0), cap, None), far * 108 / 100 + 1000, "far below it, at full speed");
+        assert_eq!(
+            rate.update(Some(0.0), cap, None),
+            far * 108 / 100 + 1000,
+            "far below it, at full speed"
+        );
         for _ in 0..100 {
             rate.update(Some(1.0), cap, None);
         }
@@ -1642,11 +1699,19 @@ mod tests {
         for _ in 0..60 {
             rate.update(Some(0.0), cap, Some(2_000_000.0));
         }
-        assert_eq!(rate.bitrate(), START_BITRATE, "a calm screen sending 2 Mbit/s holds it");
+        assert_eq!(
+            rate.bitrate(),
+            START_BITRATE,
+            "a calm screen sending 2 Mbit/s holds it"
+        );
         for _ in 0..60 {
             rate.update(Some(0.0), cap, Some(8_000_000.0));
         }
-        assert_eq!(rate.bitrate(), 12_010_000, "one and a half times what gets through");
+        assert_eq!(
+            rate.bitrate(),
+            12_010_000,
+            "one and a half times what gets through"
+        );
         assert_eq!(max_bitrate(1080, 144), 13_200_000);
         assert_eq!(max_bitrate(1080, 60), 9_000_000);
         assert_eq!(max_bitrate(1080, 240), 18_000_000);
@@ -1667,18 +1732,28 @@ mod tests {
         assert_eq!(loss.take(), None, "too few packets");
         loss.report(10, 5);
         loss.report(12, 105);
-        assert_eq!(loss.take(), Some(0.02), "a server counting again starts over");
+        assert_eq!(
+            loss.take(),
+            Some(0.02),
+            "a server counting again starts over"
+        );
     }
 
     #[test]
     fn paces_keyframes_without_holding_the_frame_rate() {
         assert_eq!(pace(100_000), PACE_FLOOR);
-        assert_eq!(pace(10_000_000), 12_500_000, "a quarter more than the target");
+        assert_eq!(
+            pace(10_000_000),
+            12_500_000,
+            "a quarter more than the target"
+        );
         // The largest frame the encoder's eighth of a second allows leaves in
         // 100 ms, whatever the bitrate; Discord's 20 KB at 1.5 Mbit/s took 86.
         for target in [1_500_000u64, 4_000_000, 10_000_000, 21_600_000] {
             let largest = (target / 8 / 8) as usize;
-            let frame: Duration = (0..largest / 1200).map(|_| airtime(1200, pace(target))).sum();
+            let frame: Duration = (0..largest / 1200)
+                .map(|_| airtime(1200, pace(target)))
+                .sum();
             assert!(frame <= Duration::from_millis(101), "{target}: {frame:?}");
         }
         assert_eq!(frame_queue(30), 4);

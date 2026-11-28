@@ -13,8 +13,8 @@ pub fn icon(window: u64, size: u32) -> Option<Vec<u8>> {
             DIB_RGB_COLORS, DeleteDC, DeleteObject, SelectObject,
         },
         UI::WindowsAndMessaging::{
-            DI_NORMAL, DrawIconEx, GCLP_HICON, GCLP_HICONSM, GetClassLongPtrW, HICON,
-            ICON_BIG, ICON_SMALL2, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETICON,
+            DI_NORMAL, DrawIconEx, GCLP_HICON, GCLP_HICONSM, GetClassLongPtrW, HICON, ICON_BIG,
+            ICON_SMALL2, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_GETICON,
         },
     };
     let hwnd = window as usize as HWND;
@@ -22,14 +22,27 @@ pub fn icon(window: u64, size: u32) -> Option<Vec<u8>> {
     // a window that's gone answers nothing.
     let asked = |kind: u32| unsafe {
         let mut result: usize = 0;
-        SendMessageTimeoutW(hwnd, WM_GETICON, kind as usize, 0, SMTO_ABORTIFHUNG, 50, &mut result);
+        SendMessageTimeoutW(
+            hwnd,
+            WM_GETICON,
+            kind as usize,
+            0,
+            SMTO_ABORTIFHUNG,
+            50,
+            &mut result,
+        );
         result
     };
     // SAFETY: reads the window's class; zero when it has no icon.
     let class = |index| unsafe { GetClassLongPtrW(hwnd, index) };
-    let icon = [asked(ICON_BIG), asked(ICON_SMALL2), class(GCLP_HICON), class(GCLP_HICONSM)]
-        .into_iter()
-        .find(|icon| *icon != 0)? as HICON;
+    let icon = [
+        asked(ICON_BIG),
+        asked(ICON_SMALL2),
+        class(GCLP_HICON),
+        class(GCLP_HICONSM),
+    ]
+    .into_iter()
+    .find(|icon| *icon != 0)? as HICON;
     let side = size as i32;
     // Drawn on black and on white: the difference is how see-through each
     // pixel is, which old icons without an alpha channel don't say.
@@ -79,13 +92,21 @@ pub fn icon(window: u64, size: u32) -> Option<Vec<u8>> {
         let alpha = 255 - (on_white[1].saturating_sub(on_black[1]));
         if alpha > 0 {
             // On black, a pixel is its colour times its alpha.
-            for (channel, value) in [on_black[2], on_black[1], on_black[0]].into_iter().enumerate() {
-                out[channel] = ((u32::from(value) * 255 + u32::from(alpha) / 2) / u32::from(alpha)).min(255) as u8;
+            for (channel, value) in [on_black[2], on_black[1], on_black[0]]
+                .into_iter()
+                .enumerate()
+            {
+                out[channel] = ((u32::from(value) * 255 + u32::from(alpha) / 2) / u32::from(alpha))
+                    .min(255) as u8;
             }
             out[3] = alpha;
         }
     }
-    rgba.iter().skip(3).step_by(4).any(|alpha| *alpha > 0).then_some(rgba)
+    rgba.iter()
+        .skip(3)
+        .step_by(4)
+        .any(|alpha| *alpha > 0)
+        .then_some(rgba)
 }
 
 #[cfg(not(windows))]

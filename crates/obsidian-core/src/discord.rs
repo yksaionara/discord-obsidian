@@ -11,15 +11,15 @@ use std::{
 };
 
 #[cfg(feature = "discord")]
-use tokio::{
-    sync::{Semaphore, mpsc::UnboundedSender},
-    task::JoinSet,
-};
-#[cfg(feature = "discord")]
 use obsidian_discord::{
     marked::{ChannelMarks, MarkedChannel, MarkedServer},
     ready::{Access, PRIVATE},
     service::{Conversation, Discord, Snapshot, VoiceMember},
+};
+#[cfg(feature = "discord")]
+use tokio::{
+    sync::{Semaphore, mpsc::UnboundedSender},
+    task::JoinSet,
 };
 
 #[cfg(feature = "discord")]
@@ -425,11 +425,12 @@ impl Index {
                 .into_iter()
                 .map(|indexed| (indexed.source.id.clone(), indexed))
                 .collect();
-        let folders: std::collections::HashMap<&str, &obsidian_discord::settings::Folder> = snapshot
-            .folders
-            .iter()
-            .flat_map(|folder| folder.servers.iter().map(move |id| (id.as_str(), folder)))
-            .collect();
+        let folders: std::collections::HashMap<&str, &obsidian_discord::settings::Folder> =
+            snapshot
+                .folders
+                .iter()
+                .flat_map(|folder| folder.servers.iter().map(move |id| (id.as_str(), folder)))
+                .collect();
         for server in &snapshot.servers {
             let folder = folders
                 .get(server.id.as_str())
@@ -1290,7 +1291,9 @@ async fn download(
                 lock().succeeded();
                 return Some(data);
             }
-            Err(error) if tries < PICTURE_TRIES && obsidian_discord::api::may_work_later(&error) => {
+            Err(error)
+                if tries < PICTURE_TRIES && obsidian_discord::api::may_work_later(&error) =>
+            {
                 tracing::debug!(%error, %url, tries, "will download a Discord picture again");
                 lock().failed(started, Instant::now());
             }
@@ -1374,7 +1377,10 @@ mod tests {
     #[test]
     fn names_custom_emoji_where_no_picture_goes() {
         assert_eq!(emoji_names("plain"), "plain");
-        assert_eq!(emoji_names("watching <:pog:5> and <a:dance:6>!"), "watching :pog: and :dance:!");
+        assert_eq!(
+            emoji_names("watching <:pog:5> and <a:dance:6>!"),
+            "watching :pog: and :dance:!"
+        );
         assert_eq!(emoji_names("1 < 2 <b> <:x:y>"), "1 < 2 <b> <:x:y>");
     }
 

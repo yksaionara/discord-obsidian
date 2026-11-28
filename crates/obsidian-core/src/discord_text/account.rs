@@ -523,7 +523,10 @@ pub(super) fn command(
                 // The list shows as moved already; the settings update
                 // after a refusal puts back what Discord kept.
                 if let Err(error) = discord.set_server_list(entries).await {
-                    tracing::warn!(error = format!("{error:#}"), "could not change the server list");
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not change the server list"
+                    );
                 }
             });
         }

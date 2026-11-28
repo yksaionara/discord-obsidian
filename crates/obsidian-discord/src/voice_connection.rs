@@ -732,10 +732,16 @@ fn buffers_full(error: &std::io::Error) -> bool {
 mod tests {
     #[test]
     fn a_full_buffer_drops_the_packet() {
-        assert!(super::buffers_full(&std::io::Error::from(std::io::ErrorKind::WouldBlock)));
+        assert!(super::buffers_full(&std::io::Error::from(
+            std::io::ErrorKind::WouldBlock
+        )));
         #[cfg(windows)]
-        assert!(super::buffers_full(&std::io::Error::from_raw_os_error(10055)));
-        assert!(!super::buffers_full(&std::io::Error::from(std::io::ErrorKind::ConnectionRefused)));
+        assert!(super::buffers_full(&std::io::Error::from_raw_os_error(
+            10055
+        )));
+        assert!(!super::buffers_full(&std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused
+        )));
     }
 
     use super::*;

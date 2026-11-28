@@ -313,7 +313,11 @@ const PEAK: f32 = 0.25;
 /// its own quieting, before any volume. It ends once 40 dB below its peak.
 pub fn render(set: SoundSet, sound: Sound) -> Vec<f32> {
     // Discord's files aren't made here; its stand-in is.
-    let set = if set == SoundSet::Discord { SoundSet::NewKalimba } else { set };
+    let set = if set == SoundSet::Discord {
+        SoundSet::NewKalimba
+    } else {
+        set
+    };
     let (notes, fade, loudness) = score(sound);
     let last = notes.iter().fold(0.0f32, |last, note| last.max(note.0));
     let mut dry = vec![0.0f32; ((last + 2.0) * RATE as f32) as usize];
@@ -441,7 +445,10 @@ static DISCORD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 
 /// Notes the set chosen; with Discord's, fetches its files not yet here.
 pub fn choose(set: SoundSet) {
-    DISCORD.store(set == SoundSet::Discord, std::sync::atomic::Ordering::Relaxed);
+    DISCORD.store(
+        set == SoundSet::Discord,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     #[cfg(feature = "discord")]
     if set == SoundSet::Discord {
         crate::discord_sounds::fetch_missing();

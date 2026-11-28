@@ -1534,7 +1534,11 @@ async fn reads_history_and_member_lists() {
     assert!(!older.full);
     let older = older.messages;
     assert_eq!(older.len(), 10);
-    assert!(older[0].content.starts_with("Welcome to **Discord Obsidian**"));
+    assert!(
+        older[0]
+            .content
+            .starts_with("Welcome to **Discord Obsidian**")
+    );
     assert_eq!(
         (older[0].reactions[0].count, older[0].reactions[0].me),
         (2, true)
@@ -1593,7 +1597,10 @@ async fn reads_history_and_member_lists() {
     // Opening the server asked for its voice channels' statuses, as the web
     // client does, and they change as members set them.
     let status = |snapshot: &Snapshot| {
-        snapshot.servers[0].voice_channels[0].status.as_deref().map(str::to_owned)
+        snapshot.servers[0].voice_channels[0]
+            .status
+            .as_deref()
+            .map(str::to_owned)
     };
     snapshot_where(&discord, |snapshot| {
         status(snapshot).as_deref() == Some("Movie night <:pog:4207>")
@@ -2585,7 +2592,11 @@ async fn opens_dms_and_searches_pins() {
     // the channel with in:, which Discord indexes the same way.
     let pinned = discord.pins(&guild, &general).await.unwrap();
     assert_eq!(pinned.len(), 1);
-    assert!(pinned[0].content.starts_with("Welcome to **Discord Obsidian**"));
+    assert!(
+        pinned[0]
+            .content
+            .starts_with("Welcome to **Discord Obsidian**")
+    );
     // Bob's picture after it, pinned as Alice's Crew role allows: Discord
     // says it's pinned, and it leads the pins until it's unpinned.
     let after = discord
@@ -3915,8 +3926,8 @@ async fn calls_in_dms() {
     discord.view(PRIVATE, Some(&dm));
     discord.view(PRIVATE, Some(&dm));
     let asked = || -> serde_json::Value {
-        serde_json::from_str::<serde_json::Value>(&control(server, "GET", "/_control/sessions", "")).unwrap()
-            ["callConnects"]
+        serde_json::from_str::<serde_json::Value>(&control(server, "GET", "/_control/sessions", ""))
+            .unwrap()["callConnects"]
             .clone()
     };
     until("the DM asked about its call", || {
@@ -4683,8 +4694,15 @@ async fn presses_an_apps_buttons() {
     post_control(server, "/_control/components", "");
     let deployed = timeout(WAIT, async {
         loop {
-            let page = discord.history(&guild, &general, Span::Latest).await.unwrap();
-            if let Some(found) = page.messages.into_iter().find(|message| message.content.contains("v2.4")) {
+            let page = discord
+                .history(&guild, &general, Span::Latest)
+                .await
+                .unwrap();
+            if let Some(found) = page
+                .messages
+                .into_iter()
+                .find(|message| message.content.contains("v2.4"))
+            {
                 break found;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -4694,7 +4712,10 @@ async fn presses_an_apps_buttons() {
     .expect("Status Bot's message didn't come");
     // Its buttons carry what pressing them tells the bot, the message who sent it.
     let app = deployed.app.as_deref().expect("pressable buttons").clone();
-    assert_eq!(app.id, "1400000000000000007", "the bot, without an application_id");
+    assert_eq!(
+        app.id, "1400000000000000007",
+        "the bot, without an application_id"
+    );
     let mut live = discord.live();
     let approved = discord
         .press_button(Some(&guild), &general, &deployed.id, &app, "approve")
@@ -4708,7 +4729,10 @@ async fn presses_an_apps_buttons() {
     let sent: serde_json::Value =
         serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
     assert_eq!(sent[0]["type"], 3);
-    assert_eq!(sent[0]["data"], serde_json::json!({"component_type": 2, "custom_id": "approve"}));
+    assert_eq!(
+        sent[0]["data"],
+        serde_json::json!({"component_type": 2, "custom_id": "approve"})
+    );
     assert_eq!(sent[0]["message_id"], deployed.id.as_str());
     assert_eq!(sent[0]["nonce"], approved.as_str());
     assert!(sent[0]["session_id"].is_string());

@@ -2910,7 +2910,10 @@ pub enum DiscordCommand {
     SetServerList(Vec<ServerListEntry>),
     /// Ask for the latest preview of the stream `user` shares in the voice
     /// channel `room`; [`Event::StreamPreview`] follows.
-    StreamPreview { room: String, user: String },
+    StreamPreview {
+        room: String,
+        user: String,
+    },
     /// Share the game the Discord account plays, or stop;
     /// [`Event::ShowGameSet`] follows.
     ShowGame(bool),
@@ -4157,7 +4160,9 @@ pub enum Event {
         stickers: Option<Vec<ServerSticker>>,
     },
     /// A message was pinned or unpinned in this room, for its pins if open.
-    PinsChanged { room: String },
+    PinsChanged {
+        room: String,
+    },
     /// A server's stickers changed, as GUILD_STICKERS_UPDATE gives them,
     /// for an open Stickers.
     ServerStickers {

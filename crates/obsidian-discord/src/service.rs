@@ -517,7 +517,10 @@ pub enum Live {
     },
     /// A message was pinned or unpinned in a channel, of `guild` or
     /// [`ready::PRIVATE`], for its pins while they're open.
-    PinsChanged { guild: String, channel: String },
+    PinsChanged {
+        guild: String,
+        channel: String,
+    },
     /// This account saved a message, here or on another of its devices: a
     /// bookmark, or a reminder.
     Saved(Box<crate::saved::Saved>),
@@ -3325,7 +3328,12 @@ impl Discord {
 
     /// The address of the latest preview of the stream `user` shares in the
     /// voice channel `channel` of `guild`; none before its first.
-    pub async fn stream_preview_url(&self, guild: &str, channel: &str, user: &str) -> Result<Option<String>> {
+    pub async fn stream_preview_url(
+        &self,
+        guild: &str,
+        channel: &str,
+        user: &str,
+    ) -> Result<Option<String>> {
         self.api
             .stream_preview_url(&crate::stream::key(guild, channel, user))
             .await

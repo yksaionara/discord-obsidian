@@ -116,7 +116,14 @@ fn open(
         rate: format.rate,
     };
     Simple::new(
-        None, "Discord Obsidian", direction, device, name, &spec, None, attributes,
+        None,
+        "Discord Obsidian",
+        direction,
+        device,
+        name,
+        &spec,
+        None,
+        attributes,
     )
     .map_err(|error| anyhow!("{error}"))
 }
@@ -182,7 +189,8 @@ struct Listed {
 /// Every sink, or every source that is not a monitor.
 fn list(sinks: bool) -> Result<Vec<Listed>> {
     let mut mainloop = Mainloop::new().context("no PulseAudio main loop")?;
-    let mut context = Context::new(&mainloop, "Discord Obsidian").context("no PulseAudio context")?;
+    let mut context =
+        Context::new(&mainloop, "Discord Obsidian").context("no PulseAudio context")?;
     context
         .connect(None, ContextFlags::NOFLAGS, None)
         .map_err(|error| anyhow!("{error}"))

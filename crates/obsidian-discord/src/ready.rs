@@ -661,7 +661,11 @@ impl Server {
     /// one; returns whether it changed.
     pub fn set_voice_status(&mut self, id: &str, status: Option<&str>) -> bool {
         let status = status.map(str::trim).filter(|status| !status.is_empty());
-        let Some(channel) = self.voice_channels.iter_mut().find(|channel| channel.id == id) else {
+        let Some(channel) = self
+            .voice_channels
+            .iter_mut()
+            .find(|channel| channel.id == id)
+        else {
             return false;
         };
         if channel.status.as_deref() == status {

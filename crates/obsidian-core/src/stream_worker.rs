@@ -24,13 +24,13 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
 use obsidian_discord::{
     rtp::Codec,
     stream::StreamServer,
     stream_connection::{self, Link, StreamReceiver, StreamSender},
 };
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 use livekit::webrtc::{
     native::yuv_helper,
@@ -359,7 +359,11 @@ pub enum Control {
     /// on with the one shared until then, and when the dialog is cancelled.
     Switch(Source),
     /// Share at this size and rate from now on, as the stream goes on.
-    Quality { width: u32, height: u32, fps: u32 },
+    Quality {
+        width: u32,
+        height: u32,
+        fps: u32,
+    },
     /// Share other applications' sound with the screen, or stop.
     Sound(bool),
     /// Play a watched stream's sound, or not, as being deafened changes.
@@ -596,7 +600,8 @@ impl Precise {
         // SAFETY: plain calls on this process's timer and this thread.
         unsafe {
             windows::Win32::Media::timeBeginPeriod(1);
-            if let Err(error) = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) {
+            if let Err(error) = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL)
+            {
                 tracing::debug!(%error, "the capture thread keeps its priority");
             }
         }
@@ -851,7 +856,11 @@ impl Sink {
         // The encoders size each frame for the rate they opened at, so they
         // aim higher by as much as frames are left out.
         let rate = steady_fps(height, self.fps, target);
-        let wanted = kbps(height, self.fps, Some(target * u64::from(self.fps.max(1)) / u64::from(rate.max(1))));
+        let wanted = kbps(
+            height,
+            self.fps,
+            Some(target * u64::from(self.fps.max(1)) / u64::from(rate.max(1))),
+        );
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
@@ -975,7 +984,9 @@ impl Sink {
         let target = self
             .video
             .as_ref()
-            .map_or(stream_connection::START_BITRATE, |video| video.sender.target_bitrate());
+            .map_or(stream_connection::START_BITRATE, |video| {
+                video.sender.target_bitrate()
+            });
         Encoder::new(
             codec,
             width,
@@ -1017,7 +1028,10 @@ impl Sink {
                         } else if video.sound.is_none() {
                             video.sound = stream_audio::Capture::start(video.sender.sound())
                                 .inspect_err(|error| {
-                                    tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                                    tracing::warn!(
+                                        error = format!("{error:#}"),
+                                        "sharing without sound"
+                                    )
                                 })
                                 .ok();
                         }
@@ -1151,7 +1165,9 @@ fn watch(
         }
         if let Link::Ended(reason) = receiver.link() {
             tracing::warn!(%reason, "the watched stream's connection didn't come back");
-            bail!("The stream lost its connection to Discord and couldn't get it back. Click it to watch again.");
+            bail!(
+                "The stream lost its connection to Discord and couldn't get it back. Click it to watch again."
+            );
         }
         let now = receiver.reconnects();
         if now != reconnects {
@@ -1385,9 +1401,19 @@ fn capture_screen(
             };
             if let Some(id) = screen {
                 if window.is_some() {
-                    tracing::info!("the window fills its screen in front; sharing it through duplication");
+                    tracing::info!(
+                        "the window fills its screen in front; sharing it through duplication"
+                    );
                 }
-                match capture_duplicated(id, window, &sink, &mut max_width, &mut max_height, stop, report) {
+                match capture_duplicated(
+                    id,
+                    window,
+                    &sink,
+                    &mut max_width,
+                    &mut max_height,
+                    stop,
+                    report,
+                ) {
                     Ok(None) => return Ok(()),
                     Ok(Some(next)) => {
                         duplication_refused = 0;
@@ -1401,7 +1427,9 @@ fn capture_screen(
                     // capture.
                     Err(error)
                         if window.is_some()
-                            && error.downcast_ref::<crate::duplication::Unavailable>().is_some()
+                            && error
+                                .downcast_ref::<crate::duplication::Unavailable>()
+                                .is_some()
                             && duplication_refused + 1 < DUPLICATION_REFUSALS =>
                     {
                         duplication_refused += 1;
@@ -1410,8 +1438,15 @@ fn capture_screen(
                             "the window's screen can't be duplicated yet; sharing it through window capture meanwhile"
                         );
                     }
-                    Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
-                        tracing::warn!(error = format!("{error:#}"), "sharing through WebRTC's capturer");
+                    Err(error)
+                        if error
+                            .downcast_ref::<crate::duplication::Unavailable>()
+                            .is_some() =>
+                    {
+                        tracing::warn!(
+                            error = format!("{error:#}"),
+                            "sharing through WebRTC's capturer"
+                        );
                         duplicating = false;
                     }
                     Err(error) => return Err(error),
@@ -1420,7 +1455,15 @@ fn capture_screen(
         }
         #[cfg(windows)]
         if window_capturing && let Source::Window(window) = source {
-            match capture_window(window, duplicating, &sink, &mut max_width, &mut max_height, stop, report) {
+            match capture_window(
+                window,
+                duplicating,
+                &sink,
+                &mut max_width,
+                &mut max_height,
+                stop,
+                report,
+            ) {
                 Ok(None) => return Ok(()),
                 Ok(Some(next)) => {
                     source = next;
@@ -1431,7 +1474,9 @@ fn capture_screen(
                 // and the last picture stays meanwhile. WebRTC's capturer
                 // gave games black or nothing.
                 Err(error)
-                    if error.downcast_ref::<crate::duplication::Unavailable>().is_some()
+                    if error
+                        .downcast_ref::<crate::duplication::Unavailable>()
+                        .is_some()
                         && duplicating
                         && crate::duplication::minimized_or_filling(window) =>
                 {
@@ -1439,7 +1484,14 @@ fn capture_screen(
                         error = format!("{error:#}"),
                         "window capture can't open the game; sharing its screen while it's in front"
                     );
-                    match wait_for_front(window, &sink, &mut max_width, &mut max_height, stop, report)? {
+                    match wait_for_front(
+                        window,
+                        &sink,
+                        &mut max_width,
+                        &mut max_height,
+                        stop,
+                        report,
+                    )? {
                         Some(next) => {
                             source = next;
                             continue;
@@ -1447,8 +1499,15 @@ fn capture_screen(
                         None => return Ok(()),
                     }
                 }
-                Err(error) if error.downcast_ref::<crate::duplication::Unavailable>().is_some() => {
-                    tracing::warn!(error = format!("{error:#}"), "sharing the window through WebRTC's capturer");
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::duplication::Unavailable>()
+                        .is_some() =>
+                {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "sharing the window through WebRTC's capturer"
+                    );
                     window_capturing = false;
                 }
                 Err(error) => return Err(error),
@@ -1608,12 +1667,22 @@ fn capture_duplicated(
     // of it.
     let leave = move || {
         let window = window?;
-        crate::duplication::fronted_screen(window).is_none().then(|| {
-            tracing::info!("the window left the front; sharing it through window capture");
-            Source::Window(window)
-        })
+        crate::duplication::fronted_screen(window)
+            .is_none()
+            .then(|| {
+                tracing::info!("the window left the front; sharing it through window capture");
+                Source::Window(window)
+            })
     };
-    capture_frames(&mut duplication, &leave, sink, max_width, max_height, stop, report)
+    capture_frames(
+        &mut duplication,
+        &leave,
+        sink,
+        max_width,
+        max_height,
+        stop,
+        report,
+    )
 }
 
 /// Waits for the game window `window`, which window capture can't open, to
@@ -1669,7 +1738,15 @@ fn capture_window(
         (duplicating && crate::duplication::fronted_screen(window).is_some())
             .then_some(Source::Window(window))
     };
-    capture_frames(&mut capture, &leave, sink, max_width, max_height, stop, report)
+    capture_frames(
+        &mut capture,
+        &leave,
+        sink,
+        max_width,
+        max_height,
+        stop,
+        report,
+    )
 }
 
 /// A screen's or window's frames as they're drawn, for [`capture_frames`].
@@ -1794,7 +1871,10 @@ fn capture_frames(
                             pending = true;
                         }
                         Err(error) => {
-                            tracing::debug!(error = format!("{error:#}"), "what's shared isn't back yet");
+                            tracing::debug!(
+                                error = format!("{error:#}"),
+                                "what's shared isn't back yet"
+                            );
                             let backoff = (backoff * 2).min(LOST_RETRY_MOST);
                             lost = Some((now + backoff, backoff));
                         }
@@ -1827,8 +1907,8 @@ fn capture_frames(
                 }
                 let (width, height) = (picture.width(), picture.height());
                 size = fit(width, height, *max_width, *max_height);
-                let mut scaled = (size != (width, height))
-                    .then(|| picture.scale(size.0 as i32, size.1 as i32));
+                let mut scaled =
+                    (size != (width, height)).then(|| picture.scale(size.0 as i32, size.1 as i32));
                 lock().frame(scaled.as_mut().unwrap_or(picture))
             })?;
             if reported != Some(size) {
@@ -2464,13 +2544,25 @@ mod tests {
 
     #[test]
     fn lowers_the_frame_rate_before_the_detail() {
-        assert_eq!(steady_fps(1080, 144, 13_200_000), 144, "at the cap, every frame");
+        assert_eq!(
+            steady_fps(1080, 144, 13_200_000),
+            144,
+            "at the cap, every frame"
+        );
         assert_eq!(steady_fps(1080, 144, 11_000_000), 144);
         assert_eq!(steady_fps(1080, 144, 5_000_000), 66);
         assert_eq!(steady_fps(1080, 144, 1_000_000), 30, "never below 30");
         assert_eq!(steady_fps(1080, 60, 5_000_000), 60);
-        assert_eq!(steady_fps(720, 15, 500_000), 15, "a rate asked under 30 stays");
-        assert_eq!(steady_fps(1080, 144, 0), 144, "before the rate control says");
+        assert_eq!(
+            steady_fps(720, 15, 500_000),
+            15,
+            "a rate asked under 30 stays"
+        );
+        assert_eq!(
+            steady_fps(1080, 144, 0),
+            144,
+            "before the rate control says"
+        );
     }
 
     #[test]
@@ -2483,7 +2575,11 @@ mod tests {
         assert_eq!(kbps(1440, 60, None), 20000, "1440p keeps its detail");
         assert_eq!(kbps(1080, 60, Some(4_000_000)), 4000, "lowered for loss");
         assert_eq!(kbps(720, 30, Some(9_000_000)), 3500, "never past the cap");
-        assert_eq!(kbps(1080, 60, Some(100_000)), 500, "nor below a screen's floor");
+        assert_eq!(
+            kbps(1080, 60, Some(100_000)),
+            500,
+            "nor below a screen's floor"
+        );
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -2797,7 +2893,10 @@ mod tests {
                     height,
                     rgba,
                 } => {
-                    eprintln!("{} {id}: {width}x{height}", if *window { "window" } else { "screen" });
+                    eprintln!(
+                        "{} {id}: {width}x{height}",
+                        if *window { "window" } else { "screen" }
+                    );
                     if *window {
                         return None;
                     }
@@ -2825,7 +2924,9 @@ mod tests {
         let listed = shareable();
         let found = listed
             .iter()
-            .find(|listed| matches!(listed.source, Source::Window(_)) && listed.title.contains(&wanted))
+            .find(|listed| {
+                matches!(listed.source, Source::Window(_)) && listed.title.contains(&wanted)
+            })
             .unwrap_or_else(|| panic!("no window titled {wanted}"));
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
@@ -2851,8 +2952,14 @@ mod tests {
         let (mut last, mut pictures) = (None, 0);
         while Instant::now() < deadline {
             let taken = frames.take(|width, height, pixels| {
-                let lit = pixels.chunks_exact(4).filter(|pixel| pixel[..3].iter().any(|&c| c > 24));
-                (width, height, lit.count() as f32 / (pixels.len() / 4).max(1) as f32)
+                let lit = pixels
+                    .chunks_exact(4)
+                    .filter(|pixel| pixel[..3].iter().any(|&c| c > 24));
+                (
+                    width,
+                    height,
+                    lit.count() as f32 / (pixels.len() / 4).max(1) as f32,
+                )
             });
             pictures += usize::from(taken.is_some());
             last = taken.or(last);

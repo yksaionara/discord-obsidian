@@ -316,7 +316,9 @@ mod tests {
         assert!(close(from_slider(200.0), 1.995), "6 dB louder");
         assert!(close(from_slider(500.0), MAX), "five times as loud");
         assert!(from_slider(300.0) > from_slider(200.0));
-        for value in [1.0, 18.0, 40.0, 99.0, 100.0, 150.0, 200.0, 250.0, 400.0, 500.0] {
+        for value in [
+            1.0, 18.0, 40.0, 99.0, 100.0, 150.0, 200.0, 250.0, 400.0, 500.0,
+        ] {
             assert!(close(to_slider(from_slider(value)), value), "{value}");
         }
         // A stream's default shows at about 54, as on Discord.

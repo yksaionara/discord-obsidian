@@ -57,12 +57,11 @@ impl Tray {
 /// Discord Obsidian's logo, the angry face on black, `size` pixels square, with a red dot for
 /// unread messages in its corner.
 fn logo(size: u32, unread: bool) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
-    let mut svg = include_str!("../ui/icons/logo.svg")
-        .replacen(
-            r#"width="24" height="24""#,
-            &format!(r#"width="{size}" height="{size}""#),
-            1,
-        );
+    let mut svg = include_str!("../ui/icons/logo.svg").replacen(
+        r#"width="24" height="24""#,
+        &format!(r#"width="{size}" height="{size}""#),
+        1,
+    );
     if unread {
         svg = svg.replacen(
             "</svg>",
@@ -347,8 +346,14 @@ mod windows {
         };
         fill(&mut data.szInfoTitle, title);
         fill(&mut data.szInfo, if body.is_empty() { " " } else { body });
-        data.dwInfoFlags = NIIF_USER | NIIF_NOSOUND | NIIF_RESPECT_QUIET_TIME
-            | if balloon.is_null() { 0 } else { NIIF_LARGE_ICON };
+        data.dwInfoFlags = NIIF_USER
+            | NIIF_NOSOUND
+            | NIIF_RESPECT_QUIET_TIME
+            | if balloon.is_null() {
+                0
+            } else {
+                NIIF_LARGE_ICON
+            };
         data.hBalloonIcon = balloon;
         PENDING.set(Some(room));
         notify(NIM_MODIFY, &data)
@@ -422,7 +427,9 @@ mod windows {
                 }
                 let added = notify(NIM_ADD, &data);
                 if !added {
-                    tracing::info!("no notification area; closing the window quits Discord Obsidian");
+                    tracing::info!(
+                        "no notification area; closing the window quits Discord Obsidian"
+                    );
                 }
                 ICON.set(Some(Icon {
                     data,

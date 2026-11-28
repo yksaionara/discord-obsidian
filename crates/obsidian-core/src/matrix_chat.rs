@@ -1469,7 +1469,8 @@ async fn forward(
         .map(|_| ())
         .map_err(|_| {
             ForwardFailure::Note(
-                "Discord Obsidian could not queue the message you added. Check your connection.".into(),
+                "Discord Obsidian could not queue the message you added. Check your connection."
+                    .into(),
             )
         })
 }
@@ -1611,7 +1612,9 @@ async fn attach(
         )
         .use_send_queue()
         .await
-        .map_err(|_| "Discord Obsidian could not queue that file. Check that it is readable and retry.")
+        .map_err(
+            |_| "Discord Obsidian could not queue that file. Check that it is readable and retry.",
+        )
 }
 
 /// The media source and display name of an item's attachment.

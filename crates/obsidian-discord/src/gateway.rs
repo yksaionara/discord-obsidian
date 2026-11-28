@@ -455,7 +455,8 @@ impl Gateway {
         if !self.calls_asked.insert(channel_id.to_owned()) {
             return Ok(());
         }
-        self.send(CALL_CONNECT, json!({"channel_id": channel_id})).await
+        self.send(CALL_CONNECT, json!({"channel_id": channel_id}))
+            .await
     }
 
     /// Tells Discord this session's call lost its voice connection and is
@@ -1131,7 +1132,14 @@ mod tests {
         async fn session(&self, interval: Duration, limiter: Limiter) -> (Gateway, Peer) {
             let mut reconnects = Reconnects::default();
             let (connected, peer) = tokio::join!(
-                Gateway::connect_to(&self.url, "token", json!({}), &mut reconnects, limiter, Qos::default()),
+                Gateway::connect_to(
+                    &self.url,
+                    "token",
+                    json!({}),
+                    &mut reconnects,
+                    limiter,
+                    Qos::default()
+                ),
                 async {
                     let mut peer = self.accept(interval).await;
                     assert_eq!(peer.command().await["op"], IDENTIFY);
@@ -1377,10 +1385,17 @@ mod tests {
             std::future::pending::<()>().await;
         });
         let started = Instant::now();
-        let error = Gateway::connect_to(&url, "", json!({}), &mut Reconnects::default(), limiter(), Qos::default())
-            .await
-            .err()
-            .unwrap();
+        let error = Gateway::connect_to(
+            &url,
+            "",
+            json!({}),
+            &mut Reconnects::default(),
+            limiter(),
+            Qos::default(),
+        )
+        .await
+        .err()
+        .unwrap();
         assert!(error.to_string().contains("didn't answer"), "{error:#}");
         assert!(started.elapsed() < IO_TIMEOUT * 2);
         silent.abort();
@@ -1393,10 +1408,17 @@ mod tests {
             let _socket = tokio_tungstenite::accept_async(stream).await.unwrap();
             std::future::pending::<()>().await;
         });
-        let error = Gateway::connect_to(&url, "", json!({}), &mut Reconnects::default(), limiter(), Qos::default())
-            .await
-            .err()
-            .unwrap();
+        let error = Gateway::connect_to(
+            &url,
+            "",
+            json!({}),
+            &mut Reconnects::default(),
+            limiter(),
+            Qos::default(),
+        )
+        .await
+        .err()
+        .unwrap();
         assert!(error.to_string().contains("didn't greet"), "{error:#}");
         silent.abort();
     }
@@ -1516,7 +1538,14 @@ mod tests {
             derived: None,
         };
         let (connected, mut peer) = tokio::join!(
-            Gateway::connect_to(&discord.url, "token", json!({}), &mut reconnects, limiter(), qos),
+            Gateway::connect_to(
+                &discord.url,
+                "token",
+                json!({}),
+                &mut reconnects,
+                limiter(),
+                qos
+            ),
             async {
                 let mut peer = discord.accept(SLOW_HEARTBEAT).await;
                 let identify = peer.command().await;
@@ -1627,7 +1656,14 @@ mod tests {
             timeout(Duration::from_millis(200), peer.socket.next()).await
         };
         let (connected, sent) = tokio::join!(
-            Gateway::connect_to(&discord.url, "", json!({}), &mut reconnects, limiter(), Qos::default()),
+            Gateway::connect_to(
+                &discord.url,
+                "",
+                json!({}),
+                &mut reconnects,
+                limiter(),
+                Qos::default()
+            ),
             accept,
         );
         let error = connected.err().unwrap();

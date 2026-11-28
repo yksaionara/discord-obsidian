@@ -157,7 +157,12 @@ impl Adapter {
     }
 
     /// A colour came from the picker: the window shows it at once.
-    pub(super) fn theme_colour_picked(&mut self, window: &ObsidianWindow, index: i32, colour: slint::Color) {
+    pub(super) fn theme_colour_picked(
+        &mut self,
+        window: &ObsidianWindow,
+        index: i32,
+        colour: slint::Color,
+    ) {
         let Some(editor) = self.theme_editor.as_mut() else {
             return;
         };
@@ -172,7 +177,12 @@ impl Adapter {
 
     /// The background or accent changed among the quick colours: every
     /// colour is made again from the two.
-    pub(super) fn theme_quick_picked(&mut self, window: &ObsidianWindow, background: slint::Color, accent: slint::Color) {
+    pub(super) fn theme_quick_picked(
+        &mut self,
+        window: &ObsidianWindow,
+        background: slint::Color,
+        accent: slint::Color,
+    ) {
         let Some(editor) = self.theme_editor.as_mut() else {
             return;
         };
@@ -237,9 +247,10 @@ impl Adapter {
             // The theme Appearance shows as chosen, which may be the default
             // presentation's rather than one the layout names.
             let shown = window.get_theme_id();
-            let (_, before) = theme::lookup(&shown, &self.layout.custom_themes).unwrap_or_else(|| {
-                theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes)
-            });
+            let (_, before) =
+                theme::lookup(&shown, &self.layout.custom_themes).unwrap_or_else(|| {
+                    theme::chosen(self.layout.theme.as_deref(), &self.layout.custom_themes)
+                });
             self.set_theme(window, &before);
         }
     }

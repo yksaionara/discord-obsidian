@@ -7,8 +7,8 @@ use std::path::Path;
 
 use base64::Engine;
 use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType};
-use serde_json::{Map, Value};
 use obsidian_discord::profile::PICTURE_LIMIT;
+use serde_json::{Map, Value};
 
 use super::{commands::NOT_DISCORD, *};
 use crate::chat::{OwnProfile, PickedPicture, Pixels, ProfileChange, ProfilePicture, file_size};
@@ -239,7 +239,8 @@ pub(super) fn read_shaped(
             file_size(PICTURE_LIMIT)
         ));
     }
-    let data = std::fs::read(path).map_err(|_| format!("Discord Obsidian could not read {name}."))?;
+    let data =
+        std::fs::read(path).map_err(|_| format!("Discord Obsidian could not read {name}."))?;
     let not_a_picture = || format!("{name} isn't a PNG, JPG, GIF or WebP picture.");
     let format = image::guess_format(&data)
         .ok()

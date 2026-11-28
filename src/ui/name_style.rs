@@ -5,8 +5,8 @@
 //! palette for dark themes and one for light, off the HSL maths chroma.js
 //! does, which the client uses, and the rows wearing it share them.
 
-use slint::Color;
 use obsidian_core::chat::NameStyle;
+use slint::Color;
 
 use super::*;
 

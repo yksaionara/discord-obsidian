@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
 use obsidian_discord::ready::{self, Server};
+use serde_json::{Value, json};
 
 struct Counting;
 

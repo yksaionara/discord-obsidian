@@ -14,12 +14,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
+use obsidian_core::chat::EmojiSet;
+use obsidian_ui::{EmojiCell, EmojiRow, EmojiSection};
 use slint::{
     Model, ModelRc, SharedString, VecModel,
     fontique_012::{fontique, shared_collection},
 };
-use obsidian_core::chat::EmojiSet;
-use obsidian_ui::{EmojiCell, EmojiRow, EmojiSection};
 
 use crate::custom_emoji;
 

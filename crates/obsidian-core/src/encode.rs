@@ -666,7 +666,8 @@ mod tests {
             }
         }
         // The bitrate changes as the stream runs, without a keyframe.
-        let mut encoder = Encoder::new(Codec::H264, 320, 180, 30, 2000, Effort::Light, true).unwrap();
+        let mut encoder =
+            Encoder::new(Codec::H264, 320, 180, 30, 2000, Effort::Light, true).unwrap();
         encoder.set_bitrate(500).unwrap();
         assert_eq!(encoder.bitrate(), 500);
     }
@@ -691,6 +692,11 @@ mod tests {
             let _ = encoder.encode_i420(&picture, pts, frame == 0).unwrap();
         }
         let each = started.elapsed() / frames as u32;
-        eprintln!("{}: {:?} a frame, {:.0} fps", encoder.engine(), each, 1.0 / each.as_secs_f64());
+        eprintln!(
+            "{}: {:?} a frame, {:.0} fps",
+            encoder.engine(),
+            each,
+            1.0 / each.as_secs_f64()
+        );
     }
 }

@@ -36,7 +36,10 @@ pub fn unlock(offset: &FixedOffset) -> (DateTime<Utc>, &'static str) {
         .single()
         .map(|local| local.with_timezone(&Utc))
         .unwrap_or_else(eastern_midnight);
-    (at, "Rockstar unlocks it at midnight local time on November 19, 2026.")
+    (
+        at,
+        "Rockstar unlocks it at midnight local time on November 19, 2026.",
+    )
 }
 
 /// The countdown as it stands at `now` for a clock at `offset`.
@@ -78,7 +81,10 @@ mod tests {
         let (pacific, _) = unlock(&hours(-8));
         let (eastern, _) = unlock(&hours(-5));
         assert_eq!(pacific, eastern);
-        assert_eq!(pacific, Utc.with_ymd_and_hms(2026, 11, 19, 5, 0, 0).unwrap());
+        assert_eq!(
+            pacific,
+            Utc.with_ymd_and_hms(2026, 11, 19, 5, 0, 0).unwrap()
+        );
     }
 
     #[test]
@@ -86,7 +92,10 @@ mod tests {
         let (london, _) = unlock(&hours(0));
         assert_eq!(london, Utc.with_ymd_and_hms(2026, 11, 19, 0, 0, 0).unwrap());
         let (riyadh, _) = unlock(&hours(3));
-        assert_eq!(riyadh, Utc.with_ymd_and_hms(2026, 11, 18, 21, 0, 0).unwrap());
+        assert_eq!(
+            riyadh,
+            Utc.with_ymd_and_hms(2026, 11, 18, 21, 0, 0).unwrap()
+        );
     }
 
     #[test]

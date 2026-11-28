@@ -1254,7 +1254,11 @@ async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() 
         .await
         .unwrap()
         .into_iter()
-        .find(|message| message.content.starts_with("Welcome to **Discord Obsidian**"))
+        .find(|message| {
+            message
+                .content
+                .starts_with("Welcome to **Discord Obsidian**")
+        })
         .expect("the fake pins Bob's welcome")
         .id;
     let run = |command: Command, channels: &mut Channels| {
@@ -1768,7 +1772,12 @@ async fn a_server_channels_pins_and_search_show_its_members() {
     let (total, hits) =
         found(run(Some(search("welcome from:bob in:#general has:link"))).await).unwrap();
     assert_eq!(total, 1, "Bob's welcome carries a link");
-    assert!(hits[0].message.body.starts_with("Welcome to **Discord Obsidian**"));
+    assert!(
+        hits[0]
+            .message
+            .body
+            .starts_with("Welcome to **Discord Obsidian**")
+    );
     let refused = found(run(Some(search("from:nobody"))).await).unwrap_err();
     assert!(refused.contains("nobody"), "{refused}");
     let refused = found(run(Some(search("in:nowhere"))).await).unwrap_err();
@@ -1785,7 +1794,11 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     let mut live = discord.live();
     let room = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
     let latest = discord
-        .history(FAKE_GUILD, FAKE_GENERAL, obsidian_discord::api::Span::Latest)
+        .history(
+            FAKE_GUILD,
+            FAKE_GENERAL,
+            obsidian_discord::api::Span::Latest,
+        )
         .await
         .unwrap();
     let original = latest
@@ -1911,11 +1924,19 @@ fn the_message_logger_keeps_deleted_messages_and_earlier_texts() {
     };
     assert!(open.live(&delete("3", false)));
     let three = &open.shown.messages[&3];
-    assert!(three.logged_deletion.is_some_and(|deletion| !deletion.purge));
+    assert!(
+        three
+            .logged_deletion
+            .is_some_and(|deletion| !deletion.purge)
+    );
     assert!(!open.live(&delete("3", false)), "marked once");
     // A purge says so; this account's own deleted message goes.
     assert!(open.live(&delete("5", true)));
-    assert!(open.shown.messages[&5].logged_deletion.is_some_and(|deletion| deletion.purge));
+    assert!(
+        open.shown.messages[&5]
+            .logged_deletion
+            .is_some_and(|deletion| deletion.purge)
+    );
     assert!(open.live(&delete("4", false)));
     assert!(!open.shown.messages.contains_key(&4));
 

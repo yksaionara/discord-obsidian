@@ -545,7 +545,11 @@ impl Application {
     /// Sets how loud voice messages play, as Discord's slider over their
     /// volume button does; 0 mutes them, keeping the level for unmuting.
     pub(super) fn turn_voice_messages(&mut self, volume: f32) -> Vec<Effect> {
-        let volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 1.0 };
+        let volume = if volume.is_finite() {
+            volume.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self.state.voice_muted = volume == 0.0;
         if volume > 0.0 {
             self.state.voice_volume = volume;
@@ -1056,8 +1060,9 @@ impl Application {
                 self.state.jump = Some((seeking.item, count));
             }
         } else if !seeking.unread {
-            self.state.notice =
-                Some("Discord Obsidian couldn't find that message. It may have been deleted.".into());
+            self.state.notice = Some(
+                "Discord Obsidian couldn't find that message. It may have been deleted.".into(),
+            );
         }
         vec![]
     }

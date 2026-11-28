@@ -264,7 +264,10 @@ impl Dave {
                             .as_ref()
                             .is_some_and(|session| session.status() != SessionStatus::ACTIVE) =>
                     {
-                        tracing::info!(?error, "DAVE proposals for a group Discord Obsidian isn't in yet");
+                        tracing::info!(
+                            ?error,
+                            "DAVE proposals for a group Discord Obsidian isn't in yet"
+                        );
                     }
                     Some(Err(error)) => {
                         tracing::warn!(?error, "could not process MLS proposals");

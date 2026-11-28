@@ -2120,7 +2120,10 @@ impl Api {
     pub async fn stream_preview_url(&self, stream_key: &str) -> Result<Option<String>> {
         let path = format!("/streams/{stream_key}/preview");
         match self.json(self.request(Method::GET, &path)).await {
-            Ok(body) => Ok(body["url"].as_str().filter(|url| !url.is_empty()).map(str::to_owned)),
+            Ok(body) => Ok(body["url"]
+                .as_str()
+                .filter(|url| !url.is_empty())
+                .map(str::to_owned)),
             Err(error) if error.downcast_ref::<Refused>().is_some_and(Refused::gone) => Ok(None),
             Err(error) => Err(error),
         }

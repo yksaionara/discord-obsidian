@@ -8,8 +8,8 @@
 //! reaction buttons show an emoji's picture as an image, so the hundreds a
 //! picker lists don't each add a font for text to fall back through.
 
-use std::{cell::RefCell, collections::HashMap};
 use obsidian_core::chat::{CustomEmoji, Picture};
+use std::{cell::RefCell, collections::HashMap};
 
 use crate::emoji_font;
 

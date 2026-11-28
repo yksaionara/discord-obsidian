@@ -58,9 +58,16 @@ fn scrub(line: &str) -> String {
             out.push(' ');
         }
         let lower = word.to_ascii_lowercase();
-        let secret_name = ["token", "password", "authorization", "secret", "cookie", "ticket"]
-            .iter()
-            .any(|name| lower.contains(name));
+        let secret_name = [
+            "token",
+            "password",
+            "authorization",
+            "secret",
+            "cookie",
+            "ticket",
+        ]
+        .iter()
+        .any(|name| lower.contains(name));
         if hide_next || looks_secret(word) {
             out.push_str("[hidden]");
             hide_next = false;

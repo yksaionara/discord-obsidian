@@ -69,8 +69,10 @@ impl Filming {
         // Made just now on this thread, so this is the same source.
         let source = webrtc_sys::video_track::ffi::last_video_track_source();
         anyhow::ensure!(!source.is_null(), "Could not start your camera's video.");
-        let track =
-            LocalVideoTrack::create_video_track("Discord Obsidian camera", RtcVideoSource::Native(video));
+        let track = LocalVideoTrack::create_video_track(
+            "Discord Obsidian camera",
+            RtcVideoSource::Native(video),
+        );
         Ok(Self {
             feed: Feed::new(),
             source,

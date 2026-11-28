@@ -465,8 +465,10 @@ impl Controller {
                     ),
                     Err(_) => {
                         states.send_modify(|state| {
-                            state.error =
-                                Some("Could not start voice. Restart Discord Obsidian and try again.".into())
+                            state.error = Some(
+                                "Could not start voice. Restart Discord Obsidian and try again."
+                                    .into(),
+                            )
                         });
                     }
                 }

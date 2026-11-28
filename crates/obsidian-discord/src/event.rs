@@ -271,7 +271,10 @@ mod tests {
             ("STREAM_DELETE", Event::StreamDelete),
             ("STREAM_SERVER_UPDATE", Event::StreamServerUpdate),
             ("VOICE_CHANNEL_EFFECT_SEND", Event::VoiceChannelEffectSend),
-            ("VOICE_CHANNEL_STATUS_UPDATE", Event::VoiceChannelStatusUpdate),
+            (
+                "VOICE_CHANNEL_STATUS_UPDATE",
+                Event::VoiceChannelStatusUpdate,
+            ),
             ("CHANNEL_PINS_UPDATE", Event::ChannelPinsUpdate),
             ("SAVED_MESSAGE_CREATE", Event::SavedMessageCreate),
             ("SAVED_MESSAGE_DELETE", Event::SavedMessageDelete),

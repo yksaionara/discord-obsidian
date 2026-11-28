@@ -264,8 +264,13 @@ pub(crate) fn keep_qos_token(user_id: &str, token: Option<&str>) {
         return;
     };
     let written = match token {
-        Some(token) => std::fs::write(&file, format!("{user_id} {token}
-")),
+        Some(token) => std::fs::write(
+            &file,
+            format!(
+                "{user_id} {token}
+"
+            ),
+        ),
         None => match std::fs::remove_file(&file) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             done => done,
@@ -1343,8 +1348,10 @@ mod tests {
     fn keeps_only_the_thumbnails_of_the_favourites_it_is_given() {
         let one = "https://media.tenor.com/one.gif";
         let two = "https://media.tenor.com/two.gif";
-        let directory =
-            std::env::temp_dir().join(format!("obsidian-discord-favourites-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!(
+            "obsidian-discord-favourites-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&directory).unwrap();
         let kept = |url: &str| directory.join(hash(url));
         std::fs::write(kept(one), [1, 2, 3]).unwrap();

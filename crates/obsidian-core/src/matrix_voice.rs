@@ -802,8 +802,10 @@ async fn set_muted(
             )?;
             track.unmute();
         } else {
-            let track =
-                LocalAudioTrack::create_audio_track("Discord Obsidian microphone", audio.rtc_source());
+            let track = LocalAudioTrack::create_audio_track(
+                "Discord Obsidian microphone",
+                audio.rtc_source(),
+            );
             let result = tokio::time::timeout(
                 Duration::from_secs(10),
                 call.publish_audio_track(

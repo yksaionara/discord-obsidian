@@ -52,7 +52,11 @@ fn parse(version: &str) -> Option<(u64, u64, u64)> {
     let version = version.trim().trim_start_matches('v');
     let version = version.split('-').next()?;
     let mut parts = version.split('.').map(|part| part.parse::<u64>().ok());
-    Some((parts.next()??, parts.next().flatten().unwrap_or(0), parts.next().flatten().unwrap_or(0)))
+    Some((
+        parts.next()??,
+        parts.next().flatten().unwrap_or(0),
+        parts.next().flatten().unwrap_or(0),
+    ))
 }
 
 /// Whether `version` comes after this build's.
@@ -70,7 +74,10 @@ pub fn pending(root: &Path) -> Option<Pending> {
         if path.extension().is_none_or(|extension| extension != "exe") {
             continue;
         }
-        let Some(version) = path.file_stem().and_then(|stem| stem.to_str()).map(str::to_owned)
+        let Some(version) = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(str::to_owned)
         else {
             continue;
         };
@@ -252,7 +259,8 @@ async fn download(
     // Written as it arrives, so the installer never sits whole in memory.
     while let Some(chunk) = response.chunk().await.context("the download stopped")? {
         hasher.update(&chunk);
-        file.write_all(&chunk).context("could not save the update")?;
+        file.write_all(&chunk)
+            .context("could not save the update")?;
     }
     file.flush()?;
     drop(file);
@@ -318,6 +326,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let pending = check(root.path()).unwrap().expect("a newer release");
         assert!(pending.installer.metadata().unwrap().len() > 1_000_000);
-        eprintln!("downloaded {} to {}", pending.version, pending.installer.display());
+        eprintln!(
+            "downloaded {} to {}",
+            pending.version,
+            pending.installer.display()
+        );
     }
 }

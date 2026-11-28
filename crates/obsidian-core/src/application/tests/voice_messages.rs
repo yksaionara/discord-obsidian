@@ -264,7 +264,11 @@ fn the_volume_slider_sets_how_loud_voice_messages_play() {
     assert_eq!(clock.gain(), 1.0, "full until the slider moves");
     app.dispatch(Action::VoiceMessageVolume(0.5));
     let half = 0.5f32.powf(2.8);
-    assert_eq!(clock.gain(), half, "Discord's curve, travel to the power 2.8");
+    assert_eq!(
+        clock.gain(),
+        half,
+        "Discord's curve, travel to the power 2.8"
+    );
     app.dispatch(Action::VoiceMessageVolume(0.0));
     assert!(app.state.voice_muted, "the bottom of the slider mutes");
     assert_eq!(clock.gain(), 0.0);

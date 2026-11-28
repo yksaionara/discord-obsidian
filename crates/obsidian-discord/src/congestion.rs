@@ -267,9 +267,14 @@ impl Trendline {
         // except for a jump far past it, as a sudden route change.
         let last = self.last_update.replace(now).unwrap_or(now);
         if modified.abs() <= self.threshold + 15.0 {
-            let k = if modified.abs() < self.threshold { K_DOWN } else { K_UP };
+            let k = if modified.abs() < self.threshold {
+                K_DOWN
+            } else {
+                K_UP
+            };
             let elapsed = (now - last).clamp(0.0, 100.0);
-            self.threshold = (self.threshold + k * (modified.abs() - self.threshold) * elapsed).clamp(6.0, 600.0);
+            self.threshold = (self.threshold + k * (modified.abs() - self.threshold) * elapsed)
+                .clamp(6.0, 600.0);
         }
     }
 }
@@ -345,7 +350,13 @@ impl DelayBased {
         for &(sent, arrival, size) in arrivals {
             self.acked.push_back((arrival, size));
             match self.current.as_mut() {
-                None => self.current = Some(Group { first_sent: sent, last_sent: sent, last_arrival: arrival }),
+                None => {
+                    self.current = Some(Group {
+                        first_sent: sent,
+                        last_sent: sent,
+                        last_arrival: arrival,
+                    })
+                }
                 // Reordered: too late for its group.
                 Some(group) if sent < group.first_sent => {}
                 Some(group) if sent - group.first_sent <= GROUP_SPAN_US => {
@@ -356,28 +367,46 @@ impl DelayBased {
                     let finished = *group;
                     if let Some(previous) = self.previous {
                         let send_delta = (finished.last_sent - previous.last_sent) as f64 / 1000.0;
-                        let arrival_delta = (finished.last_arrival - previous.last_arrival) as f64 / 1000.0;
-                        signal = Some(self.trend.update(arrival_delta, send_delta, finished.last_arrival as f64 / 1000.0));
+                        let arrival_delta =
+                            (finished.last_arrival - previous.last_arrival) as f64 / 1000.0;
+                        signal = Some(self.trend.update(
+                            arrival_delta,
+                            send_delta,
+                            finished.last_arrival as f64 / 1000.0,
+                        ));
                     }
                     self.previous = Some(finished);
-                    self.current = Some(Group { first_sent: sent, last_sent: sent, last_arrival: arrival });
+                    self.current = Some(Group {
+                        first_sent: sent,
+                        last_sent: sent,
+                        last_arrival: arrival,
+                    });
                 }
             }
         }
         if let Some(&(newest, _)) = self.acked.back() {
-            while self.acked.front().is_some_and(|&(arrival, _)| newest - arrival > ACKED_WINDOW_US) {
+            while self
+                .acked
+                .front()
+                .is_some_and(|&(arrival, _)| newest - arrival > ACKED_WINDOW_US)
+            {
                 self.acked.pop_front();
             }
         }
         let acked = self.acked();
-        let elapsed = self.updated.map_or(0.0, |updated| ((now - updated) as f64 / 1e6).clamp(0.0, 1.0));
+        let elapsed = self.updated.map_or(0.0, |updated| {
+            ((now - updated) as f64 / 1e6).clamp(0.0, 1.0)
+        });
         self.updated = Some(now);
         match signal.unwrap_or(self.trend.signal) {
             Signal::Overuse => {
                 let base = acked.unwrap_or(self.bitrate);
                 // Only ever lower, as when the encoder sent less than aimed.
                 self.bitrate = (BETA * base).min(self.bitrate);
-                self.capacity = Some(self.capacity.map_or(base, |capacity| 0.95 * capacity + 0.05 * base));
+                self.capacity = Some(
+                    self.capacity
+                        .map_or(base, |capacity| 0.95 * capacity + 0.05 * base),
+                );
                 self.holding = true;
             }
             Signal::Underuse => self.holding = true,
@@ -389,7 +418,9 @@ impl DelayBased {
                 {
                     self.capacity = None;
                 }
-                let near = self.capacity.is_some_and(|capacity| self.bitrate >= 0.9 * capacity);
+                let near = self
+                    .capacity
+                    .is_some_and(|capacity| self.bitrate >= 0.9 * capacity);
                 let growth: f64 = if near { 1.02 } else { 1.08 };
                 let mut next = self.bitrate * growth.powf(elapsed) + 1000.0 * elapsed;
                 // Only as fast as what's acknowledged shows gets through, as
@@ -451,20 +482,53 @@ mod tests {
         let reports = transport_feedback(&packet);
         assert_eq!(
             reports,
-            [vec![(65534, Some(1000)), (65535, None), (0, Some(3000)), (1, Some(3000))]],
+            [vec![
+                (65534, Some(1000)),
+                (65535, None),
+                (0, Some(3000)),
+                (1, Some(3000))
+            ]],
             "deltas in 250 µs, wrapping sequence numbers"
         );
         // A run-length chunk: five packets received with small deltas.
-        let mut run = vec![0x80 | 15, 205, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 10, 0, 5, 0, 0, 1, 0];
+        let mut run = vec![
+            0x80 | 15,
+            205,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            2,
+            0,
+            10,
+            0,
+            5,
+            0,
+            0,
+            1,
+            0,
+        ];
         run.extend_from_slice(&(0x2000u16 | 5).to_be_bytes());
         run.extend_from_slice(&[4, 4, 4, 4, 4, 0]);
         let words = (run.len() / 4 - 1) as u16;
         run[2..4].copy_from_slice(&words.to_be_bytes());
         let report = &transport_feedback(&run)[0];
         assert_eq!(report.len(), 5);
-        assert_eq!(report[0], (10, Some(64_000 + 1000)), "the reference time in 64 ms");
+        assert_eq!(
+            report[0],
+            (10, Some(64_000 + 1000)),
+            "the reference time in 64 ms"
+        );
         assert_eq!(report[4], (14, Some(64_000 + 5000)));
-        assert!(transport_feedback(&[0x81, 201, 0, 1, 0, 0, 0, 1]).is_empty(), "not feedback");
+        assert!(
+            transport_feedback(&[0x81, 201, 0, 1, 0, 0, 0, 1]).is_empty(),
+            "not feedback"
+        );
     }
 
     #[test]
@@ -472,7 +536,8 @@ mod tests {
         let mut history = SendHistory::default();
         history.record(7, 100, 1200);
         history.record(8, 200, 1100);
-        let arrivals = history.arrivals(&[(8, Some(5200)), (7, Some(5100)), (9, Some(5300)), (6, None)]);
+        let arrivals =
+            history.arrivals(&[(8, Some(5200)), (7, Some(5100)), (9, Some(5300)), (6, None)]);
         assert_eq!(arrivals, [(100, 5100, 1200), (200, 5200, 1100)]);
     }
 
@@ -503,7 +568,10 @@ mod tests {
         let estimate = run(4_000_000, 5, 0, 20_000_000);
         assert_eq!(estimate.signal(), Signal::Normal);
         assert!(estimate.bitrate() > 5_000_000, "{}", estimate.bitrate());
-        assert!(run(4_000_000, 60, 0, 20_000_000).bitrate() <= 20_000_000, "up to the cap");
+        assert!(
+            run(4_000_000, 60, 0, 20_000_000).bitrate() <= 20_000_000,
+            "up to the cap"
+        );
     }
 
     #[test]
@@ -525,7 +593,11 @@ mod tests {
         assert_eq!(estimate.signal(), Signal::Normal);
         // It grows only in the quarter second before what's acknowledged
         // can be measured.
-        assert!(estimate.bitrate() < 4_100_000, "above 1.5 times 2 Mbit/s already: held, {}", estimate.bitrate());
+        assert!(
+            estimate.bitrate() < 4_100_000,
+            "above 1.5 times 2 Mbit/s already: held, {}",
+            estimate.bitrate()
+        );
     }
 
     #[test]

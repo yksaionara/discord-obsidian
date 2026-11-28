@@ -1919,7 +1919,11 @@ impl OpenChannel {
             logged: message
                 .logged_deletion
                 .map(|deletion| {
-                    let label = if deletion.purge { "Deleted in a purge" } else { "Deleted" };
+                    let label = if deletion.purge {
+                        "Deleted in a purge"
+                    } else {
+                        "Deleted"
+                    };
                     match crate::message_logger::later(timestamp * 1000, deletion.at) {
                         later if later.is_empty() => label.to_owned(),
                         later => format!("{label} · {later}"),
@@ -2118,7 +2122,9 @@ fn change(messages: &mut BTreeMap<u64, Message>, channel: &str, event: &Live) ->
                     content: std::mem::take(&mut known.content),
                     until: crate::message_logger::now(),
                 });
-                let over = earlier.len().saturating_sub(crate::message_logger::MAX_EARLIER);
+                let over = earlier
+                    .len()
+                    .saturating_sub(crate::message_logger::MAX_EARLIER);
                 earlier.drain(..over);
             }
             *known = Message {

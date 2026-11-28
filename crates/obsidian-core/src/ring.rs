@@ -93,7 +93,10 @@ impl Ringer {
                     })
                     .flatten();
                 let stereo = discord.unwrap_or_else(|| {
-                    pattern(tone).into_iter().flat_map(|sample| [sample, sample]).collect()
+                    pattern(tone)
+                        .into_iter()
+                        .flat_map(|sample| [sample, sample])
+                        .collect()
                 });
                 match output {
                     Ok(output) => play(&stereo, output, &stopped),

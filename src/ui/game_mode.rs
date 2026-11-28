@@ -9,7 +9,8 @@ impl Adapter {
     /// Turns Game Mode on or off when the game Discord sees, or the setting,
     /// changes. Cheap when nothing did.
     pub(super) fn watch_game_mode(&mut self, window: &ObsidianWindow) {
-        let gaming = self.layout.game_mode.unwrap_or(true) && self.app.state.discord_playing.is_some();
+        let gaming =
+            self.layout.game_mode.unwrap_or(true) && self.app.state.discord_playing.is_some();
         if gaming == GAMING.get() {
             return;
         }
@@ -21,7 +22,12 @@ impl Adapter {
         show_motion(window);
         if gaming {
             tracing::info!(
-                game = self.app.state.discord_playing.as_ref().map(|playing| playing.name.as_str()),
+                game = self
+                    .app
+                    .state
+                    .discord_playing
+                    .as_ref()
+                    .map(|playing| playing.name.as_str()),
                 "game mode on"
             );
             shell::release_memory();

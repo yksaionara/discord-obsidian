@@ -28,15 +28,15 @@ use windows::{
         Graphics::{
             Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_UNKNOWN},
             Direct3D11::{
-                D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION,
-                D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device,
-                ID3D11DeviceContext, ID3D11Texture2D,
+                D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
+                D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
+                D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext,
+                ID3D11Texture2D,
             },
             Dxgi::{
                 Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
-                CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, IDXGIAdapter, IDXGIAdapter1,
-                IDXGIDevice, IDXGIFactory1,
+                CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, IDXGIAdapter, IDXGIAdapter1, IDXGIDevice,
+                IDXGIFactory1,
             },
             Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow},
         },
@@ -172,7 +172,10 @@ impl WindowCapture {
                     Ok(true) => Next::Frame,
                     Ok(false) => Next::Timeout,
                     Err(error) => {
-                        tracing::debug!(error = format!("{error:#}"), "the window's frame couldn't be read");
+                        tracing::debug!(
+                            error = format!("{error:#}"),
+                            "the window's frame couldn't be read"
+                        );
                         self.broken = true;
                         Next::Lost
                     }
@@ -243,7 +246,10 @@ impl WindowCapture {
                     MipLevels: 1,
                     ArraySize: 1,
                     Format: desc.Format,
-                    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                    SampleDesc: DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
                     Usage: D3D11_USAGE_STAGING,
                     BindFlags: 0,
                     CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
@@ -272,8 +278,10 @@ impl WindowCapture {
                 .Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
                 .context("could not read the window's frame")?;
             let stride = mapped.RowPitch;
-            let bytes =
-                std::slice::from_raw_parts(mapped.pData as *const u8, stride as usize * height as usize);
+            let bytes = std::slice::from_raw_parts(
+                mapped.pData as *const u8,
+                stride as usize * height as usize,
+            );
             let (y_stride, u_stride, v_stride) = self.picture.strides();
             let (y, u, v) = self.picture.data_mut();
             // libyuv's ARGB is B, G, R, A in memory, as the window's is.
@@ -334,7 +342,9 @@ fn adapter_of(window: HWND) -> Option<IDXGIAdapter> {
                 Err(_) => return None,
             };
             for output_index in 0.. {
-                let Ok(output) = adapter.EnumOutputs(output_index) else { break };
+                let Ok(output) = adapter.EnumOutputs(output_index) else {
+                    break;
+                };
                 if output.GetDesc().is_ok_and(|desc| desc.Monitor == monitor) {
                     return adapter.cast().ok();
                 }
@@ -350,8 +360,20 @@ mod tests {
 
     #[test]
     fn sizes_are_even() {
-        assert_eq!(even(SizeInt32 { Width: 1569, Height: 1079 }), (1568, 1078));
-        assert_eq!(even(SizeInt32 { Width: 0, Height: 1 }), (2, 2));
+        assert_eq!(
+            even(SizeInt32 {
+                Width: 1569,
+                Height: 1079
+            }),
+            (1568, 1078)
+        );
+        assert_eq!(
+            even(SizeInt32 {
+                Width: 0,
+                Height: 1
+            }),
+            (2, 2)
+        );
     }
 
     /// Captures the shell's own window, which every desktop has.
@@ -379,7 +401,10 @@ mod tests {
     #[test]
     #[ignore = "needs a minimized window"]
     fn opens_a_minimized_window() {
-        let window: u64 = std::env::var("OBSIDIAN_TEST_WINDOW").unwrap().parse().unwrap();
+        let window: u64 = std::env::var("OBSIDIAN_TEST_WINDOW")
+            .unwrap()
+            .parse()
+            .unwrap();
         let mut capture = WindowCapture::open(window).unwrap();
         for _ in 0..10 {
             assert!(matches!(capture.next(20).unwrap(), Next::Timeout));

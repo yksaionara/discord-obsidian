@@ -39,7 +39,9 @@ pub fn install() {
         return;
     };
     match install_in(&data, &data_dirs(), &image) {
-        Ok(true) => tracing::info!(appimage = %image.display(), "added Discord Obsidian to the app menu"),
+        Ok(true) => {
+            tracing::info!(appimage = %image.display(), "added Discord Obsidian to the app menu")
+        }
         Ok(false) => {}
         Err(error) => tracing::warn!(%error, "could not add Discord Obsidian to the app menu"),
     }
@@ -203,7 +205,12 @@ mod tests {
     #[test]
     fn a_moved_appimage_updates_its_entry() {
         let data = tempfile::tempdir().unwrap();
-        install_in(data.path(), &[], Path::new("/tmp/Discord Obsidian.AppImage")).unwrap();
+        install_in(
+            data.path(),
+            &[],
+            Path::new("/tmp/Discord Obsidian.AppImage"),
+        )
+        .unwrap();
         assert!(install_in(data.path(), &[], Path::new(IMAGE)).unwrap());
         assert!(entry_in(data.path()).contains(&format!("\nExec=\"{IMAGE}\" --open-link %u\n")));
     }

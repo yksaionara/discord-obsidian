@@ -4,8 +4,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde_json::{Value, json};
 use obsidian_discord::server_settings::{Managed, Role as DiscordRole, Roles as DiscordRoles};
+use serde_json::{Value, json};
 
 use super::{channels::SEARCH_PAUSE, commands::NOT_DISCORD, own_profile::picture, *};
 use crate::chat::{

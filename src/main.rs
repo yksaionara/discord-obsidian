@@ -131,7 +131,9 @@ fn main() -> Result<()> {
     let open_link = links.pop().and_then(|link| {
         let written = written_link(&link);
         if written.is_none() {
-            tracing::info!("Discord Obsidian has no place for the link it was handed; starting without it");
+            tracing::info!(
+                "Discord Obsidian has no place for the link it was handed; starting without it"
+            );
         }
         written
     });
@@ -308,7 +310,9 @@ fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>)
     }
     #[cfg(not(unix))]
     {
-        let status = command.status().context("could not restart Discord Obsidian")?;
+        let status = command
+            .status()
+            .context("could not restart Discord Obsidian")?;
         std::process::exit(status.code().unwrap_or(1));
     }
 }

@@ -33,8 +33,10 @@ const OLD_SERVICE: &str = "io.github.yapfast.Yapfast";
 /// old name, once, so an update keeps the account linked.
 fn move_from_old_name() {
     for account in [ACCOUNT, EARLIER_ACCOUNT, CACHE_KEY] {
-        let (Ok(old), Ok(new)) = (Entry::new(OLD_SERVICE, account), Entry::new(SERVICE, account))
-        else {
+        let (Ok(old), Ok(new)) = (
+            Entry::new(OLD_SERVICE, account),
+            Entry::new(SERVICE, account),
+        ) else {
             continue;
         };
         let Ok(secret) = old.get_password() else {

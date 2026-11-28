@@ -8,13 +8,13 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
+use obsidian_core::runtime::BackgroundRuntime;
 use serde::{Deserialize, Serialize};
 use slint::winit_030::winit::{
     event::{ElementState, KeyEvent, WindowEvent},
     keyboard::{Key, KeyLocation, NamedKey, PhysicalKey},
     platform::scancode::PhysicalKeyExtScancode,
 };
-use obsidian_core::runtime::BackgroundRuntime;
 
 /// A key recorded in settings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +300,7 @@ mod linux {
 
     use anyhow::{Context, Result, anyhow, bail};
     use futures_util::StreamExt;
+    use obsidian_core::runtime::{BackgroundRuntime, BackgroundTask};
     use x11rb::{
         connection::Connection as _,
         protocol::{
@@ -309,7 +310,6 @@ mod linux {
         },
         rust_connection::RustConnection,
     };
-    use obsidian_core::runtime::{BackgroundRuntime, BackgroundTask};
     use zbus::{
         Connection, MessageStream,
         zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},

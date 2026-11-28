@@ -3,13 +3,13 @@
 
 use std::sync::RwLock;
 
-use serde_json::json;
 use obsidian_discord::{
     marked::{MarkedServer, ServerMarks},
     message::Names,
     ready::{self, permission},
     service::{SharedNames, Snapshot, Status},
 };
+use serde_json::json;
 
 use super::*;
 

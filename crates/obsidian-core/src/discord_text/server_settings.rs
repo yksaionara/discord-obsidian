@@ -3,13 +3,13 @@
 //! two-factor prompts Discord asks of moderation and of the settings. See
 //! "Server settings" in docs/discord/server-settings.md.
 
-use serde_json::{Map, Value};
 use obsidian_discord::{
     mfa,
     server_settings::{
         Ban as DiscordBan, GuildSettings as DiscordSettings, ServerProfile as DiscordProfile,
     },
 };
+use serde_json::{Map, Value};
 
 use super::{
     commands::NOT_DISCORD,

@@ -69,7 +69,11 @@ pub fn arrange(servers: &mut Vec<Arc<ChatServer>>, order: &[String]) {
 pub fn moved(servers: &[Arc<ChatServer>], id: &str, up: bool) -> Option<Vec<String>> {
     let mut places = places(servers);
     let step = |at: usize, len: usize| -> Option<usize> {
-        if up { at.checked_sub(1) } else { (at + 1 < len).then_some(at + 1) }
+        if up {
+            at.checked_sub(1)
+        } else {
+            (at + 1 < len).then_some(at + 1)
+        }
     };
     if let Some(at) = places.iter().position(|place| place.key == id) {
         let to = step(at, places.len())?;
@@ -114,8 +118,15 @@ fn entries(servers: &[Arc<ChatServer>]) -> Vec<ServerListEntry> {
     places(servers)
         .into_iter()
         .map(|place| ServerListEntry {
-            folder: place.folder.then(|| place.servers[0].folder.clone()).flatten(),
-            servers: place.servers.iter().map(|server| server.id.clone()).collect(),
+            folder: place
+                .folder
+                .then(|| place.servers[0].folder.clone())
+                .flatten(),
+            servers: place
+                .servers
+                .iter()
+                .map(|server| server.id.clone())
+                .collect(),
         })
         .collect()
 }
@@ -198,7 +209,11 @@ pub fn dropped(
         } else {
             let inside = &mut entries[at].servers;
             let place = inside.iter().position(|server| server == target)?;
-            let place = if drop == Drop::Before { place } else { place + 1 };
+            let place = if drop == Drop::Before {
+                place
+            } else {
+                place + 1
+            };
             inside.insert(place, id.to_owned());
         }
     }
@@ -207,7 +222,11 @@ pub fn dropped(
 
 /// The rail with `id` one place up or down among its neighbours, as
 /// [`dropped`] gives it: on the rail, or in its folder. None at an end.
-pub fn moved_entries(servers: &[Arc<ChatServer>], id: &str, up: bool) -> Option<Vec<ServerListEntry>> {
+pub fn moved_entries(
+    servers: &[Arc<ChatServer>],
+    id: &str,
+    up: bool,
+) -> Option<Vec<ServerListEntry>> {
     let order = moved(servers, id, up)?;
     let rank = |key: &str| order.iter().position(|kept| kept == key);
     let mut entries = entries(servers);
@@ -264,7 +283,10 @@ pub fn is_folder(servers: &[Arc<ChatServer>], id: &str) -> bool {
 
 /// Whether `id` can move up, and down.
 pub fn can_move(servers: &[Arc<ChatServer>], id: &str) -> (bool, bool) {
-    (moved(servers, id, true).is_some(), moved(servers, id, false).is_some())
+    (
+        moved(servers, id, true).is_some(),
+        moved(servers, id, false).is_some(),
+    )
 }
 
 #[cfg(test)]
@@ -308,24 +330,52 @@ mod tests {
             server("c", Some("f")),
             server("d", None),
         ];
-        let drop = |id, target, drop| dropped(&rail, id, target, drop, "new").map(|entries| shape(&entries));
+        let drop = |id, target, drop| {
+            dropped(&rail, id, target, drop, "new").map(|entries| shape(&entries))
+        };
         assert_eq!(drop("d", "a", Drop::Before).unwrap(), ["d", "a", "f[b,c]"]);
         assert_eq!(drop("a", "d", Drop::After).unwrap(), ["f[b,c]", "d", "a"]);
-        assert_eq!(drop("a", "d", Drop::Into).unwrap(), ["f[b,c]", "new[d,a]"], "two servers make a folder");
-        assert_eq!(drop("d", "f", Drop::Into).unwrap(), ["a", "f[b,c,d]"], "into a folder, last");
-        assert_eq!(drop("d", "b", Drop::Before).unwrap(), ["a", "f[d,b,c]"], "into a folder, between");
-        assert_eq!(drop("c", "a", Drop::Before).unwrap(), ["c", "a", "f[b]", "d"], "out of a folder");
-        assert_eq!(drop("f", "a", Drop::Before).unwrap(), ["f[b,c]", "a", "d"], "a folder, whole");
+        assert_eq!(
+            drop("a", "d", Drop::Into).unwrap(),
+            ["f[b,c]", "new[d,a]"],
+            "two servers make a folder"
+        );
+        assert_eq!(
+            drop("d", "f", Drop::Into).unwrap(),
+            ["a", "f[b,c,d]"],
+            "into a folder, last"
+        );
+        assert_eq!(
+            drop("d", "b", Drop::Before).unwrap(),
+            ["a", "f[d,b,c]"],
+            "into a folder, between"
+        );
+        assert_eq!(
+            drop("c", "a", Drop::Before).unwrap(),
+            ["c", "a", "f[b]", "d"],
+            "out of a folder"
+        );
+        assert_eq!(
+            drop("f", "a", Drop::Before).unwrap(),
+            ["f[b,c]", "a", "d"],
+            "a folder, whole"
+        );
         assert_eq!(drop("f", "d", Drop::Into), None, "folders hold no folders");
         assert_eq!(drop("a", "a", Drop::Before), None);
         assert_eq!(drop("a", "f", Drop::Before), None, "already there");
         // The folder's last server leaves: the folder goes.
         let rail = vec![server("a", None), server("b", Some("f"))];
-        assert_eq!(shape(&dropped(&rail, "b", "a", Drop::After, "new").unwrap()), ["a", "b"]);
+        assert_eq!(
+            shape(&dropped(&rail, "b", "a", Drop::After, "new").unwrap()),
+            ["a", "b"]
+        );
         let entries = dropped(&rail, "a", "b", Drop::Before, "new").unwrap();
         assert_eq!(shape(&entries), ["f[a,b]"]);
         assert_eq!(order_of(&entries), ["f", "a", "b"]);
-        assert_eq!(shape(&moved_entries(&rail, "f", true).unwrap()), ["f[b]", "a"]);
+        assert_eq!(
+            shape(&moved_entries(&rail, "f", true).unwrap()),
+            ["f[b]", "a"]
+        );
     }
 
     #[test]

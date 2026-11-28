@@ -613,9 +613,11 @@ pub struct MessageApp {
 
 impl MessageApp {
     fn of(value: &Value) -> Option<Box<Self>> {
-        let id = value["application_id"]
-            .as_str()
-            .or_else(|| value["author"]["id"].as_str().filter(|_| value["author"]["bot"] == true))?;
+        let id = value["application_id"].as_str().or_else(|| {
+            value["author"]["id"]
+                .as_str()
+                .filter(|_| value["author"]["bot"] == true)
+        })?;
         Some(Box::new(Self {
             id: id.to_owned(),
             flags: value["flags"].as_u64().unwrap_or(0),

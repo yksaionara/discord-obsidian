@@ -59,7 +59,11 @@ impl Shortcut {
     /// As settings show it, such as "Ctrl+Shift+M".
     pub fn name(&self) -> String {
         let mut name = String::new();
-        for (held, part) in [(self.ctrl, "Ctrl+"), (self.shift, "Shift+"), (self.alt, "Alt+")] {
+        for (held, part) in [
+            (self.ctrl, "Ctrl+"),
+            (self.shift, "Shift+"),
+            (self.alt, "Alt+"),
+        ] {
             if held {
                 name.push_str(part);
             }
@@ -170,9 +174,9 @@ mod windows {
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_MENU, VK_SHIFT},
             WindowsAndMessaging::{
                 CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-                HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG,
-                PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
-                WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+                HC_ACTION, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG, PostThreadMessageW,
+                SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
+                WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
         },
     };
@@ -196,14 +200,16 @@ mod windows {
     impl Hook {
         pub fn start(shortcuts: &[Option<Shortcut>; 2], pressed: Pressed) -> Option<Self> {
             for (index, shortcut) in shortcuts.iter().enumerate() {
-                let (key, modifiers) = shortcut
-                    .as_ref()
-                    .map_or((NONE, 0), |shortcut| (shortcut.key.scancode, shortcut.modifiers()));
+                let (key, modifiers) = shortcut.as_ref().map_or((NONE, 0), |shortcut| {
+                    (shortcut.key.scancode, shortcut.modifiers())
+                });
                 KEYS[index].store(key, Ordering::Relaxed);
                 MODIFIERS[index].store(modifiers, Ordering::Relaxed);
                 DOWN[index].store(false, Ordering::Relaxed);
             }
-            *PRESSED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(pressed);
+            *PRESSED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(pressed);
             let (started, thread) = mpsc::sync_channel(1);
             let spawned = std::thread::Builder::new()
                 .name("obsidian-shortcuts".into())
@@ -241,7 +247,9 @@ mod windows {
             for key in &KEYS {
                 key.store(NONE, Ordering::Relaxed);
             }
-            *PRESSED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            *PRESSED
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
             // SAFETY: posting to a thread id is harmless if it has ended.
             unsafe {
                 PostThreadMessageW(self.thread, WM_QUIT, 0, 0);
@@ -272,7 +280,11 @@ mod windows {
         if code == HC_ACTION as i32 {
             // SAFETY: for HC_ACTION, lparam points at the key's details.
             let key = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-            let extended = if key.flags & LLKHF_EXTENDED != 0 { 0xE000 } else { 0 };
+            let extended = if key.flags & LLKHF_EXTENDED != 0 {
+                0xE000
+            } else {
+                0
+            };
             let scancode = key.scanCode | extended;
             for (index, toggle) in [Toggle::Mute, Toggle::Deafen].into_iter().enumerate() {
                 if KEYS[index].load(Ordering::Relaxed) != scancode {

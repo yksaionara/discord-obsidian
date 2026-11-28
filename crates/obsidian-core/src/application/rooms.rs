@@ -664,9 +664,18 @@ impl Application {
             .rooms
             .iter()
             .filter(|room| {
-                (if room.direct { dms } else { channels.contains(room.id.as_str()) }) && unread(room)
+                (if room.direct {
+                    dms
+                } else {
+                    channels.contains(room.id.as_str())
+                }) && unread(room)
             })
-            .map(|room| Effect::Backend(Command::MarkRead { room: room.id.clone(), sync }))
+            .map(|room| {
+                Effect::Backend(Command::MarkRead {
+                    room: room.id.clone(),
+                    sync,
+                })
+            })
             .collect()
     }
 
@@ -1049,15 +1058,21 @@ impl Application {
             let listed: Vec<chat::ServerListEntry> = entries
                 .iter()
                 .filter_map(|entry| {
-                    let servers: Vec<String> =
-                        entry.servers.iter().filter(|server| discord(server)).cloned().collect();
+                    let servers: Vec<String> = entry
+                        .servers
+                        .iter()
+                        .filter(|server| discord(server))
+                        .cloned()
+                        .collect();
                     (!servers.is_empty()).then(|| chat::ServerListEntry {
                         folder: entry.folder.clone(),
                         servers,
                     })
                 })
                 .collect();
-            effects.push(Effect::Backend(Command::Discord(DiscordCommand::SetServerList(listed))));
+            effects.push(Effect::Backend(Command::Discord(
+                DiscordCommand::SetServerList(listed),
+            )));
             if only_discord {
                 self.state.server_order.clear();
                 return effects;

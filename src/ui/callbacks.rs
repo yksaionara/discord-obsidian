@@ -167,7 +167,12 @@ pub(super) fn custom_keys_without_pictures(
 
 /// Gives the picker's grid the emoji `query` finds, `columns` to a row, and
 /// fetches the pictures of the custom emoji it shows.
-fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &ObsidianWindow, query: &str, columns: usize) {
+fn show_emoji(
+    adapter: &Rc<RefCell<Adapter>>,
+    window: &ObsidianWindow,
+    query: &str,
+    columns: usize,
+) {
     let mut adapter = adapter.borrow_mut();
     let (rows, sections) = {
         let custom = adapter.app.emoji_sets();
@@ -395,7 +400,9 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         let weak = window.as_weak();
         window.on_mark_all_servers_read(move |dms| {
             if let Some(window) = weak.upgrade() {
-                adapter.borrow_mut().action(&window, Action::MarkAllRead { dms });
+                adapter
+                    .borrow_mut()
+                    .action(&window, Action::MarkAllRead { dms });
             }
         });
     }
@@ -469,7 +476,9 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
             if let Some(window) = weak.upgrade() {
                 let room = adapter.borrow_mut().reconnect.take();
                 if let Some(room) = room {
-                    adapter.borrow_mut().action(&window, Action::RequestJoinVoice(room));
+                    adapter
+                        .borrow_mut()
+                        .action(&window, Action::RequestJoinVoice(room));
                 }
             }
         });
@@ -2154,7 +2163,9 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
     window.on_preview_stream(move |room, user| {
         let Some(window) = weak.upgrade() else { return };
         let shown = (!room.is_empty() && !user.is_empty()).then(|| (room.into(), user.into()));
-        state.borrow_mut().action(&window, Action::PreviewStream(shown));
+        state
+            .borrow_mut()
+            .action(&window, Action::PreviewStream(shown));
     });
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -2169,7 +2180,11 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
         let mut adapter = state.borrow_mut();
         adapter.action(
             &window,
-            Action::DropServer { id: id.into(), target: target.into(), drop },
+            Action::DropServer {
+                id: id.into(),
+                target: target.into(),
+                drop,
+            },
         );
         // Discord's list keeps the order now, or this device does.
         adapter.layout.server_order = adapter.app.state.server_order.clone();
@@ -2705,7 +2720,10 @@ pub(super) fn bind_callbacks(window: &ObsidianWindow, adapter: &Rc<RefCell<Adapt
                             let screens = window.get_share_screens();
                             // Windows come after the screens.
                             let (rows, at) = if is_window {
-                                (window.get_share_windows(), at.and_then(|at| at.checked_sub(screens.row_count())))
+                                (
+                                    window.get_share_windows(),
+                                    at.and_then(|at| at.checked_sub(screens.row_count())),
+                                )
                             } else {
                                 (screens, at)
                             };
@@ -3763,7 +3781,12 @@ fn report_delay(last: &Cell<Option<std::time::Instant>>) -> Duration {
 
 /// A stream's quality as the share dialog and the live menu pick it:
 /// resolutions by their place in the list of modes.
-fn stream_quality(resolution: i32, fps: i32, high_quality: bool, audio: bool) -> voice::StreamQuality {
+fn stream_quality(
+    resolution: i32,
+    fps: i32,
+    high_quality: bool,
+    audio: bool,
+) -> voice::StreamQuality {
     voice::StreamQuality {
         resolution: match resolution {
             0 => voice::Resolution::P480,

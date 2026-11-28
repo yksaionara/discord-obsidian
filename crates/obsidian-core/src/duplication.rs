@@ -26,9 +26,9 @@ use windows::{
             Dxgi::{
                 Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
                 CreateDXGIFactory1, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_NOT_FOUND,
-                DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTPUT_DESC,
-                DXGI_OUTDUPL_POINTER_SHAPE_INFO, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput,
-                IDXGIOutput1, IDXGIOutputDuplication, IDXGIResource,
+                DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTDUPL_POINTER_SHAPE_INFO,
+                DXGI_OUTPUT_DESC, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput, IDXGIOutput1,
+                IDXGIOutputDuplication, IDXGIResource,
             },
         },
     },
@@ -84,7 +84,8 @@ pub fn minimized_or_filling(window: u64) -> bool {
     // SAFETY: reads the window's state; a window that's gone fails IsWindow.
     unsafe {
         let hwnd = HWND(window as usize as *mut core::ffi::c_void);
-        IsWindow(Some(hwnd)).as_bool() && (IsIconic(hwnd).as_bool() || filled_screen(window).is_some())
+        IsWindow(Some(hwnd)).as_bool()
+            && (IsIconic(hwnd).as_bool() || filled_screen(window).is_some())
     }
 }
 
@@ -118,7 +119,11 @@ pub fn fronted_screen(window: u64) -> Option<u64> {
         let front = GetForegroundWindow();
         !front.is_invalid() && GetAncestor(front, GA_ROOT) == GetAncestor(hwnd, GA_ROOT)
     };
-    if in_front { filled_screen(window) } else { None }
+    if in_front {
+        filled_screen(window)
+    } else {
+        None
+    }
 }
 
 /// What [`Duplication::next`] found.
@@ -173,7 +178,12 @@ struct Pointer {
 enum Paint {
     Clear,
     /// Blended in by its alpha, out of 255.
-    Over { y: u8, u: u8, v: u8, alpha: u8 },
+    Over {
+        y: u8,
+        u: u8,
+        v: u8,
+        alpha: u8,
+    },
     /// Inverts what's under it, as a text cursor does.
     Invert,
 }
@@ -201,7 +211,9 @@ const OPEN_RETRY: std::time::Duration = std::time::Duration::from_millis(100);
 ///
 /// # Safety
 /// DXGI calls on a factory the caller owns.
-unsafe fn screens(factory: &IDXGIFactory1) -> Result<Vec<(IDXGIAdapter1, IDXGIOutput, DXGI_OUTPUT_DESC)>> {
+unsafe fn screens(
+    factory: &IDXGIFactory1,
+) -> Result<Vec<(IDXGIAdapter1, IDXGIOutput, DXGI_OUTPUT_DESC)>> {
     let mut found = vec![];
     // SAFETY: as the function says.
     unsafe {
@@ -212,7 +224,9 @@ unsafe fn screens(factory: &IDXGIFactory1) -> Result<Vec<(IDXGIAdapter1, IDXGIOu
                 Err(error) => return Err(error).context("listing graphics adapters"),
             };
             for output_index in 0.. {
-                let Ok(output) = adapter.EnumOutputs(output_index) else { break };
+                let Ok(output) = adapter.EnumOutputs(output_index) else {
+                    break;
+                };
                 if let Ok(desc) = output.GetDesc()
                     && desc.AttachedToDesktop.as_bool()
                 {
@@ -304,7 +318,9 @@ impl Duplication {
                         std::thread::sleep(OPEN_RETRY);
                     }
                     Err(error) => {
-                        bail!(Unavailable(format!("could not duplicate the screen: {error}")))
+                        bail!(Unavailable(format!(
+                            "could not duplicate the screen: {error}"
+                        )))
                     }
                 }
             };
@@ -372,7 +388,8 @@ impl Duplication {
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
         let mut resource: Option<IDXGIResource> = None;
         // SAFETY: the out pointers live through the call.
-        let acquired = unsafe { duplication.AcquireNextFrame(timeout_ms, &mut info, &mut resource) };
+        let acquired =
+            unsafe { duplication.AcquireNextFrame(timeout_ms, &mut info, &mut resource) };
         match acquired {
             Ok(()) => {}
             Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => return Ok(Next::Timeout),
@@ -392,7 +409,10 @@ impl Duplication {
             Err(error) if error.downcast_ref::<Unavailable>().is_some() => return Err(error),
             // A device gone with the screen fails the copy.
             Err(error) => {
-                tracing::debug!(error = format!("{error:#}"), "the screen's frame couldn't be read");
+                tracing::debug!(
+                    error = format!("{error:#}"),
+                    "the screen's frame couldn't be read"
+                );
                 self.duplication = None;
                 return Ok(Next::Lost);
             }
@@ -406,7 +426,11 @@ impl Duplication {
 
     /// Takes the acquired frame's picture and pointer: whether either
     /// changed.
-    fn take(&mut self, info: &DXGI_OUTDUPL_FRAME_INFO, resource: Option<IDXGIResource>) -> Result<bool> {
+    fn take(
+        &mut self,
+        info: &DXGI_OUTDUPL_FRAME_INFO,
+        resource: Option<IDXGIResource>,
+    ) -> Result<bool> {
         let mut changed = false;
         if info.LastMouseUpdateTime != 0 {
             let position = info.PointerPosition;
@@ -443,7 +467,10 @@ impl Duplication {
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             texture.GetDesc(&mut desc);
             if desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM {
-                bail!(Unavailable(format!("the screen's format is {:?}", desc.Format)));
+                bail!(Unavailable(format!(
+                    "the screen's format is {:?}",
+                    desc.Format
+                )));
             }
             let (width, height) = (desc.Width.max(2), desc.Height.max(2));
             if (width, height) != (self.width, self.height) {
@@ -459,7 +486,10 @@ impl Duplication {
                     MipLevels: 1,
                     ArraySize: 1,
                     Format: desc.Format,
-                    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                    SampleDesc: DXGI_SAMPLE_DESC {
+                        Count: 1,
+                        Quality: 0,
+                    },
                     Usage: D3D11_USAGE_STAGING,
                     BindFlags: 0,
                     CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
@@ -508,7 +538,9 @@ impl Duplication {
         let mut required = 0u32;
         let mut info = DXGI_OUTDUPL_POINTER_SHAPE_INFO::default();
         // SAFETY: the buffer is `size` bytes, as the call is told.
-        let Some(duplication) = self.duplication.as_ref() else { return };
+        let Some(duplication) = self.duplication.as_ref() else {
+            return;
+        };
         let read = unsafe {
             duplication.GetFramePointerShape(
                 size,
@@ -533,7 +565,9 @@ impl Duplication {
                 for row in 0..height {
                     for column in 0..width {
                         let bit = 0x80 >> (column % 8);
-                        let and = buffer.get(row * pitch + column / 8).is_some_and(|byte| byte & bit != 0);
+                        let and = buffer
+                            .get(row * pitch + column / 8)
+                            .is_some_and(|byte| byte & bit != 0);
                         let xor = buffer
                             .get((row + height) * pitch + column / 8)
                             .is_some_and(|byte| byte & bit != 0);
@@ -553,7 +587,10 @@ impl Duplication {
                 for row in 0..info.Height as usize {
                     for column in 0..width {
                         let at = row * pitch + column * 4;
-                        let Some(&[blue, green, red, alpha]) = buffer.get(at..at + 4).map(|pixel| <&[u8; 4]>::try_from(pixel).expect("four")) else {
+                        let Some(&[blue, green, red, alpha]) = buffer
+                            .get(at..at + 4)
+                            .map(|pixel| <&[u8; 4]>::try_from(pixel).expect("four"))
+                        else {
                             pointer.shape.push(Paint::Clear);
                             continue;
                         };
@@ -572,7 +609,10 @@ impl Duplication {
                 for row in 0..info.Height as usize {
                     for column in 0..width {
                         let at = row * pitch + column * 4;
-                        let Some(&[blue, green, red, mask]) = buffer.get(at..at + 4).map(|pixel| <&[u8; 4]>::try_from(pixel).expect("four")) else {
+                        let Some(&[blue, green, red, mask]) = buffer
+                            .get(at..at + 4)
+                            .map(|pixel| <&[u8; 4]>::try_from(pixel).expect("four"))
+                        else {
                             pointer.shape.push(Paint::Clear);
                             continue;
                         };
@@ -636,15 +676,19 @@ impl Duplication {
         };
         let pointer = &self.pointer;
         let (y_stride, u_stride, v_stride) = self.picture.strides();
-        let (y_stride, u_stride, v_stride) = (y_stride as usize, u_stride as usize, v_stride as usize);
+        let (y_stride, u_stride, v_stride) =
+            (y_stride as usize, u_stride as usize, v_stride as usize);
         let (y_plane, u_plane, v_plane) = self.picture.data_mut();
         let chroma_columns = columns.start / 2..columns.end.div_ceil(2);
         for row in rows.clone() {
-            self.under.extend_from_slice(&y_plane[row * y_stride..][columns.clone()]);
+            self.under
+                .extend_from_slice(&y_plane[row * y_stride..][columns.clone()]);
         }
         for row in rows.start / 2..rows.end.div_ceil(2) {
-            self.under.extend_from_slice(&u_plane[row * u_stride..][chroma_columns.clone()]);
-            self.under.extend_from_slice(&v_plane[row * v_stride..][chroma_columns.clone()]);
+            self.under
+                .extend_from_slice(&u_plane[row * u_stride..][chroma_columns.clone()]);
+            self.under
+                .extend_from_slice(&v_plane[row * v_stride..][chroma_columns.clone()]);
         }
         for screen_y in rows {
             let row = (screen_y as i64 - i64::from(pointer.position.y)) as usize;
@@ -684,7 +728,8 @@ impl Duplication {
             return;
         };
         let (y_stride, u_stride, v_stride) = self.picture.strides();
-        let (y_stride, u_stride, v_stride) = (y_stride as usize, u_stride as usize, v_stride as usize);
+        let (y_stride, u_stride, v_stride) =
+            (y_stride as usize, u_stride as usize, v_stride as usize);
         let (y_plane, u_plane, v_plane) = self.picture.data_mut();
         let chroma_columns = columns.start / 2..columns.end.div_ceil(2);
         let mut under = self.under.as_slice();
@@ -745,7 +790,10 @@ mod tests {
         let shown = duplication.with_picture(luma);
         assert_eq!(shown.len(), screen.len());
         assert!(luma(&mut duplication.picture) == screen);
-        eprintln!("{}x{}: {frames} frames in 2 s", duplication.width, duplication.height);
+        eprintln!(
+            "{}x{}: {frames} frames in 2 s",
+            duplication.width, duplication.height
+        );
     }
 
     /// A screen that went away, as one turned off does, is found again by
