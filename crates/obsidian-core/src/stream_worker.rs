@@ -1365,7 +1365,7 @@ fn capture_screen(
     let mut duplicating = cfg!(windows);
     // A window not filling its screen in front goes through Windows' window
     // capture, on the GPU drawing it, until that fails on this system.
-    #[allow(unused_mut)]
+    #[allow(unused_mut, unused_variables)]
     let mut window_capturing = cfg!(windows);
     // Times in a row duplication couldn't open a shared window's screen.
     #[cfg(windows)]

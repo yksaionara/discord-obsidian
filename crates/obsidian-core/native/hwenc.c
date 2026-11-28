@@ -1,4 +1,3 @@
-#include <stdlib.h>
 /* Hardware encoding for Go Live, through FFmpeg's encoders in
  * vendor/ffmpeg-src: NVIDIA's NVENC, then AMD's AMF on Windows and VA-API
  * (AMD and Intel) on Linux, then on Windows the hardware encoder Media
@@ -17,6 +16,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef __linux__
 #include <unistd.h>

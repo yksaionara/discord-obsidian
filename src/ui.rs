@@ -310,7 +310,6 @@ const UPDATE_FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(5
 #[cfg(windows)]
 const UPDATE_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
-#[cfg(windows)]
 /// What this version changed, as its release notes say; see scripts/ship.ps1.
 const WHATS_NEW: &str = include_str!("../packaging/whats-new.txt");
 
